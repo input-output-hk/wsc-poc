@@ -1,7 +1,7 @@
 cabal-version: 3.4
 name:          wst-poc-onchain
 version:       0.3.0.0
-synopsis:      Plutarch scripts for regulated stablecoin proof-of-concept
+synopsis:      On-chain code for regulated stablecoin proof-of-concept
 license: Apache-2.0
 license-files:
   LICENSE
