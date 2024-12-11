@@ -1,5 +1,5 @@
 cabal-version: 3.4
-name:          wst-poc-onchain
+name:          wst-poc
 version:       0.3.0.0
 synopsis:      On-chain code for regulated stablecoin proof-of-concept
 license: Apache-2.0
@@ -28,7 +28,18 @@ common lang
 library
   import: lang
   exposed-modules:
+    Wst.Cli
+    Wst.Offchain
     Wst.Onchain
+    Wst.Server
   hs-source-dirs: lib
   build-depends:
     base >= 4.14 && < 4.20
+
+executable wst-poc
+  import: lang
+  main-is: Main.hs
+  hs-source-dirs: exe
+  build-depends:
+    base,
+    wst-poc
