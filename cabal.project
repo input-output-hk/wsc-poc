@@ -21,7 +21,7 @@ index-state:
 with-compiler: ghc-9.6.6
 
 packages:
-    src/onchain
+    src
 
 source-repository-package
     type: git

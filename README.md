@@ -1,4 +1,6 @@
-# PoC for stablecoin with freeze and seize functionalities
+# Regulated stablecoin POC
+
+This is a proof-of-concept for a regulated stablecoin. It is NOT a finished product.
 
 # Contributing
 
