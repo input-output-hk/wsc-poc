@@ -7,9 +7,7 @@ import Plutarch.LedgerApi.V3
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
 import Plutarch.Builtin
-import Plutarch.LedgerApi.Value
 import SmartTokens.Core.Utils
-import SmartTokens.Core.List
 import Plutarch.Unsafe
 import PlutusLedgerApi.V1.Value
 import SmartTokens.Types.ProtocolParams (PProgrammableLogicGlobalParams)
@@ -24,13 +22,10 @@ data PTokenProof (s :: S)
       ( Term
           s
           ( PDataRecord
-              '[ "prevNodeIdx" ':= PInteger
-               , "nextNodeIdx" ':= PInteger
+              '[ "nodeIdx" ':= PInteger
                ]
           )
       )
-  | PDoesNotExistTail
-      ( Term s ( PDataRecord '[ "nodeIdx" ':= PInteger ] ) )
   deriving stock (Generic)
   deriving anyclass (PlutusType, PIsData, PEq)
 
@@ -143,51 +138,22 @@ pcheckTransferLogic = plam $ \directoryNodeCS refInputs proofList scripts totalV
                             (self # (ptail # proofs) # csPairs)
                             perror
                       PTokenDoesNotExist notExist -> P.do
-                        notExistF <- pletFields @'["prevNodeIdx", "nextNodeIdx"] notExist
-                        prevNodeUTxOF <- pletFields @'["value", "datum"] $ pfield @"resolved" # (patRefUTxOIdx # pfromData notExistF.prevNodeIdx)
-                        nextNodeUTxOF <- pletFields @'["value", "datum"] $ pfield @"resolved" # (patRefUTxOIdx # pfromData notExistF.nextNodeIdx)
+                        notExistF <- pletFields @'["nodeIdx"] notExist
+                        prevNodeUTxOF <- pletFields @'["value", "datum"] $ pfield @"resolved" # (patRefUTxOIdx # pfromData notExistF.nodeIdx)
                         POutputDatum ((pfield @"outputDatum" #) -> prevNodeDat') <- pmatch prevNodeUTxOF.datum
-                        POutputDatum ((pfield @"outputDatum" #) -> nextNodeDat') <- pmatch nextNodeUTxOF.datum
-                        prevNodeDatumF <- pletFields @'["key", "next"] (punsafeCoerce @_ @_ @PDirectorySetNode (pto prevNodeDat'))
-                        nextNodeDatumF <- pletFields @'["key", "next"] (punsafeCoerce @_ @_ @PDirectorySetNode (pto nextNodeDat'))
+                        nodeDatumF <- pletFields @'["key", "next"] (punsafeCoerce @_ @_ @PDirectorySetNode (pto prevNodeDat'))
                         currCS <- plet $ pasByteStr # pforgetData (pfstBuiltin # csPair)
-                        prevNodeNext <- plet $ pasByteStr # pforgetData prevNodeDatumF.next
-                        nextNodeKey <- plet $ pasByteStr # pforgetData nextNodeDatumF.key
+                        nodeKey <- plet $ pasByteStr # pforgetData nodeDatumF.key
+                        nodeNext <- plet $ pasByteStr # pforgetData nodeDatumF.next
                         let checks =
                               pand'List
                                 [
-                                -- the two nodes are adjacent
-                                prevNodeNext #== nextNodeKey
                                 -- the currency symbol is not in the directory
-                                , prevNodeNext #< currCS
-                                , currCS #< nextNodeKey
+                                nodeKey #< currCS
+                                , currCS #< nodeNext #|| nodeNext #== pconstant ""
                                 -- both directory entries are legitimate, this is proven by the 
                                 -- presence of the directory node currency symbol.
                                 , phasDataCS # directoryNodeCS # pfromData prevNodeUTxOF.value 
-                                , phasDataCS # directoryNodeCS # pfromData nextNodeUTxOF.value 
-                                ]
-                        pif checks
-                            (self # (ptail # proofs) # csPairs)
-                            perror
-                      PDoesNotExistTail ((pfield @"nodeIdx" #) -> nodeIdx) -> P.do
-                        directoryNodeUTxOF <- pletFields @'["value", "datum"] $ pfield @"resolved" # (patRefUTxOIdx # pfromData nodeIdx)
-                        POutputDatum ((pfield @"outputDatum" #) -> paramDat') <- pmatch directoryNodeUTxOF.datum
-                        directoryNodeDatumF <- pletFields @'["key", "next", "transferLogicScript"] (punsafeCoerce @_ @_ @PDirectorySetNode (pto paramDat'))
-                        currCS <- plet $ pasByteStr # pforgetData (pfstBuiltin # csPair)
-                        let directoryNodeKey = pasByteStr # pforgetData directoryNodeDatumF.next
-                            directoryNodeNext = pasByteStr # pforgetData directoryNodeDatumF.next
-                        -- validate that the directory entry for the currency symbol is referenced by the proof 
-                        -- and that the associated transfer logic script is executed in the transaction
-                        let checks =
-                              pand'List
-                                [ 
-                                -- the currency symbol is not in the directory
-                                directoryNodeKey #< currCS
-                                -- the referenced node is the tail node in the directory
-                                , directoryNodeNext #== pconstant "" 
-                                -- the directory entry is legitimate, this is proven by the
-                                -- presence of the directory node currency symbol.
-                                , phasDataCS # directoryNodeCS # pfromData directoryNodeUTxOF.value
                                 ]
                         pif checks
                             (self # (ptail # proofs) # csPairs)
@@ -273,6 +239,9 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
           , pvalueToCred # progLogicCred # infoF.outputs #== totalProgTokenValue
           ]
     PSeizeAct seizeAct -> P.do
+      -- TODO:
+      -- Possibly enforce that the seized assets must be seized to the programmable logic contract
+      -- just under different ownership (staking credential changed)
       ptraceInfo "PSeizeAct"
       txInputs <- plet $ pfromData infoF.inputs
       seizeActF <- pletFields @'["seizeInputIdx", "seizeOutputIdx", "directoryNodeIdx"] seizeAct
@@ -285,7 +254,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
 
       seizeInputF <- pletFields @'["address", "value", "datum"] seizeInput
       seizeInputAddress <- plet seizeInputF.address
-      
+
       let expectedSeizeOutput =
             pdata $
               mkRecordConstr

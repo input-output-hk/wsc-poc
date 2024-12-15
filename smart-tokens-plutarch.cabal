@@ -191,6 +191,7 @@ library
     SmartTokens.Core.Utils
     SmartTokens.Contracts.Issuance
     SmartTokens.Contracts.ProgrammableLogicBase
+    SmartTokens.Contracts.ExampleTransferLogic
     SmartTokens.Contracts.ProtocolParams
     SmartTokens.Types.Constants
     SmartTokens.Types.ProtocolParams
@@ -264,7 +265,7 @@ executable export-smart-tokens
 --   main-is:        Test.hs
 --   other-modules:  Testing.Eval
 --   hs-source-dirs: src, src/Testing
---   build-depends:  plutarch-stablecoin                                                                                                                                                                                                                                                         
+--   build-depends:  smart-tokens-plutarch                                                                                                                                                                                                                                                         
 
 test-suite helpers-tests
   import:           lang, dependencies

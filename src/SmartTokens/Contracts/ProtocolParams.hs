@@ -1,6 +1,7 @@
 module SmartTokens.Contracts.ProtocolParams (
   mkProtocolParametersMinting,
   alwaysFailScript,
+  mkPermissionedMinting,
 ) where
 
 import Plutarch.LedgerApi.V3 ( PTxOutRef, PScriptContext, PPubKeyHash )
@@ -20,7 +21,7 @@ import Plutarch.Prelude
       pfstBuiltin,
       psndBuiltin,
       pletFields,
-      PUnit )
+      PUnit, pfield )
 import SmartTokens.Core.Utils
     ( pheadSingleton,
       ptryLookupValue,
@@ -50,23 +51,13 @@ mkProtocolParametersMinting = plam $ \oref ctx -> P.do
     ]
 
 -- | Permissioned Minting Policy
--- This minting policy checks for a given 
+-- This minting policy checks for a given permissioned credential in the signatories of the transaction.
+-- It allows minting of any number of tokens with any token name so long as the credential authorizes the transaction.
 mkPermissionedMinting :: ClosedTerm (PAsData PPubKeyHash :--> PScriptContext :--> PUnit)
-mkPermissionedMinting = plam $ \oref ctx -> P.do
-  ctxF <- pletFields @'["txInfo", "scriptInfo"] ctx
-  infoF <- pletFields @'["inputs", "mint"] ctxF.txInfo
-  scriptInfoF <- pletFieldsMinting ctxF.scriptInfo
-  let ownCS = scriptInfoF._0 
-  mintedValue <- plet $ pfromData infoF.mint
-  let ownTkPairs = ptryLookupValue # ownCS # mintedValue
-  -- Enforce that only a single token name is minted for this policy 
-  ownTkPair <- plet (pheadSingleton # ownTkPairs)
-  ownTokenName <- plet (pfstBuiltin # ownTkPair)
-  ownNumMinted <- plet (psndBuiltin # ownTkPair)
+mkPermissionedMinting = plam $ \permissionedCred ctx -> 
   pvalidateConditions
-    [ ptxSignedByPkh # permissionedCred # pfield @"txInfo" # ctx
+    [ ptxSignedByPkh # permissionedCred # (pfield @"signatories" # (pfield @"txInfo" # ctx))
     ]
-
 
 -- | A nonced always fails script
 -- The parameter is used to modify the script hash.

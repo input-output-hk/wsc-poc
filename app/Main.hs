@@ -37,6 +37,10 @@ import PlutusLedgerApi.V2 (
   ExBudget,
  )
 import System.IO
+import SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicBase, mkProgrammableLogicGlobal)
+import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
+import SmartTokens.Contracts.ProtocolParams (mkProtocolParametersMinting, alwaysFailScript, mkPermissionedMinting)
+import SmartTokens.Contracts.ExampleTransferLogic (mkPermissionedTransfer, mkFreezeAndSeizeTransfer)
 
 encodeSerialiseCBOR :: Script -> Text
 encodeSerialiseCBOR = Text.decodeUtf8 . Base16.encode . CBOR.serialize' . serialiseScript
@@ -77,3 +81,11 @@ writePlutusScriptNoTrace title filepath term =
 main :: IO ()
 main = do
   putStrLn "Writing Plutus Scripts to files"
+  writePlutusScriptTraceBind "Programmable Logic Base" "./compiled/programmableLogicBase.json" mkProgrammableLogicBase
+  writePlutusScriptTraceBind "Programmable Logic Global" "./compiled/programmableLogicBase.json" mkProgrammableLogicGlobal
+  writePlutusScriptTraceBind "Issuance" "./compiled/programmableTokenMinting.json" mkProgrammableLogicMinting
+  writePlutusScriptTraceBind "Protocol Parameters NFT" "./compiled/protocolParametersNFTMinting.json" mkProtocolParametersMinting
+  writePlutusScriptTraceBind "Always Fail" "./compiled/alwaysFail.json" alwaysFailScript
+  writePlutusScriptTraceBind "Permissioned Minting" "./compiled/permissionedMinting.json" mkPermissionedMinting
+  writePlutusScriptTraceBind "Permissioned Transfer" "./compiled/permissionedTransfer.json" mkPermissionedTransfer
+  writePlutusScriptTraceBind "Freeze and Seize Transfer" "./compiled/freezeAndSeizeTransfer.json" mkFreezeAndSeizeTransfer

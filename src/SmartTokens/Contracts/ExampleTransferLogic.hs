@@ -46,7 +46,7 @@ import Plutarch.Prelude
       PlutusTypeData,
       PInteger,
       PListLike(pcons, ptail, pelimList, phead),
-      PUnit )
+      PUnit, (#||) )
 import Plutarch.Builtin ( pasByteStr, pasConstr, pforgetData )
 import SmartTokens.Core.Utils
     ( pisRewarding,
@@ -56,20 +56,17 @@ import SmartTokens.Core.Utils
       pand'List,
       pvalidateConditions )
 import Plutarch.Unsafe ( punsafeCoerce )
-import SmartTokens.Types.PTokenDirectory ( PBlacklistNode )
+--import SmartTokens.Types.PTokenDirectory ( PBlacklistNode )
 
 data PBlacklistProof (s :: S)
   = PNonmembershipProof
       ( Term
           s
           ( PDataRecord
-              '[ "prevNodeIdx" ':= PInteger
-               , "nextNodeIdx" ':= PInteger
+              '[ "nodeIdx" ':= PInteger
                ]
           )
       )
-  | PNonmembershipProofTail
-      ( Term s ( PDataRecord '[ "nodeIdx" ':= PInteger ] ) )
   deriving stock (Generic)
   deriving anyclass (PlutusType, PIsData, PEq)
 
@@ -134,52 +131,22 @@ pvalidateWitnesses = phoistAcyclic $ plam $ \blacklistNodeCS proofs refInputs wi
         (\wit remainWits ->
           pmatch (pfromData $ phead # remainingProofs) $ \case
             PNonmembershipProof nonExist -> P.do
-              notExistF <- pletFields @'["prevNodeIdx", "nextNodeIdx"] nonExist
-              prevNodeUTxOF <- pletFields @'["value", "datum"] $ pfield @"resolved" # (patRefUTxOIdx # pfromData notExistF.prevNodeIdx)
-              nextNodeUTxOF <- pletFields @'["value", "datum"] $ pfield @"resolved" # (patRefUTxOIdx # pfromData notExistF.nextNodeIdx)
+              notExistF <- pletFields @'["nodeIdx"] nonExist
+              prevNodeUTxOF <- pletFields @'["value", "datum"] $ pfield @"resolved" # (patRefUTxOIdx # pfromData notExistF.nodeIdx)
               POutputDatum ((pfield @"outputDatum" #) -> prevNodeDat') <- pmatch prevNodeUTxOF.datum
-              POutputDatum ((pfield @"outputDatum" #) -> nextNodeDat') <- pmatch nextNodeUTxOF.datum
-              prevNodeDatumF <- pletFields @'["key", "next"] (punsafeCoerce @_ @_ @PBlacklistNode (pto prevNodeDat'))
-              nextNodeDatumF <- pletFields @'["key", "next"] (punsafeCoerce @_ @_ @PBlacklistNode (pto nextNodeDat'))
+              prevNodeDatumF <- plet $ punsafeCoerce @_ @_ @(PBuiltinList (PAsData PByteString)) (pto prevNodeDat')
               witnessKey <- plet $ pasByteStr # pforgetData wit
-              prevNodeNext <- plet $ pasByteStr # pforgetData prevNodeDatumF.next
-              nextNodeKey <- plet $ pasByteStr # pforgetData nextNodeDatumF.key
+              nodeKey <- plet $ pasByteStr # pforgetData (phead # prevNodeDatumF)
+              nodeNext <- plet $ pasByteStr # pforgetData (phead # (ptail # prevNodeDatumF))
               let checks =
                     pand'List
                       [
-                      -- the two nodes are adjacent
-                      prevNodeNext #== nextNodeKey
                       -- the currency symbol is not in the blacklist
-                      , prevNodeNext #< witnessKey
-                      , witnessKey #< nextNodeKey
+                      nodeKey #< witnessKey
+                      , witnessKey #< nodeNext #|| nodeNext #== pconstant ""
                       -- both directory entries are legitimate, this is proven by the 
                       -- presence of the directory node currency symbol.
                       , phasDataCS # blacklistNodeCS # pfromData prevNodeUTxOF.value
-                      , phasDataCS # blacklistNodeCS # pfromData nextNodeUTxOF.value
-                      ]
-              pif checks
-                  (self # (ptail # remainingProofs) # remainWits)
-                  perror
-            PNonmembershipProofTail ((pfield @"nodeIdx" #) -> nodeIdx) -> P.do
-              blacklistNodeUTxOF <- pletFields @'["value", "datum"] $ pfield @"resolved" # (patRefUTxOIdx # pfromData nodeIdx)
-              POutputDatum ((pfield @"outputDatum" #) -> paramDat') <- pmatch blacklistNodeUTxOF.datum
-              directoryNodeDatumF <- pletFields @'["key", "next"] (punsafeCoerce @_ @_ @PBlacklistNode (pto paramDat'))
-              witnessKey <- plet $ pasByteStr # pforgetData wit
-              let directoryNodeKey = pasByteStr # pforgetData directoryNodeDatumF.next
-                  directoryNodeNext = pasByteStr # pforgetData directoryNodeDatumF.next
-              -- validate that the tail node of the blacklist linked list is referenced by the proof 
-              -- and that the witness key is greater than the tail node key 
-              -- this proves that the sender is not in the blacklist 
-              let checks =
-                    pand'List
-                      [
-                      -- the currency symbol is not in the directory
-                      directoryNodeKey #< witnessKey
-                      -- the referenced node is the tail node in the directory
-                      , directoryNodeNext #== pconstant ""
-                      -- the directory entry is legitimate, this is proven by the
-                      -- presence of the directory node currency symbol.
-                      , phasDataCS # blacklistNodeCS # pfromData blacklistNodeUTxOF.value
                       ]
               pif checks
                   (self # (ptail # remainingProofs) # remainWits)

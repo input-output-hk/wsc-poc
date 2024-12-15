@@ -18,6 +18,7 @@
 module SmartTokens.Types.PTokenDirectory (
   DirectorySetNode (..),
   PDirectorySetNode (..),
+  PBlacklistNode (..),
   isHeadNode,
   isTailNode,
   pemptyBSData,
@@ -33,29 +34,8 @@ import SmartTokens.Core.PlutusDataList
       ProductIsData(..) )
 import Generics.SOP qualified as SOP
 import Plutarch.LedgerApi.V3 ( PCredential, PCurrencySymbol )
-import Plutarch.Prelude
-    ( Generic,
-      (#),
-      phoistAcyclic,
-      type (:-->),
-      ClosedTerm,
-      S,
-      Term,
-      plam,
-      DerivePlutusType(..),
-      PlutusType,
-      pfield,
-      pconstant,
-      PBool,
-      PEq(..),
-      PAsData,
-      PIsData,
-      PByteString,
-      PDataRecord,
-      PLabeledType((:=)),
-      PShow, PInteger )
-import Plutarch.Builtin ( pforgetData, plistData, PBuiltinList (PCons), PData )
-import Plutarch.Internal.PlutusType (PInner, PlutusType, pcon, pcon', pmatch, pmatch')
+import Plutarch.Builtin ( pforgetData, plistData )
+import Plutarch.Internal.PlutusType (pcon', pmatch')
 import Plutarch.Unsafe (punsafeCoerce)
 import Plutarch.DataRepr ( PDataFields )
 import PlutusTx qualified
@@ -67,11 +47,11 @@ import SmartTokens.Core.Utils (pmkBuiltinList)
 import Plutarch.List
 import Plutarch.Prelude
 
-data BlackListNode = 
-  BlackListNode {
-    key :: Credential,
-    next :: Credential
-  } 
+-- data BlackListNode =
+--   BlackListNode {
+--     key :: BuiltinByteString,
+--     next :: BuiltinByteString
+--   }
 
 newtype PBlacklistNode (s :: S)
   = PBlacklistNode

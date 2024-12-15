@@ -1,5 +1,5 @@
 module SmartTokens.Contracts.Issuance (
-  mkProcessOrdersStakingContract,
+  mkProgrammableLogicMinting,
 ) where
 
 import Plutarch.LedgerApi.V3
@@ -8,13 +8,9 @@ import Plutarch.Prelude
 import Plutarch.Builtin
 import Plutarch.LedgerApi.Value
 import SmartTokens.Core.Utils
-import Types.Constants
-import Plutarch.Evaluate (unsafeEvalTerm)
-import Plutarch.Internal (Config(..))
-import PlutusCore qualified as PLC
 import Plutarch.Unsafe
 import Plutarch.Internal.PlutusType (PlutusType(pcon', pmatch'))
-import SmartTokens.Types.PTokenDirectory (PDirectorySetNode)
+--import SmartTokens.Types.PTokenDirectory (PDirectorySetNode)
 
 data PSmartTokenMintingAction (s :: S) = PRegisterPToken | PMintPToken
 
@@ -43,7 +39,7 @@ instance PIsData PSmartTokenMintingAction where
 mkProgrammableLogicMinting :: ClosedTerm (PAsData PCredential :--> PAsData PCredential :--> PAsData PCurrencySymbol :--> PScriptContext :--> PUnit)
 mkProgrammableLogicMinting = plam $ \programmableLogicBase mintingLogicCred nodeCS ctx -> P.do
   ctxF <- pletFields @'["txInfo", "redeemer", "scriptInfo"] ctx
-  infoF <- pletFields @'["referenceInputs", "outputs", "mint", "wdrls"] ctxF.txInfo
+  infoF <- pletFields @'["referenceInputs", "outputs", "mint", "wdrl"] ctxF.txInfo
   let red = punsafeCoerce @_ @_ @PSmartTokenMintingAction (pto ctxF.redeemer)
   PMintingScript scriptInfo <- pmatch ctxF.scriptInfo
   ownCS <- plet $ pfield @"_0" # scriptInfo
@@ -54,8 +50,8 @@ mkProgrammableLogicMinting = plam $ \programmableLogicBase mintingLogicCred node
   -- This can be easily changed later.
   ownTkPair <- plet (pheadSingleton # ownTkPairs)
   ownTokenName <- plet (pfstBuiltin # ownTkPair)
-  ownNumMinted <- plet (psndBuiltin # ownTkPair)
-  txOutputs <- plet infoF.outputs
+  ownNumMinted <- plet (pfromData $ psndBuiltin # ownTkPair)
+  txOutputs <- plet $ pfromData infoF.outputs
   -- For ease of implementation of the POC we enforce that the first output must contain the minted tokens. 
   -- This can be easily changed later.
   mintingToOutputF <- pletFields @'["value", "address"] (phead # txOutputs)
@@ -79,10 +75,10 @@ mkProgrammableLogicMinting = plam $ \programmableLogicBase mintingLogicCred node
 
       let checks =
             pand'List
-              [ pvalueOf # pfromData mintingToOutputF.value # pfromData ownCS # pfromData ownTokenName #== pfromData ownNumMinted
+              [ pvalueOf # pfromData mintingToOutputF.value # pfromData ownCS # pfromData ownTokenName #== ownNumMinted
               , pfield @"credential" # mintingToOutputF.address #== programmableLogicBase
               -- The entry for this currency symbol is inserted into the programmable token directory
-              , insertedAmount #== pfromData 1
+              , pfromData insertedAmount #== pconstant 1
               , pelem # mintingLogicCred # invokedScripts
               ]
       pif checks
@@ -92,7 +88,7 @@ mkProgrammableLogicMinting = plam $ \programmableLogicBase mintingLogicCred node
       pif (ownNumMinted #> 0)
           (
             pvalidateConditions
-              [ pvalueOf # pfromData mintingToOutputF.value # pfromData ownCS # pfromData ownTokenName #== pfromData ownNumMinted
+              [ pvalueOf # pfromData mintingToOutputF.value # pfromData ownCS # pfromData ownTokenName #== ownNumMinted
               , pfield @"credential" # mintingToOutputF.address #== programmableLogicBase
               , pelem # mintingLogicCred # invokedScripts
               ]
