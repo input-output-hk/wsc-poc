@@ -1,0 +1,92 @@
+module SmartTokens.Contracts.ProgrammableLogicBase (
+  mkProgrammableLogicBase,
+) where
+
+import Plutarch.LedgerApi.V3
+import Plutarch.Monadic qualified as P
+import Plutarch.Unsafe (punsafeCoerce)
+import Plutarch.Prelude
+import Plutarch.Builtin
+import Plutarch.LedgerApi.Value 
+import SmartTokens.Core.Utils 
+import SmartTokens.Core.List
+import Plutarch.Evaluate (unsafeEvalTerm)
+import Plutarch.Internal (Config(..))
+import PlutusCore qualified as PLC
+import Plutarch.Unsafe
+import SmartTokens.Types.ProtocolParams 
+
+pprocessProgrammableLogicInput :: Term s PBuiltinList (PAsData PTxInInfo) -> Term s (PValue 'Sorted 'Positive) -> Term s (PAsData PTxInInfo) -> Term s (PValue 'Sorted 'Positive)
+pprocessProgrammableLogicInput refIns accTotalValue progLogicInput = 
+  perror 
+
+pfoldProgrammableLogicInputs :: Term s (PBuiltinList (PAsData PTxInInfo)) -> Term s (PBuiltinList (PAsData PTxInInfo) :--> PValue 'Sorted 'Positive)
+pfoldProgrammableLogicInputs refIns = 
+  let go = pfix #$ plam $ \self acc ->
+        pelimList
+          (\x xs -> self # f refIns acc x # xs)
+          (pconstant @(PValue 'Sorted 'Positive) mempty)
+    in go
+      
+-- | Sum the values of the inputs from a given script credential 
+-- pvalueFromScript ::
+--   forall (s :: S).
+--   Term s (PBuiltinList PTxInInfo :--> PValue 'Sorted 'Positive)
+-- pvalueFromScript = phoistAcyclic $
+--   plam $ \inputs ->
+--     pfoldr
+--       # plam
+--         ( \txInInfo' v ->
+--             pmatch
+--               txInInfo'
+--               $ \(PTxInInfo txInInfo) ->
+--                 pmatch
+--                   (pfield @"resolved" # txInInfo)
+--                   (\(PTxOut o) -> pfield @"value" # o)
+--                   <> v
+--         )
+--       -- TODO: This should be possible without coercions, but I can't figure out the types atm.
+--       # punsafeCoerce (pconstant mempty :: forall (s' :: S). Term s' (PValue 'Unsorted 'NonZero))
+--       # inputs
+
+
+-- | Programmable logic base
+-- This validator forwards its validation logic to the programmable logic stake script
+-- using the withdraw-zero design pattern. 
+mkProgrammableLogicBase :: ClosedTerm (PAsData PCredential :--> PScriptContext :--> PUnit)
+mkProgrammableLogicBase = plam $ \stakeCred ctx -> 
+  plet (to $ pfromData $ pfield @"wdrl" # (pfield @"txInfo" # ctx)) $ \withdrawals ->
+    let firstWithdrawal = phead # withdrawals
+        hasCred = 
+          pif (pfstBuiltin # firstWithdrawal #== stakeCred)
+              (pconstant True)
+              (
+                pcanFind @PBuiltinList 
+                  # plam (\withdrawPair -> pfstBuiltin # withdrawPair #== stakeCred)
+                  # (ptail # withdrawals)
+              )
+    in pvalidateConditions [hasCred]
+
+type ProgrammableLogicGlobalRedeemer = PBuiltinList (PAsData PInteger)
+
+mkProgrammableLogicGlobal :: ClosedTerm (PAsData PCurrencySymbol :--> PScriptContext :--> PUnit)
+mkProgrammableLogicGlobal = plam $ \nodeCS ctx -> P.do
+  ctxF <- pletFields @'["txInfo", "redeemer", "scriptInfo"] ctx
+  infoF <- pletFields @'["inputs", "referenceInputs", "outputs", "wdrl"] ctxF.txInfo
+  red <- plet $ pfromData $ punsafeCoerce @_ @_ @(PAsData ProgrammableLogicGlobalRedeemer) (pto ctxF.redeemer)
+
+  let invokedScripts = pmap @PBuiltinList 
+                        # plam (\wdrlPair -> 
+                                  let cred = pfstBuiltin # wdrlPair
+                                   in unsafeCoerce @_ @_ @(PAsData PByteString) $ pasByteStr $ psndBuiltin #$ pasConstr # pforgetData cred
+                               ) 
+                        # pto pfromData infoF.wdrl
+
+  let idxLength = phead # red 
+  redeemerIdxs <- plet $ ptail # red
+  
+  pvalidateConditions 
+    [ pisRewarding # ctxF.scriptInfo
+    -- No duplicate indices in the redeemer
+    , pisUniqueSet # idxLength # redeemerIdxs
+    ]

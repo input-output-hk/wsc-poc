@@ -1,17 +1,20 @@
-cabal-version: 3.4
-name:          wst-poc
-version:       0.3.0.0
-synopsis:      On-chain code for regulated stablecoin proof-of-concept
-license: Apache-2.0
-license-files:
-  LICENSE
+cabal-version:      3.0
+name:               smart-tokens-plutarch
+version:            0.1.0.0
 
-maintainer:    j-mueller@users.noreply.github.com
-author:        Djed team @ IOG
-homepage:      https://github.com/input-output-hk/wst-poc
-bug-reports:   https://github.com/input-output-hk/wst-poc
-description:
-  Please see the README on GitHub at <https://github.com/input-output-hk/wst-poc>
+-- A short (one-line) description of the package.
+-- synopsis:
+
+-- A longer description of the package.
+-- description:
+
+-- A URL where users can report bugs.
+-- bug-reports:
+
+-- The license under which the package is released.
+-- license:
+author:             colll78
+maintainer:         colll78@colll78
 
 -- A copyright notice.
 -- copyright:
@@ -193,10 +196,9 @@ library
     SmartTokens.Types.Constants
     SmartTokens.Types.ProtocolParams
     SmartTokens.Types.PTokenDirectory
-    Wst.Cli
-    Wst.Offchain
-    Wst.Onchain
-    Wst.Server
+    MerkleTree.Helpers
+    MerkleTree.MerklePatriciaForestry
+    MerkleTree.Merkling
     Profile
     Types.Classes
     Types.Constants
@@ -221,7 +223,7 @@ library
     , serialise
     , text
 
-  hs-source-dirs:     lib
+  hs-source-dirs:     src
 
 common dependencies
   build-depends:
@@ -254,7 +256,7 @@ executable export-smart-tokens
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:
   build-depends:  
-    , wst-poc
+    , smart-tokens-plutarch
     , aeson-pretty
   hs-source-dirs: app
 
@@ -263,32 +265,32 @@ executable export-smart-tokens
 --   main-is:        Test.hs
 --   other-modules:  Testing.Eval
 --   hs-source-dirs: src, src/Testing
---   build-depends:  wst-poc                                                                                                                                                                                                                                                         
+--   build-depends:  smart-tokens-plutarch                                                                                                                                                                                                                                                         
 
--- test-suite helpers-tests
---   import:           lang, dependencies
---   type:             exitcode-stdio-1.0
---   main-is:          Test.hs
---   hs-source-dirs:   src src/Testing
---   other-modules:
---     SmartTokens.Core.Crypto
---     SmartTokens.Core.List
---     SmartTokens.Core.Utils
---     MerkleTree.Helpers
---     MerkleTree.MerklePatriciaForestry
---     MerkleTree.Merkling
---     Testing.Crypto
---     Testing.Eval
---     Testing.MerklePatriciaForestry
---     Testing.TransactionProofs
---     Types.Classes
---     Types.Constants
+test-suite helpers-tests
+  import:           lang, dependencies
+  type:             exitcode-stdio-1.0
+  main-is:          Test.hs
+  hs-source-dirs:   src src/Testing
+  other-modules:
+    SmartTokens.Core.Crypto
+    SmartTokens.Core.List
+    SmartTokens.Core.Utils
+    MerkleTree.Helpers
+    MerkleTree.MerklePatriciaForestry
+    MerkleTree.Merkling
+    Testing.Crypto
+    Testing.Eval
+    Testing.MerklePatriciaForestry
+    Testing.TransactionProofs
+    Types.Classes
+    Types.Constants
 
---   build-depends:
---     , cardano-crypto-class
---     , prettyprinter
---     , tasty
---     , tasty-hunit
---     , tasty-quickcheck
+  build-depends:
+    , cardano-crypto-class
+    , prettyprinter
+    , tasty
+    , tasty-hunit
+    , tasty-quickcheck
 
---   default-language: Haskell2010
+  default-language: Haskell2010
