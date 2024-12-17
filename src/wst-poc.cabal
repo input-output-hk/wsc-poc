@@ -46,6 +46,10 @@ library
     Wst.Cli
     Wst.Client
     Wst.Offchain
+    Wst.Offchain.Blacklist
+    Wst.Offchain.DirectorySet
+    Wst.Offchain.LinkedList
+    Wst.Offchain.ProtocolParams
     Wst.Onchain
     Wst.Server
     Profile
@@ -55,10 +59,19 @@ library
   hs-source-dirs:  lib
   build-depends:
     , aeson
-    , base                 >=4.14 && <4.20
+    , base                   >=4.14 && <4.20
+    , cardano-api
+    , cardano-ledger-api
+    , convex-base
+    , convex-coin-selection
+    , convex-mockchain
+    , convex-node-client
+    , convex-optics
+    , convex-wallet
+    , lens
     , generics-sop
-    , plutarch-onchain-lib
     , plutarch
+    , plutarch-onchain-lib
     , plutarch-ledger-api
     , plutus-core
     , plutus-ledger-api
@@ -66,7 +79,6 @@ library
     , servant
     , servant-client
     , servant-client-core
-    , servant-server
     , text
     , warp
 

@@ -5,13 +5,17 @@
       "locked": {
         "lastModified": 1734128100,
         "narHash": "sha256-LTML3sdQbUL+FeXoafPPUOScBmIdWkofNwa1Fjuz7PU=",
+<<<<<<< HEAD
         "owner": "input-output-hk",
+=======
+        "owner": "IntersectMBO",
+>>>>>>> ade4757 (Offchain protocol params and directory)
         "repo": "cardano-haskell-packages",
         "rev": "8df3e3656dcaac2c6328ac199ad90500a6a359bf",
         "type": "github"
       },
       "original": {
-        "owner": "input-output-hk",
+        "owner": "IntersectMBO",
         "ref": "repo",
         "repo": "cardano-haskell-packages",
         "type": "github"
@@ -84,23 +88,6 @@
       }
     },
     "blst_2": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1691598027,
-        "narHash": "sha256-oqljy+ZXJAXEB/fJtmB8rlAr4UXM+Z2OkDa20gpILNA=",
-        "owner": "supranational",
-        "repo": "blst",
-        "rev": "3dd0f804b1819e5d03fb22ca2e6fac105932043a",
-        "type": "github"
-      },
-      "original": {
-        "owner": "supranational",
-        "ref": "v0.3.11",
-        "repo": "blst",
-        "type": "github"
-      }
-    },
-    "blst_3": {
       "flake": false,
       "locked": {
         "lastModified": 1691598027,
@@ -1326,36 +1313,12 @@
       "inputs": {
         "blst": "blst_2",
         "nixpkgs": [
+          "plutarch",
           "haskell-nix",
           "nixpkgs"
         ],
         "secp256k1": "secp256k1_2",
         "sodium": "sodium_2"
-      },
-      "locked": {
-        "lastModified": 1732287300,
-        "narHash": "sha256-lURsE6HdJX0alscWhbzCWyLRK8GpAgKuXeIgX31Kfqg=",
-        "owner": "input-output-hk",
-        "repo": "iohk-nix",
-        "rev": "262cb2aec2ddd914124bab90b06fe24a1a74d02c",
-        "type": "github"
-      },
-      "original": {
-        "owner": "input-output-hk",
-        "repo": "iohk-nix",
-        "type": "github"
-      }
-    },
-    "iohk-nix_3": {
-      "inputs": {
-        "blst": "blst_3",
-        "nixpkgs": [
-          "plutarch",
-          "haskell-nix",
-          "nixpkgs"
-        ],
-        "secp256k1": "secp256k1_3",
-        "sodium": "sodium_3"
       },
       "locked": {
         "lastModified": 1730297014,
@@ -2060,7 +2023,7 @@
         "flake-parts": "flake-parts_2",
         "haskell-nix": "haskell-nix_2",
         "hercules-ci-effects": "hercules-ci-effects",
-        "iohk-nix": "iohk-nix_3",
+        "iohk-nix": "iohk-nix_2",
         "nixpkgs": "nixpkgs_7",
         "pre-commit-hooks": "pre-commit-hooks"
       },
@@ -2127,7 +2090,6 @@
         "hackage": "hackage",
         "haskell-nix": "haskell-nix",
         "iogx": "iogx",
-        "iohk-nix": "iohk-nix_2",
         "nixpkgs": [
           "haskell-nix",
           "nixpkgs"
@@ -2169,23 +2131,6 @@
         "type": "github"
       }
     },
-    "secp256k1_3": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1683999695,
-        "narHash": "sha256-9nJJVENMXjXEJZzw8DHzin1DkFkF8h9m/c6PuM7Uk4s=",
-        "owner": "bitcoin-core",
-        "repo": "secp256k1",
-        "rev": "acf5c55ae6a94e5ca847e07def40427547876101",
-        "type": "github"
-      },
-      "original": {
-        "owner": "bitcoin-core",
-        "ref": "v0.3.2",
-        "repo": "secp256k1",
-        "type": "github"
-      }
-    },
     "sodium": {
       "flake": false,
       "locked": {
@@ -2204,23 +2149,6 @@
       }
     },
     "sodium_2": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1675156279,
-        "narHash": "sha256-0uRcN5gvMwO7MCXVYnoqG/OmeBFi8qRVnDWJLnBb9+Y=",
-        "owner": "input-output-hk",
-        "repo": "libsodium",
-        "rev": "dbb48cce5429cb6585c9034f002568964f1ce567",
-        "type": "github"
-      },
-      "original": {
-        "owner": "input-output-hk",
-        "repo": "libsodium",
-        "rev": "dbb48cce5429cb6585c9034f002568964f1ce567",
-        "type": "github"
-      }
-    },
-    "sodium_3": {
       "flake": false,
       "locked": {
         "lastModified": 1675156279,
