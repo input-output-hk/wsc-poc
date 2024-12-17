@@ -21,72 +21,91 @@ module SmartTokens.Types.PTokenDirectory (
   pisInsertedNode,
   pletFieldsBlacklistNode,
   pisEmptyNode,
+  BlacklistNode(..),
 ) where
 
 import Generics.SOP qualified as SOP
-import Plutarch (Config (NoTracing))
-import Plutarch.Builtin (pasByteStr, pasConstr, pasList, pforgetData, plistData)
+import Plutarch ( Config(NoTracing), Config(NoTracing) )
+import Plutarch.Builtin
+    ( pasByteStr,
+      pasConstr,
+      pasList,
+      pforgetData,
+      plistData,
+      pforgetData,
+      plistData )
 import Plutarch.Core.PlutusDataList (DerivePConstantViaDataList (..),
                                      PlutusTypeDataList, ProductIsData (..))
 import Plutarch.Core.Utils (pcond, pheadSingleton, pmkBuiltinList)
 import Plutarch.DataRepr (PDataFields)
 import Plutarch.DataRepr.Internal.Field (HRec (..), Labeled (Labeled))
 import Plutarch.Evaluate (unsafeEvalTerm)
-import Plutarch.Internal.PlutusType (pcon', pmatch')
 import Plutarch.LedgerApi.V3 (PCredential, PCurrencySymbol)
 import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (PLifted))
 import Plutarch.List
 import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
-import PlutusLedgerApi.V3 (Credential, CurrencySymbol)
+import PlutusLedgerApi.V3
+    ( Credential, CurrencySymbol, BuiltinByteString )
 import PlutusTx (Data (B, Constr))
 import PlutusTx qualified
+import Plutarch.DataRepr.Internal
+import GHC.Stack (HasCallStack)
+import Plutarch.Internal.Other (printScript)
+import qualified Data.Text as T
+import qualified Plutarch.Internal as PI
 
-pdeserializeCredential :: Term s (PAsData PCredential) -> Term s (PAsData PCredential)
-pdeserializeCredential term =
-  plet (pasConstr # pforgetData term) $ \constrPair ->
-    plet (pfstBuiltin # constrPair) $ \constrIdx ->
-      pif (plengthBS # (pasByteStr # (pheadSingleton # (psndBuiltin # constrPair))) #== 28)
-          (
-            pcond
-              [ ( constrIdx #== 0 , term)
-              , ( constrIdx #== 1 , term)
-              ]
-              perror
-          )
-          perror
 
--- data BlackListNode =
---   BlackListNode {
---     key :: BuiltinByteString,
---     next :: BuiltinByteString
---   }
+
+data BlacklistNode =
+  BlacklistNode {
+    blnKey :: BuiltinByteString,
+    blnNext :: BuiltinByteString
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (SOP.Generic)
+  deriving
+    (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData) via (ProductIsData BlacklistNode)
+
+deriving via (DerivePConstantViaData BlacklistNode PBlacklistNode)
+  instance (PConstantDecl BlacklistNode)
 
 newtype PBlacklistNode (s :: S)
   = PBlacklistNode
       ( Term
           s
           ( PDataRecord
-              '[ "key" ':= PByteString
-               , "next" ':= PByteString
+              '[ "blnKey" ':= PByteString
+               , "blnNext" ':= PByteString
                ]
           )
       )
   deriving stock (Generic)
+  deriving anyclass (PlutusType, PDataFields, PIsData)
 
--- TODO:
--- The reason we have to manually implement this is because the PlutusTypeDataList DerivePlutusType strategy
--- breaks when we use PByteString fields probably due to the fact that the PLifted/PConstant instances use ByteString
--- instead of BuiltinByteString. We should fix the PlutusTypeDataList strategy to work with PByteString fields.
-instance PlutusType PBlacklistNode where
-  type PInner PBlacklistNode = PDataRecord '[ "key" ':= PByteString, "next" ':= PByteString ]
-  pcon' (PBlacklistNode t1) = t1
-  pmatch' xs f =
-    plet (pto xs) $ \innerFieldList ->
-      let key_ = phead # innerFieldList
-      in plet (ptail # innerFieldList) $ \remaining ->
-          let next_ = phead # remaining
-          in pif (pnull # (ptail # remaining)) (f (PBlacklistNode (pdcons # punsafeCoerce key_ #$ pdcons # punsafeCoerce next_ # pdnil))) perror
+instance DerivePlutusType PBlacklistNode where
+  type DPTStrat PBlacklistNode = PlutusTypeData
+
+instance PUnsafeLiftDecl PBlacklistNode where
+  type PLifted PBlacklistNode = BlacklistNode
+
+
+
+-- _printTerm (communicated by Philip) just print some term as string. The term we want to print is
+-- @
+-- _term :: forall {s :: S}. Term s PBlacklistNode
+-- _term = unsafeEvalTerm NoTracing (pconstant $ BlackListNode { key = "a", next = "b" })
+-- @
+-- Below, we inline the term and have it in a code lens. You can even run the code lens via Haskell
+-- language server. The lens will then replace the string starting with "program ..." with exactly
+-- the same string.
+--
+-- >>>  _printTerm NoTracing $ unsafeEvalTerm NoTracing (pconstant $ BlacklistNode { blnKey = "a hi", blnNext = "a" })
+-- "program 1.0.0 (List [B #61206869, B #61])"
+_printTerm :: HasCallStack => Config -> ClosedTerm a -> String
+_printTerm config term = printScript $ either (error . T.unpack) id $ PI.compile config term
+
+
 
 type PBlacklistNodeHRec (s :: S) =
   HRec
@@ -215,3 +234,17 @@ pisInsertedNode = phoistAcyclic $
           expectedDirectoryNode =
             pmkDirectorySetNode # insertedKey # coveringNext # pdeserializeCredential transferLogicCred_ # pdeserializeCredential issuerLogicCred_
       in outputNode #== expectedDirectoryNode
+
+pdeserializeCredential :: Term s (PAsData PCredential) -> Term s (PAsData PCredential)
+pdeserializeCredential term =
+  plet (pasConstr # pforgetData term) $ \constrPair ->
+    plet (pfstBuiltin # constrPair) $ \constrIdx ->
+      pif (plengthBS # (pasByteStr # (pheadSingleton # (psndBuiltin # constrPair))) #== 28)
+          (
+            pcond
+              [ ( constrIdx #== 0 , term)
+              , ( constrIdx #== 1 , term)
+              ]
+              perror
+          )
+          perror
