@@ -1,3 +1,6 @@
+{-# LANGUAGE QualifiedDo #-}
+{-# LANGUAGE OverloadedRecordDot  #-}
+{-# LANGUAGE OverloadedStrings #-}
 module SmartTokens.Contracts.ProtocolParams (
   mkProtocolParametersMinting,
   alwaysFailScript,

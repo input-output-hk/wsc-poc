@@ -1,3 +1,6 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedRecordDot  #-}
+{-# LANGUAGE QualifiedDo #-}
 module SmartTokens.Contracts.ExampleTransferLogic (
   mkPermissionedTransfer,
   mkFreezeAndSeizeTransfer,

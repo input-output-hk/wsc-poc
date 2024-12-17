@@ -1,19 +1,26 @@
+{-# OPTIONS_GHC -Wno-unused-do-bind #-}
+{-# OPTIONS_GHC -Wno-partial-type-signatures #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE QualifiedDo #-}
+{-# LANGUAGE OverloadedRecordDot  #-}
 module SmartTokens.Contracts.ProgrammableLogicBase (
   mkProgrammableLogicBase,
   mkProgrammableLogicGlobal
 ) where
 
-import Plutarch.LedgerApi.V3
+import Plutarch.LedgerApi.V3 (PCredential(PPubKeyCredential, PScriptCredential), PPubKeyHash, PTxInInfo, PValue, KeyGuarantees(Sorted), AmountGuarantees(Positive), PMaybeData(PDJust, PDNothing), PStakingCredential(PStakingHash), PTxOut(..), PScriptContext, PLovelace, PCurrencySymbol, POutputDatum(..), pdnothing)
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
-import Plutarch.Builtin
-import Plutarch.Core.Utils
-import Plutarch.Unsafe
-import PlutusLedgerApi.V1.Value
+import Plutarch.Builtin (pasConstr, pforgetData, pasByteStr)
+import Plutarch.Core.Utils (ptxSignedByPkh, pcanFind, pvalidateConditions, pelemAtFast, pand'List, phasDataCS, pmustFind, pisRewarding, pfilterCSFromValue, pcountInputsFromCred)
+import Plutarch.Unsafe (punsafeCoerce)
+import PlutusLedgerApi.V1.Value (Value)
 import SmartTokens.Types.ProtocolParams (PProgrammableLogicGlobalParams)
-import Plutarch.Extra.Record
-import SmartTokens.Types.PTokenDirectory
--- import Plutarch.List
+import Plutarch.Extra.Record(mkRecordConstr, (.=), (.&))
+import SmartTokens.Types.PTokenDirectory (PDirectorySetNode)
 
 data PTokenProof (s :: S)
   = PTokenExists
@@ -54,8 +61,8 @@ pvalueFromCred = phoistAcyclic $ plam $ \cred sigs scripts inputs ->
                                   pif (ptxSignedByPkh # pkh # sigs)
                                       (acc <> pfromData txInF.value)
                                       perror
-                                PScriptCredential ((pfield @"_0" #) -> scriptHash) ->
-                                  pif (pelem # punsafeCoerce scriptHash # scripts)
+                                PScriptCredential ((pfield @"_0" #) -> scriptHash_) ->
+                                  pif (pelem # punsafeCoerce scriptHash_ # scripts)
                                       (acc <> pfromData txInF.value)
                                       perror
                             _ -> perror

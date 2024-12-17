@@ -1,19 +1,4 @@
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DataKinds             #-}
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE LambdaCase            #-}
-{-# LANGUAGE NamedFieldPuns        #-}
-{-# LANGUAGE OverloadedLabels      #-}
-{-# LANGUAGE OverloadedRecordDot   #-}
-{-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE PolyKinds             #-}
-{-# LANGUAGE QualifiedDo           #-}
-{-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE RecordWildCards       #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TypeOperators         #-}
-{-# LANGUAGE UndecidableInstances  #-}
-{-# LANGUAGE ViewPatterns          #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-deferred-type-errors #-}
 
 module SmartTokens.Types.ProtocolParams (
@@ -26,9 +11,9 @@ import Plutarch.Core.PlutusDataList
       PlutusTypeDataList,
       ProductIsData(..) )
 import Generics.SOP qualified as SOP
-import Plutarch.LedgerApi.V3
+import Plutarch.LedgerApi.V3 (PCurrencySymbol, PCredential)
 import Plutarch.Prelude
-import Plutarch.DataRepr
+import Plutarch.DataRepr (PDataFields)
 import PlutusTx qualified
 import PlutusLedgerApi.V3 (Credential, CurrencySymbol)
 import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (PLifted))

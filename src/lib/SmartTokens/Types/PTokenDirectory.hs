@@ -1,20 +1,6 @@
-{-# LANGUAGE DataKinds             #-}
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE LambdaCase            #-}
-{-# LANGUAGE NamedFieldPuns        #-}
-{-# LANGUAGE OverloadedLabels      #-}
-{-# LANGUAGE OverloadedRecordDot   #-}
-{-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE PolyKinds             #-}
-{-# LANGUAGE QualifiedDo           #-}
-{-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE RecordWildCards       #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TemplateHaskell       #-}
-{-# LANGUAGE TypeOperators         #-}
-{-# LANGUAGE UndecidableInstances  #-}
-{-# LANGUAGE ViewPatterns          #-}
-
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE QualifiedDo #-}
 module SmartTokens.Types.PTokenDirectory (
   DirectorySetNode (..),
   PDirectorySetNode (..),
@@ -74,10 +60,10 @@ instance PlutusType PBlacklistNode where
   pcon' (PBlacklistNode t1) = t1
   pmatch' xs f =
     plet (pto xs) $ \innerFieldList ->
-      let key = phead # innerFieldList
+      let key_ = phead # innerFieldList
       in plet (ptail # innerFieldList) $ \remaining ->
-          let next = phead # remaining
-          in pif (pnull # (ptail # remaining)) (f (PBlacklistNode (pdcons # punsafeCoerce key #$ pdcons # punsafeCoerce next # pdnil))) perror
+          let next_ = phead # remaining
+          in pif (pnull # (ptail # remaining)) (f (PBlacklistNode (pdcons # punsafeCoerce key_ #$ pdcons # punsafeCoerce next_ # pdnil))) perror
 
 
 -- instance DerivePlutusType PBlacklistNode where
@@ -164,8 +150,8 @@ pemptyCSData = unsafeEvalTerm NoTracing (punsafeCoerce (pconstant $ PlutusTx.B "
 
 pmkDirectorySetNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PCredential :--> PAsData PCredential :--> PAsData PDirectorySetNode)
 pmkDirectorySetNode = phoistAcyclic $
-  plam $ \key next transferLogicCred issuerLogicCred ->
-    punsafeCoerce $ plistData # pmkBuiltinList [pforgetData key, pforgetData next, pforgetData transferLogicCred, pforgetData issuerLogicCred]
+  plam $ \key_ next_ transferLogicCred issuerLogicCred ->
+    punsafeCoerce $ plistData # pmkBuiltinList [pforgetData key_, pforgetData next_, pforgetData transferLogicCred, pforgetData issuerLogicCred]
 
 pisInsertedOnNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PCredential :--> PAsData PCredential :--> PAsData PDirectorySetNode :--> PBool)
 pisInsertedOnNode = phoistAcyclic $
