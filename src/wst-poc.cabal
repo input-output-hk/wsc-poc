@@ -49,6 +49,7 @@ library
     Wst.Offchain.Blacklist
     Wst.Offchain.DirectorySet
     Wst.Offchain.LinkedList
+    Wst.Offchain.ProgrammableLogic
     Wst.Offchain.ProtocolParams
     Wst.Onchain
     Wst.Server

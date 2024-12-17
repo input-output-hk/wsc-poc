@@ -8,7 +8,8 @@
 
 module Wst.Offchain.DirectorySet (
   initDirectorySet,
-  insertDirectoryNode
+  insertDirectoryNode,
+  DirectorySetNode (..)
 ) where
 
 import Cardano.Api qualified as C
@@ -25,19 +26,23 @@ import GHC.Generics (Generic)
 import qualified PlutusTx
 
 
-directoryNodeMintingScript :: C.TxIn -> C.PlutusScript C.PlutusScriptV3
-directoryNodeMintingScript txIn = undefined
+-- TODO: To be imported after merge with onchain
+directoryNodeMintingScript :: C.PlutusScript C.PlutusScriptV3
+directoryNodeMintingScript = undefined
 
-directoryMintingPolicy :: C.TxIn -> C.PolicyId
-directoryMintingPolicy = C.scriptPolicyId . C.PlutusScript C.PlutusScriptV3 . directoryNodeMintingScript
+directoryMintingPolicy :: C.PolicyId
+directoryMintingPolicy = C.scriptPolicyId $ C.PlutusScript C.PlutusScriptV3 directoryNodeMintingScript
 
-
+-- TODO: To be imported after merge with onchain
 directoryNodeToken :: C.AssetName
 directoryNodeToken = unTransAssetName $ P.TokenName "DirectoryNodeNFT"
 
+-- TODO: There might be more appropriate script logic, this should suffice for
+-- the time being
 directoryNodeSpendingScript :: C.Hash C.PaymentKey -> C.SimpleScript
 directoryNodeSpendingScript = C.RequireSignature
 
+-- TODO: This is defined in onchain PR, to be replaced/imported
 data DirectorySetNode = DirectorySetNode
   { key :: CurrencySymbol
   , next :: CurrencySymbol
@@ -47,15 +52,14 @@ data DirectorySetNode = DirectorySetNode
   deriving stock (Show, Eq, Generic)
   deriving anyclass (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
 
-initDirectorySet :: (MonadBuildTx C.ConwayEra m) => C.NetworkId -> C.Hash C.PaymentKey -> C.TxIn -> m ()
-initDirectorySet netId operatorHash txIn = do
+initDirectorySet :: (MonadBuildTx C.ConwayEra m) => C.NetworkId -> C.Hash C.PaymentKey -> m ()
+initDirectorySet netId operatorHash = do
 
-  spendPublicKeyOutput txIn
-  mintPlutus (directoryNodeMintingScript txIn) () directoryNodeToken 1
+  mintPlutus directoryNodeMintingScript () directoryNodeToken 1
 
   let
       val = C.TxOutValueShelleyBased C.ShelleyBasedEraConway $ C.toLedgerValue C.MaryEraOnwardsBabbage
-            $ fromList [(C.AssetId (directoryMintingPolicy txIn) directoryNodeToken, 1)]
+            $ fromList [(C.AssetId directoryMintingPolicy directoryNodeToken, 1)]
 
       addr =
         C.makeShelleyAddressInEra
@@ -73,21 +77,20 @@ initDirectorySet netId operatorHash txIn = do
   addBtx (over L.txOuts (output :))
 
 insertDirectoryNode :: (MonadBuildTx C.ConwayEra m) => C.NetworkId -> C.Hash C.PaymentKey -> (C.TxIn, C.InAnyCardanoEra (C.TxOut ctx)) -> (CurrencySymbol, Credential, Credential) -> m ()
-insertDirectoryNode netId operatorHash (afterTxIn, afterTxOut) (newKey, transferLogic, issuerLogic) = do
+insertDirectoryNode netId operatorHash (firstTxIn, firstTxOut) (newKey, transferLogic, issuerLogic) = do
 
   let
-      (afterTxVal :: C.TxOutValue C.ConwayEra, afterTxData :: DirectorySetNode) = case afterTxOut of
+      (firstTxVal :: C.TxOutValue C.ConwayEra, firstTxData :: DirectorySetNode) = case firstTxOut of
         C.InAnyCardanoEra _ (C.TxOut _ v (C.TxOutDatumInline C.BabbageEraOnwardsConway dat) _) -> case fromHashableScriptData @DirectorySetNode dat of
           Just d -> (v, d)
           Nothing -> error "insertDirectoryNode: invalid datum"
         _ -> error "insertDirectoryNode: invalid output"
 
-  spendPublicKeyOutput afterTxIn
-  mintPlutus (directoryNodeMintingScript afterTxIn) () directoryNodeToken 1
+  mintPlutus directoryNodeMintingScript () directoryNodeToken 1
 
   let
       newVal = C.TxOutValueShelleyBased C.ShelleyBasedEraConway $ C.toLedgerValue C.MaryEraOnwardsBabbage
-          $ fromList [(C.AssetId (directoryMintingPolicy afterTxIn) directoryNodeToken, 1)]
+          $ fromList [(C.AssetId directoryMintingPolicy directoryNodeToken, 1)]
 
       addr =
         C.makeShelleyAddressInEra
@@ -98,7 +101,7 @@ insertDirectoryNode netId operatorHash (afterTxIn, afterTxOut) (newKey, transfer
 
       x = DirectorySetNode
             { key = newKey
-            , next = next afterTxData
+            , next = next firstTxData
             , transferLogicScript = transferLogic
             , issuerLogicScript = issuerLogic
             }
@@ -107,8 +110,12 @@ insertDirectoryNode netId operatorHash (afterTxIn, afterTxOut) (newKey, transfer
       newOutput :: C.TxOut C.CtxTx C.ConwayEra
       newOutput = C.TxOut addr newVal newDat C.ReferenceScriptNone
 
-      modifiedDat = afterTxData { next = transPolicyId $ directoryMintingPolicy afterTxIn }
-      modifiedOutput = C.TxOut addr afterTxVal (C.TxOutDatumInline C.BabbageEraOnwardsConway $ toHashableScriptData modifiedDat) C.ReferenceScriptNone
+      firstDat = firstTxData { next = newKey}
+      firstOutput = C.TxOut addr firstTxVal (C.TxOutDatumInline C.BabbageEraOnwardsConway $ toHashableScriptData firstDat) C.ReferenceScriptNone
 
   addBtx (over L.txOuts (newOutput :))
-  addBtx (over L.txOuts (modifiedOutput :))
+  addBtx (over L.txOuts (firstOutput :))
+
+-- TODO: is this even necessary? It will be for blacklist but not sure about
+-- the directory set
+removeDirectoryNode = undefined
