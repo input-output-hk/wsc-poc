@@ -15,7 +15,7 @@ import Plutarch.List (pconvertLists)
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
-import SmartTokens.Core.Utils (
+import Plutarch.Core.Utils (
   pand'List,
   passert,
   paysToAddress,

@@ -21,7 +21,7 @@ module SmartTokens.Types.ProtocolParams (
   PProgrammableLogicGlobalParams (..),
 ) where
 
-import SmartTokens.Core.PlutusDataList
+import Plutarch.Core.PlutusDataList
     ( DerivePConstantViaDataList(..),
       PlutusTypeDataList,
       ProductIsData(..) )

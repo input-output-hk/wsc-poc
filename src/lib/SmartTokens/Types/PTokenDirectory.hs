@@ -28,7 +28,7 @@ module SmartTokens.Types.PTokenDirectory (
   pisInsertedNode,
 ) where
 
-import SmartTokens.Core.PlutusDataList
+import Plutarch.Core.PlutusDataList
     ( DerivePConstantViaDataList(..),
       PlutusTypeDataList,
       ProductIsData(..) )
@@ -43,7 +43,7 @@ import PlutusLedgerApi.V3 (Credential, CurrencySymbol)
 import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (PLifted))
 import Plutarch.Evaluate (unsafeEvalTerm)
 import Plutarch (Config(NoTracing))
-import SmartTokens.Core.Utils (pmkBuiltinList)
+import Plutarch.Core.Utils (pmkBuiltinList)
 import Plutarch.List
 import Plutarch.Prelude
 

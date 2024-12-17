@@ -22,7 +22,7 @@ import Plutarch.Prelude
       psndBuiltin,
       pletFields,
       PUnit, pfield )
-import SmartTokens.Core.Utils
+import Plutarch.Core.Utils
     ( pheadSingleton,
       ptryLookupValue,
       phasUTxO,

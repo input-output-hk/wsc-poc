@@ -7,7 +7,7 @@ import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
 import Plutarch.Builtin
 import Plutarch.LedgerApi.Value
-import SmartTokens.Core.Utils
+import Plutarch.Core.Utils
 import Plutarch.Unsafe
 import Plutarch.Internal.PlutusType (PlutusType(pcon', pmatch'))
 --import SmartTokens.Types.PTokenDirectory (PDirectorySetNode)

@@ -20,10 +20,10 @@ import SmartTokens.LinkedList.Common (
  )
 
 import Plutarch.Prelude
-import SmartTokens.Core.Utils (pand'List, passert, pcond, pisFinite, phasUTxO, pintToByteString)
+import Plutarch.Core.Utils (pand'List, passert, pcond, pisFinite, phasUTxO, pintToByteString)
 import SmartTokens.Types.PTokenDirectory 
 import Types.Constants (claimRoot, airdropOperator)
-import SmartTokens.Core.Crypto (pcardanoPubKeyToPubKeyHash, pethereumPubKeyToPubKeyHash, pcompressPublicKey)
+import Plutarch.Core.Crypto (pcardanoPubKeyToPubKeyHash, pethereumPubKeyToPubKeyHash, pcompressPublicKey)
 import Plutarch.Builtin (pserialiseData, pforgetData, PDataNewtype(..))
 import MerkleTree.MerklePatriciaForestry (phas)
 import Plutarch.Crypto (pverifyEcdsaSecp256k1Signature, pblake2b_256)

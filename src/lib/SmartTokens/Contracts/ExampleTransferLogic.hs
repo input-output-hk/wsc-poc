@@ -48,7 +48,7 @@ import Plutarch.Prelude
       PListLike(pcons, ptail, pelimList, phead),
       PUnit, (#||) )
 import Plutarch.Builtin ( pasByteStr, pasConstr, pforgetData )
-import SmartTokens.Core.Utils
+import Plutarch.Core.Utils
     ( pisRewarding,
       phasDataCS,
       pelemAtFast,

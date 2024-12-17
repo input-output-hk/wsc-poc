@@ -5,7 +5,7 @@ module Types.Constants where
 import Plutarch
 import Plutarch.LedgerApi.V1 (PTokenName (..))
 import Plutarch.Prelude
-import SmartTokens.Core.Utils
+import Plutarch.Core.Utils
 import PlutusLedgerApi.V1 (TokenName(..))
 import Plutarch.Builtin (PDataNewtype(..))
 import qualified Plutarch.Monadic as P

@@ -7,7 +7,7 @@ import Plutarch.LedgerApi.V3
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
 import Plutarch.Builtin
-import SmartTokens.Core.Utils
+import Plutarch.Core.Utils
 import Plutarch.Unsafe
 import PlutusLedgerApi.V1.Value
 import SmartTokens.Types.ProtocolParams (PProgrammableLogicGlobalParams)
