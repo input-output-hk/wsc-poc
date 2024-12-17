@@ -1,0 +1,32 @@
+steps:
+
+  - simple_align:
+      cases: never
+      top_level_patterns: never
+      records: never
+      multi_way_if: never
+
+  - imports:
+      align: none
+      post_qualify: true
+
+  - language_pragmas:
+      remove_redundant: false
+
+  - trailing_whitespace: {}
+
+columns: 80
+
+newline: native
+
+language_extensions:
+  - GeneralizedNewtypeDeriving
+  - ImportQualifiedPost
+  - NumericUnderscores
+  - OverloadedStrings
+  - BangPatterns ## stylish-haskell reports an error when and expression starts with `!`
+  - TypeOperators ## stylish-haskell reports an error when importing type operators such as `import Prelude (type (~))`
+
+# stylish-haskell doesn't understand Cabal common-stanzas, so let's just
+# disable it.
+cabal: false
