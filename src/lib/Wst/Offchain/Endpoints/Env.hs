@@ -3,6 +3,7 @@
 -}
 module Wst.Offchain.Endpoints.Env(
   BuildTxEnv(..),
+  loadEnv,
   BuildTxError(..),
 
   -- * Using the environment
@@ -15,12 +16,15 @@ import Cardano.Api qualified as C
 import Control.Monad.Except (MonadError, throwError)
 import Control.Monad.Reader (MonadReader, ask, asks)
 import Convex.BuildTx (TxBuilder)
-import Convex.Class (MonadBlockchain)
+import Convex.Class (MonadBlockchain, MonadUtxoQuery (..),
+                     utxosByPaymentCredential)
 import Convex.CoinSelection qualified as CoinSelection
 import Convex.Utils (mapError)
 import Convex.Utxos (BalanceChanges)
 import Convex.Utxos qualified as Utxos
-import Convex.Wallet.Operator (Operator, Verification, operatorReturnOutput)
+import Convex.Wallet.Operator (Operator (..), PaymentExtendedKey (..),
+                               Verification, operatorPaymentCredential,
+                               operatorReturnOutput)
 import Data.Map qualified as Map
 import Data.Maybe (listToMaybe)
 
@@ -31,6 +35,18 @@ data BuildTxEnv era =
     { bteOperator :: Operator Verification
     , bteOperatorUtxos :: UTxO era -- ^ UTxOs owned by the operator, available for spending
     }
+
+{-| Populate the 'BuildTxEnv' with UTxOs locked by the verification key
+-}
+loadEnv :: (MonadUtxoQuery m, C.IsBabbageBasedEra era) => C.VerificationKey C.PaymentKey -> Maybe (C.VerificationKey C.StakeKey) -> m (BuildTxEnv era)
+loadEnv verificationKey oStakeKey = do
+  let bteOperator
+        = Operator
+            { oPaymentKey = PEVerification verificationKey
+            , oStakeKey
+            }
+  bteOperatorUtxos <- Utxos.toApiUtxo <$> utxosByPaymentCredential (operatorPaymentCredential bteOperator)
+  pure BuildTxEnv{bteOperator, bteOperatorUtxos}
 
 data BuildTxError era =
   OperatorNoUTxOs -- ^ The operator does not have any UTxOs
