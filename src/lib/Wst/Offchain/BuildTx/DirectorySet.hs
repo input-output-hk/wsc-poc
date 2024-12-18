@@ -19,6 +19,7 @@ import Convex.Scripts (fromHashableScriptData, toHashableScriptData)
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (Credential (..), CurrencySymbol (..))
 import PlutusLedgerApi.V3 qualified as P
+import SmartTokens.LinkedList.MintDirectory (DirectoryNodeAction (..))
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.Offchain.Scripts (directoryNodeMintingScript,
                              directoryNodeSpendingScript, scriptPolicyIdV3)
@@ -32,7 +33,7 @@ initDirectorySet netId paramsPolicyId txIn = do
 
   let mintingScript = directoryNodeMintingScript txIn
 
-  mintPlutus mintingScript () directoryNodeToken 1
+  mintPlutus mintingScript InitDirectory directoryNodeToken 1
 
   let
       val = C.TxOutValueShelleyBased C.ShelleyBasedEraConway $ C.toLedgerValue C.MaryEraOnwardsBabbage
@@ -89,7 +90,7 @@ insertDirectoryNode netId paramsPolicyId initialTxIn (_, firstTxOut) (newKey, tr
       firstDat = firstTxData { next = newKey}
       firstOutput = C.TxOut addr firstTxVal (C.TxOutDatumInline C.BabbageEraOnwardsConway $ toHashableScriptData firstDat) C.ReferenceScriptNone
 
-  mintPlutus directoryMintingScript () directoryNodeToken 1
+  mintPlutus directoryMintingScript (InsertDirectoryNode newKey) directoryNodeToken 1
   addBtx (over L.txOuts (newOutput :))
   addBtx (over L.txOuts (firstOutput :))
 

@@ -10,9 +10,6 @@ module Wst.Server.Types (
   API,
 ) where
 
-import Data.Aeson (FromJSON)
-import Data.Aeson.Types (ToJSON)
-import GHC.Generics (Generic)
 import Servant.API (Capture, Description, Get, JSON, NoContent, Post, ReqBody,
                     type (:>), (:<|>) (..))
 
