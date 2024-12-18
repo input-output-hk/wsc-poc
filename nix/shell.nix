@@ -9,6 +9,7 @@ in
   name = "smart-tokens-plutarch";
   packages = [
     pkgs.ghcid
+    pkgs.nixpkgs-fmt
   ];
 
   env = { };
@@ -21,6 +22,6 @@ in
     #       This step is necessary because `.pre-commit-config.yaml` is ignored by git.
     cabal-fmt.enable = true;
     stylish-haskell.enable = true;
-    nixpkgs-fmt.enable = true;
+    nixpkgs-fmt.enable = false;
   };
 }
