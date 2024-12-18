@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Wst.Offchain.BuildTx.ProtocolParams (
-  mintProtocolParams
+  mintProtocolParams,
+  getProtocolParamsGlobalInline
 ) where
 
 import Cardano.Api qualified as C
@@ -10,7 +11,7 @@ import Convex.BuildTx (MonadBuildTx, mintPlutus, prependTxOut,
                        spendPublicKeyOutput)
 import Convex.Class (MonadBlockchain (..))
 import Convex.PlutusLedger.V1 (unTransAssetName)
-import Convex.Scripts (toHashableScriptData)
+import Convex.Scripts (fromHashableScriptData, toHashableScriptData)
 import Convex.Utils qualified as Utils
 import GHC.Exts (IsList (..))
 import SmartTokens.Types.Constants (protocolParamsToken)
@@ -46,3 +47,9 @@ mintProtocolParams params txIn = Utils.inBabbage @era $ do
   spendPublicKeyOutput txIn
   mintPlutus mintingScript () protocolParamsTokenC 1
   prependTxOut output
+
+getProtocolParamsGlobalInline :: C.InAnyCardanoEra (C.TxOut C.CtxTx) -> Maybe ProgrammableLogicGlobalParams
+getProtocolParamsGlobalInline (C.InAnyCardanoEra _ (C.TxOut _ _ dat _)) =
+  case dat of
+    C.TxOutDatumInline _era (fromHashableScriptData -> Just d) -> Just d
+    _ -> Nothing

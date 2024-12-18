@@ -1,46 +1,68 @@
+{-# LANGUAGE NamedFieldPuns   #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies     #-}
 {-# LANGUAGE ViewPatterns     #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 {-# HLINT ignore "Redundant if" #-}
+{-# HLINT ignore "Use second" #-}
 module Wst.Offchain.BuildTx.ProgrammableLogic
-  ( transferProgrammableToken,
+  ( issueProgrammableToken,
+    transferProgrammableToken,
     seizePragrammableToken,
   )
 where
 
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
-import Convex.BuildTx (MonadBuildTx, addReference, addWithdrawalWithTxBody,
-                       buildScriptWitness, findIndexReference, mintPlutus,
-                       spendPlutusInlineDatum)
-import Convex.PlutusLedger.V1 (transPolicyId)
+import Convex.BuildTx (MonadBuildTx, addReference,
+                       addWithdrawZeroPlutusV2InTransaction, addWithdrawal,
+                       addWithdrawalWithTxBody, buildScriptWitness,
+                       findIndexReference, mintPlutus, spendPlutusInlineDatum)
+import Convex.Class (MonadBlockchain (queryNetworkId))
+import Convex.PlutusLedger.V1 (transPolicyId, unTransCredential,
+                               unTransPolicyId)
 import Convex.Scripts (fromHashableScriptData)
-import Data.Foldable (maximumBy)
+import Convex.Utils qualified as Utils
+import Data.Bifunctor (Bifunctor (second))
+import Data.Foldable (find, maximumBy)
 import Data.Function (on)
+import Data.Maybe (fromJust)
 import PlutusLedgerApi.V3 (Credential (..), CurrencySymbol (..))
+import SmartTokens.Contracts.Issuance (SmartTokenMintingAction (MintPToken, RegisterPToken))
+import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
+import Wst.Offchain.BuildTx.DirectorySet (insertDirectoryNode)
+import Wst.Offchain.BuildTx.ProtocolParams (getProtocolParamsGlobalInline)
 import Wst.Offchain.Scripts (programmableLogicBaseScript,
                              programmableLogicGlobalScript,
                              programmableLogicMintingScript)
 
 -- Takes care of both registrations and token mints
-issueProgrammableToken :: (MonadBuildTx C.ConwayEra m) => C.NetworkId -> C.TxIn -> (C.AssetName, C.Quantity) -> Credential -> [(C.TxIn, C.InAnyCardanoEra (C.TxOut C.CtxTx))]-> m CurrencySymbol
-issueProgrammableToken nid paramsTxIn (an, q) mintingCred directoyrList = do
+issueProgrammableToken :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.TxIn -> (C.PolicyId, C.TxOut C.CtxTx era) -> (C.AssetName, C.Quantity) -> (C.StakeCredential, C.StakeCredential, C.StakeCredential) -> [(C.TxIn, C.TxOut C.CtxTx era)]-> m CurrencySymbol
+issueProgrammableToken directoryInitialTxIn (paramsPolicyId, paramsTxOut) (an, q) (mintingCred, transferLogic, issuerLogic) directoryList = Utils.inBabbage @era $ do
+  netId <- queryNetworkId
 
-  let paymentCred = undefined
-      mintingCred = undefined
-      nodeCS = undefined
+  ProgrammableLogicGlobalParams{directoryNodeCS, progLogicCred} <- maybe (error "could not parse protocol params") pure $ getProtocolParamsGlobalInline (C.inAnyCardanoEra (C.cardanoEra @era) paramsTxOut)
 
-  let mintingScript = programmableLogicMintingScript paymentCred mintingCred nodeCS
+  progLogicScriptCredential <- either (const $ error "could not parse protocol params") pure $ unTransCredential progLogicCred
+  directoryNodeSymbol <- either (const $ error "could not parse protocol params") pure $ unTransPolicyId directoryNodeCS
 
-  addReference paramsTxIn
-  let policyId = transPolicyId $ C.scriptPolicyId $ C.PlutusScript C.PlutusScriptV3 mintingScript
-  -- addStakeScriptWitness mintingCred (programmableLogicMintingScript mintingCred) () -- TODO: minting logic redeemer
+  let mintingScript = programmableLogicMintingScript progLogicScriptCredential mintingCred directoryNodeSymbol
+      policyId = transPolicyId $ C.scriptPolicyId $ C.PlutusScript C.PlutusScriptV3 mintingScript
 
-  -- TODO: register token redeemer should go here
-  mintPlutus mintingScript () an q
+      (dirNodeRef, dirNodeOut) =
+        maximumBy (compare `on` (fmap key . getDirectoryNodeInline . C.inAnyCardanoEra (C.cardanoEra @era) . snd)) $
+          filter (maybe False ((<= policyId) . key) . getDirectoryNodeInline . C.inAnyCardanoEra (C.cardanoEra @era) . snd) directoryList
+
+  dirNodeData <- maybe (error "could not parse directory node data") pure $ getDirectoryNodeInline $ C.inAnyCardanoEra (C.cardanoEra @era) dirNodeOut
+
+  if key dirNodeData == policyId
+    then
+      mintPlutus mintingScript MintPToken an q
+    else
+      mintPlutus mintingScript RegisterPToken an q
+      >> insertDirectoryNode paramsPolicyId directoryInitialTxIn (dirNodeRef, dirNodeOut) (policyId, transferLogic, issuerLogic)
 
   pure policyId
 
