@@ -109,6 +109,9 @@ module SmartTokens.Core.Utils (
   pisSpending,
   pletFieldsMinting,
   pcountInputsFromCred,
+  pdeserializesToCredential,
+  pdeserializeCredential,
+  pstripAda,
 ) where
 
 import Data.List (foldl')
@@ -117,7 +120,7 @@ import Plutarch.Bool (pand')
 import Plutarch.Builtin (PAsData, PBuiltinList (..), PBuiltinPair, PData,
                          PDataNewtype (..), PIsData, pasConstr, pdata,
                          pforgetData, pfromData, pfstBuiltin, ppairDataBuiltin,
-                         psndBuiltin)
+                         psndBuiltin, pasByteStr)
 import Plutarch.DataRepr.Internal.Field (HRec (..), Labeled (Labeled))
 import Plutarch.Internal (ClosedTerm, PType, S, Term, perror, phoistAcyclic,
                           plet, punsafeBuiltin, punsafeCoerce, type (:-->),
@@ -351,15 +354,15 @@ pfoldUTxOs func =
     pelimList
       (\a as ->
         pelimList
-          (\b bs -> 
-            pif (func a b) 
-                (self # as # bs) 
+          (\b bs ->
+            pif (func a b)
+                (self # as # bs)
                 (pconstant False)
           )
           perror
           lb
       )
-      (pconstant True) 
+      (pconstant True)
       la
 
 pelemAtWithRest' :: PListLike list => PElemConstraint list a => Term s (PInteger :--> list a :--> PPair a (list a))
@@ -470,7 +473,7 @@ tcexpectJust escape ma = tcont $ \f -> pmatch ma $ \case
   PJust v -> f v
   PNothing -> escape
 
-paysToAddress :: Term s (PAddress :--> PTxOut :--> PBool)
+paysToAddress :: Term s (PAddress :--> (PAsData PTxOut) :--> PBool)
 paysToAddress = phoistAcyclic $ plam $ \adr txOut -> adr #== (pfield @"address" # txOut)
 
 paysValueToAddress ::
@@ -909,10 +912,10 @@ pand'List ts' =
 -- | Strictly evaluates a list of boolean expressions. 
 -- If all the expressions evaluate to true, returns unit, otherwise throws an error.
 pvalidateConditions :: [Term s PBool] -> Term s PUnit
-pvalidateConditions conds = 
-  pif (pand'List conds) 
-      (pconstant ()) 
-      perror 
+pvalidateConditions conds =
+  pif (pand'List conds)
+      (pconstant ())
+      perror
 
 pcond ::  [(Term s PBool, Term s a)] -> Term s a -> Term s a
 pcond [] def = def
@@ -1031,6 +1034,31 @@ pisScriptCredential cred = (pfstBuiltin # (pasConstr # pforgetData cred)) #== 1
 pisPubKeyCredential :: Term s (PAsData PCredential) -> Term s PBool
 pisPubKeyCredential cred = (pfstBuiltin # (pasConstr # pforgetData cred)) #== 0
 
+pdeserializesToCredential :: Term s (PAsData PCredential) -> Term s PBool
+pdeserializesToCredential term =
+  plet (pasConstr # pforgetData term) $ \constrPair ->
+    plet (pfstBuiltin # constrPair) $ \constrIdx ->
+      pand'List
+        [ plengthBS # (pasByteStr # (pheadSingleton # (psndBuiltin # constrPair))) #== 28
+        , pif ( constrIdx #== 0 )
+              ( pconstant True )
+              ( constrIdx #== 1 )
+        ]
+
+pdeserializeCredential :: Term s (PAsData PCredential) -> Term s (PAsData PCredential)
+pdeserializeCredential term =
+  plet (pasConstr # pforgetData term) $ \constrPair ->
+    plet (pfstBuiltin # constrPair) $ \constrIdx ->
+      pif (plengthBS # (pasByteStr # (pheadSingleton # (psndBuiltin # constrPair))) #== 28)
+          (
+            pcond
+              [ ( constrIdx #== 0 , term)
+              , ( constrIdx #== 1 , term)
+              ]
+              perror
+          )
+          perror
+
 nTails :: PIsListLike list a => Integer -> Term s (list a) -> Term s (list a)
 nTails n xs = foldl' (\acc _ -> ptail # acc) xs (replicate (fromIntegral n) ())
 
@@ -1100,3 +1128,14 @@ pmapData = punsafeBuiltin PLC.MapData
 
 ppairDataBuiltinRaw :: Term s (PData :--> PData :--> PBuiltinPair PData PData)
 ppairDataBuiltinRaw = punsafeBuiltin PLC.MkPairData
+
+-- | Strip Ada from a ledger value 
+-- Importantly this function assumes that the Value is provided by the ledger (i.e. via the ScriptContext)
+-- and thus the invariant that Ada is the first entry in the Value is maintained
+pstripAda ::
+  forall (v :: AmountGuarantees) (s :: S).
+  Term s (PValue 'Sorted v :--> PValue 'Sorted v)
+pstripAda = phoistAcyclic $
+  plam $ \value ->
+    let nonAdaValueMapInner = ptail # pto (pto value)
+    in pcon (PValue $ pcon $ PMap nonAdaValueMapInner)

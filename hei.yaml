@@ -1,0 +1,12 @@
+cradle:
+  multi:
+    - path: "./dist-newstyle"
+      config:
+        cradle:
+          none:
+    - path: ""
+      config:
+        cradle:
+          cabal:
+            - path: "./"
+              component: "wst-poc:wst-poc"

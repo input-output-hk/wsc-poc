@@ -56,7 +56,7 @@ import SmartTokens.Core.Utils
       pand'List,
       pvalidateConditions )
 import Plutarch.Unsafe ( punsafeCoerce )
---import SmartTokens.Types.PTokenDirectory ( PBlacklistNode )
+import SmartTokens.Types.PTokenDirectory ( PBlacklistNode, pletFieldsBlacklistNode)
 
 data PBlacklistProof (s :: S)
   = PNonmembershipProof
@@ -134,10 +134,10 @@ pvalidateWitnesses = phoistAcyclic $ plam $ \blacklistNodeCS proofs refInputs wi
               notExistF <- pletFields @'["nodeIdx"] nonExist
               prevNodeUTxOF <- pletFields @'["value", "datum"] $ pfield @"resolved" # (patRefUTxOIdx # pfromData notExistF.nodeIdx)
               POutputDatum ((pfield @"outputDatum" #) -> prevNodeDat') <- pmatch prevNodeUTxOF.datum
-              prevNodeDatumF <- plet $ punsafeCoerce @_ @_ @(PBuiltinList (PAsData PByteString)) (pto prevNodeDat')
+              prevNodeDatumF <- pletFieldsBlacklistNode $ punsafeCoerce @_ @_ @(PAsData PBlacklistNode) (pto prevNodeDat')
               witnessKey <- plet $ pasByteStr # pforgetData wit
-              nodeKey <- plet $ pasByteStr # pforgetData (phead # prevNodeDatumF)
-              nodeNext <- plet $ pasByteStr # pforgetData (phead # (ptail # prevNodeDatumF))
+              nodeKey <- plet $ pfromData $ prevNodeDatumF.key
+              nodeNext <- plet $ pfromData $ prevNodeDatumF.next -- pasByteStr # pforgetData (phead # (ptail # prevNodeDatumF))
               let checks =
                     pand'List
                       [

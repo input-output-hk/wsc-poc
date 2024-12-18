@@ -41,6 +41,8 @@ import SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicBase, mkP
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
 import SmartTokens.Contracts.ProtocolParams (mkProtocolParametersMinting, alwaysFailScript, mkPermissionedMinting)
 import SmartTokens.Contracts.ExampleTransferLogic (mkPermissionedTransfer, mkFreezeAndSeizeTransfer)
+import SmartTokens.LinkedList.MintDirectory (mkDirectoryNodeMP)
+import SmartTokens.LinkedList.SpendDirectory (pmkDirectorySpending)
 
 encodeSerialiseCBOR :: Script -> Text
 encodeSerialiseCBOR = Text.decodeUtf8 . Base16.encode . CBOR.serialize' . serialiseScript
@@ -89,3 +91,5 @@ main = do
   writePlutusScriptTraceBind "Permissioned Minting" "./compiled/permissionedMinting.json" mkPermissionedMinting
   writePlutusScriptTraceBind "Permissioned Transfer" "./compiled/permissionedTransfer.json" mkPermissionedTransfer
   writePlutusScriptTraceBind "Freeze and Seize Transfer" "./compiled/freezeAndSeizeTransfer.json" mkFreezeAndSeizeTransfer
+  writePlutusScriptTraceBind "Directory Node Minting Policy" "./compiled/directoryNodeMintingPolicy.json" mkDirectoryNodeMP
+  writePlutusScriptTraceBind "Directory Spending" "./compiled/directorySpending.json" pmkDirectorySpending

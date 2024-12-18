@@ -26,6 +26,8 @@ module SmartTokens.Types.PTokenDirectory (
   pmkDirectorySetNode,
   pisInsertedOnNode,
   pisInsertedNode,
+  pletFieldsBlacklistNode,
+  pisEmptyNode,
 ) where
 
 import SmartTokens.Core.PlutusDataList
@@ -34,7 +36,8 @@ import SmartTokens.Core.PlutusDataList
       ProductIsData(..) )
 import Generics.SOP qualified as SOP
 import Plutarch.LedgerApi.V3 ( PCredential, PCurrencySymbol )
-import Plutarch.Builtin ( pforgetData, plistData )
+import Plutarch.DataRepr.Internal.Field (HRec (..), Labeled (Labeled))
+import Plutarch.Builtin ( pforgetData, plistData, pasList )
 import Plutarch.Internal.PlutusType (pcon', pmatch')
 import Plutarch.Unsafe (punsafeCoerce)
 import Plutarch.DataRepr ( PDataFields )
@@ -43,10 +46,12 @@ import PlutusLedgerApi.V3 (Credential, CurrencySymbol)
 import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (PLifted))
 import Plutarch.Evaluate (unsafeEvalTerm)
 import Plutarch (Config(NoTracing))
-import SmartTokens.Core.Utils (pmkBuiltinList)
+import SmartTokens.Core.Utils (pmkBuiltinList, pheadSingleton, pdeserializeCredential)
 import Plutarch.List
 import Plutarch.Prelude
-
+import PlutusTx (
+  Data (B, Constr),
+ )
 -- data BlackListNode =
 --   BlackListNode {
 --     key :: BuiltinByteString,
@@ -77,8 +82,20 @@ instance PlutusType PBlacklistNode where
       let key = phead # innerFieldList
       in plet (ptail # innerFieldList) $ \remaining ->
           let next = phead # remaining
-          in pif (pnull # (ptail # remaining)) (f (PBlacklistNode (pdcons # punsafeCoerce key #$ pdcons # punsafeCoerce next # pdnil))) perror
+          in pif (pnull # (ptail # remaining)) (f (PBlacklistNode (pdcons @"key" # punsafeCoerce key #$ pdcons @"next" # punsafeCoerce next # pdnil))) perror
 
+type PBlacklistNodeHRec (s :: S) =
+  HRec
+    '[ '("key", Term s (PAsData PByteString))
+     , '("next", Term s (PAsData PByteString))
+     ]
+
+pletFieldsBlacklistNode :: forall {s :: S} {r :: PType}. Term s (PAsData PBlacklistNode) -> (PBlacklistNodeHRec s -> Term s r) -> Term s r
+pletFieldsBlacklistNode term = runTermCont $ do
+  fields <- tcont $ plet $ pasList # (pforgetData term)
+  let key = punsafeCoerce @_ @_ @(PAsData PByteString) $ phead # fields
+      next = punsafeCoerce @_ @_ @(PAsData PByteString) $ pheadSingleton # (ptail # fields)
+  tcont $ \f -> f $ HCons (Labeled @"key" key) (HCons (Labeled @"next" next) HNil)
 
 -- instance DerivePlutusType PBlacklistNode where
 --   type DPTStrat _ = PlutusTypeDataList
@@ -155,12 +172,18 @@ isTailNode :: ClosedTerm (PAsData PDirectorySetNode :--> PBool)
 isTailNode = plam $ \node ->
   pfield @"next" # node #== pemptyCSData
 
+pisEmptyNode :: ClosedTerm (PAsData PDirectorySetNode :--> PBool)
+pisEmptyNode = plam $ \node ->
+  let nullTransferLogicCred = pconstant (Constr 0 [PlutusTx.B ""])
+      nullIssuerLogicCred = pconstant (Constr 0 [PlutusTx.B ""])
+      expectedEmptyNode = punsafeCoerce $ plistData # pmkBuiltinList [pforgetData pemptyBSData, pforgetData pemptyBSData, nullTransferLogicCred, nullIssuerLogicCred]
+  in node #== expectedEmptyNode
+
 pemptyBSData :: ClosedTerm (PAsData PByteString)
 pemptyBSData = unsafeEvalTerm NoTracing (punsafeCoerce (pconstant $ PlutusTx.B ""))
 
 pemptyCSData :: ClosedTerm (PAsData PCurrencySymbol)
 pemptyCSData = unsafeEvalTerm NoTracing (punsafeCoerce (pconstant $ PlutusTx.B ""))
-
 
 pmkDirectorySetNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PCredential :--> PAsData PCredential :--> PAsData PDirectorySetNode)
 pmkDirectorySetNode = phoistAcyclic $
@@ -173,8 +196,18 @@ pisInsertedOnNode = phoistAcyclic $
     let expectedDirectoryNode = pmkDirectorySetNode # coveringKey # insertedKey # transferLogicCred # issuerLogicCred
      in outputNode #== expectedDirectoryNode
 
-pisInsertedNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PCredential :--> PAsData PCredential :--> PAsData PDirectorySetNode :--> PBool)
-pisInsertedNode = phoistAcyclic $
-  plam $ \insertedKey coveringNext transferLogicCred issuerLogicCred outputNode ->
-    let expectedDirectoryNode = pmkDirectorySetNode # insertedKey # coveringNext # transferLogicCred # issuerLogicCred
-     in outputNode #== expectedDirectoryNode
+-- pisInsertedNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PCredential :--> PAsData PCredential :--> PAsData PDirectorySetNode :--> PBool)
+-- pisInsertedNode = phoistAcyclic $
+--   plam $ \insertedKey coveringNext transferLogicCred issuerLogicCred outputNode ->
+--     let expectedDirectoryNode = pmkDirectorySetNode # insertedKey # coveringNext # transferLogicCred # issuerLogicCred
+--      in outputNode #== expectedDirectoryNode
+
+pisInsertedNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PDirectorySetNode :--> PBool)
+pisInsertedNode = phoistAcyclic $ 
+  plam $ \insertedKey coveringNext outputNode ->
+    pletFields @'["transferLogicScript", "issuerLogicScript"] outputNode $ \outputNodeDatumF ->
+      let transferLogicCred = outputNodeDatumF.transferLogicScript
+          issuerLogicCred = outputNodeDatumF.issuerLogicScript
+          expectedDirectoryNode = 
+            pmkDirectorySetNode # insertedKey # coveringNext # pdeserializeCredential transferLogicCred # pdeserializeCredential issuerLogicCred
+      in outputNode #== expectedDirectoryNode

@@ -1,15 +1,13 @@
-cabal-version: 3.4
-name:          wst-poc
-version:       0.3.0.0
-synopsis:      On-chain code for regulated stablecoin proof-of-concept
-license: Apache-2.0
-license-files:
-  LICENSE
-
-maintainer:    j-mueller@users.noreply.github.com
-author:        Djed team @ IOG
-homepage:      https://github.com/input-output-hk/wst-poc
-bug-reports:   https://github.com/input-output-hk/wst-poc
+cabal-version:      3.4
+name:               wst-poc
+version:            0.3.0.0
+synopsis:           On-chain code for regulated stablecoin proof-of-concept
+license:            Apache-2.0
+license-files:      LICENSE
+maintainer:         j-mueller@users.noreply.github.com
+author:             Djed team @ IOG
+homepage:           https://github.com/input-output-hk/wst-poc
+bug-reports:        https://github.com/input-output-hk/wst-poc
 description:
   Please see the README on GitHub at <https://github.com/input-output-hk/wst-poc>
 
@@ -63,6 +61,7 @@ common lang
     ForeignFunctionInterface
     GADTSyntax
     GeneralisedNewtypeDeriving
+    GeneralizedNewtypeDeriving
     HexFloatLiterals
     ImplicitPrelude
     ImportQualifiedPost
@@ -94,15 +93,14 @@ common lang
     TupleSections
     TypeApplications
     TypeFamilies
+    TypeFamilyDependencies
     TypeOperators
     TypeSynonymInstances
     UndecidableInstances
     ViewPatterns
-    GeneralizedNewtypeDeriving
-    TypeFamilyDependencies
 
 library
-  import:         lang
+  import:             lang
   ghc-options:
     -Wall -Wcompat -Wincomplete-uni-patterns -Wno-unused-do-bind
     -Wno-partial-type-signatures -Wno-missing-import-lists
@@ -144,6 +142,7 @@ library
     ForeignFunctionInterface
     GADTSyntax
     GeneralisedNewtypeDeriving
+    GeneralizedNewtypeDeriving
     HexFloatLiterals
     ImplicitPrelude
     ImportQualifiedPost
@@ -174,33 +173,35 @@ library
     TupleSections
     TypeApplications
     TypeFamilies
+    TypeFamilyDependencies
     TypeOperators
     TypeSynonymInstances
     UndecidableInstances
     ViewPatterns
-    GeneralizedNewtypeDeriving
-    TypeFamilyDependencies
 
   exposed-modules:
+    Plutarch.Extra.Record
+    Profile
+    SmartTokens.Contracts.ExampleTransferLogic
+    SmartTokens.Contracts.Issuance
+    SmartTokens.Contracts.ProgrammableLogicBase
+    SmartTokens.Contracts.ProtocolParams
     SmartTokens.Core.Crypto
     SmartTokens.Core.List
     SmartTokens.Core.PlutusDataList
     SmartTokens.Core.Utils
-    SmartTokens.Contracts.Issuance
-    SmartTokens.Contracts.ProgrammableLogicBase
-    SmartTokens.Contracts.ExampleTransferLogic
-    SmartTokens.Contracts.ProtocolParams
+    SmartTokens.LinkedList.Common
+    SmartTokens.LinkedList.MintDirectory
+    SmartTokens.LinkedList.SpendDirectory
     SmartTokens.Types.Constants
     SmartTokens.Types.ProtocolParams
     SmartTokens.Types.PTokenDirectory
+    Types.Classes
+    Types.Constants
     Wst.Cli
     Wst.Offchain
     Wst.Onchain
     Wst.Server
-    Profile
-    Types.Classes
-    Types.Constants
-    Plutarch.Extra.Record
 
   -- Compile
 
@@ -243,7 +244,6 @@ common dependencies
     , serialise
     , text
 
-
 executable export-smart-tokens
   import:         lang, dependencies
   main-is:        Main.hs
@@ -253,9 +253,10 @@ executable export-smart-tokens
 
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:
-  build-depends:  
-    , wst-poc
+  build-depends:
     , aeson-pretty
+    , wst-poc
+
   hs-source-dirs: app
 
 -- executable test-stablecoin

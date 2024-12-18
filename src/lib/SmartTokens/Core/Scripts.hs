@@ -1,5 +1,8 @@
 module SmartTokens.Core.Scripts (
-tryCompile) where
+  tryCompile,
+  tryCompileTracingAndBinds,
+  tryCompileNoTracing,
+) where
 
 import Plutarch
 import Plutarch.ByteString (PByteString, plengthBS, psliceBS, pindexBS)

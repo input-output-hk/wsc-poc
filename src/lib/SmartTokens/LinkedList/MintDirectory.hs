@@ -2,39 +2,54 @@
 
 module SmartTokens.LinkedList.MintDirectory (
   mkDirectoryNodeMP,
-  mkDirectoryNodeMPW,
 ) where
 
-import Plutarch.LedgerApi.V3
-import Plutarch.LedgerApi.Interval (pafter, pbefore)
-
---  pRemoveAndDeinit,
+import Plutarch.LedgerApi.V3 ( PScriptContext, PTxOutRef )
 import Plutarch.Monadic qualified as P
 import Plutarch.Unsafe (punsafeCoerce)
 import SmartTokens.LinkedList.Common (
   makeCommon,
-  pDeinit,
   pInit,
   pInsert,
-  pRemove,
  )
 
 import Plutarch.Prelude
-import SmartTokens.Core.Utils (pand'List, passert, pcond, pisFinite, phasUTxO, pintToByteString)
-import SmartTokens.Types.PTokenDirectory 
-import Types.Constants (claimRoot, airdropOperator)
-import SmartTokens.Core.Crypto (pcardanoPubKeyToPubKeyHash, pethereumPubKeyToPubKeyHash, pcompressPublicKey)
-import Plutarch.Builtin (pserialiseData, pforgetData, PDataNewtype(..))
-import MerkleTree.MerklePatriciaForestry (phas)
-import Plutarch.Crypto (pverifyEcdsaSecp256k1Signature, pblake2b_256)
+    ( Generic,
+      (#),
+      perror,
+      plet,
+      pto,
+      pmatch,
+      type (:-->),
+      ClosedTerm,
+      S,
+      Term,
+      plam,
+      DerivePlutusType(..),
+      PlutusType,
+      TermCont(runTermCont),
+      PByteString,
+      pconstant,
+      PEq,
+      pif,
+      pfromData,
+      pfield,
+      pletFields,
+      PAsData,
+      PIsData,
+      PDataRecord,
+      PLabeledType((:=)),
+      PlutusTypeData,
+      PUnit )
+import SmartTokens.Core.Utils (pand'List, passert, phasUTxO)
 
 --------------------------------
 -- FinSet Node Minting Policy:
 --------------------------------
 
 data PDirectoryNodeAction (s :: S)
-  = PLInit (Term s (PDataRecord '[]))
-  | PLInsert (Term s (PDataRecord '["keyToInsert" ':= PByteString]))
+  = PInit (Term s (PDataRecord '[]))
+  | PInsert (Term s (PDataRecord '["keyToInsert" ':= PByteString]))
   deriving stock (Generic)
   deriving anyclass (PlutusType, PIsData, PEq)
 
@@ -43,22 +58,22 @@ instance DerivePlutusType PDirectoryNodeAction where type DPTStrat _ = PlutusTyp
 mkDirectoryNodeMP ::
   ClosedTerm
     ( PAsData PTxOutRef
-        :--> PDirectoryNodeAction
-        :--> PScriptContext
-        :--> PUnit
+      :--> PScriptContext
+      :--> PUnit
     )
-mkDirectoryNodeMP = plam $ \initUTxO redm ctx -> P.do
+mkDirectoryNodeMP = plam $ \initUTxO ctx -> P.do
+  let red = punsafeCoerce @_ @_ @PDirectoryNodeAction (pto (pfield @"redeemer" # ctx))
+ 
+  common <- runTermCont $ makeCommon ctx
 
-  (common, inputs, sigs, vrange) <-
-    runTermCont $
-      makeCommon ctx
-
-  pmatch redm $ \case
-    PLInit _ -> P.do
+  pmatch red $ \case
+    PInit _ -> P.do
+      ctxF <- pletFields @'["txInfo"] ctx
+      infoF <- pletFields @'["inputs"] ctxF.txInfo
       passert "Init must consume TxOutRef" $
-        phasUTxO # initUTxO # inputs
+        phasUTxO # initUTxO # pfromData infoF.inputs
       pInit common
-    PLInsert action -> P.do
+    PInsert action -> P.do
       act <- pletFields @'["keyToInsert"] action
       pkToInsert <- plet act.keyToInsert
       let mintsProgrammableToken = pconstant False 
@@ -67,12 +82,3 @@ mkDirectoryNodeMP = plam $ \initUTxO redm ctx -> P.do
                 [ mintsProgrammableToken
                 ]
       pif insertChecks (pInsert common # pkToInsert) perror
-
-mkDirectoryNodeMPW ::
-  ClosedTerm
-    ( PAirdropConfig
-        :--> PScriptContext :--> PUnit 
-    )
-mkDirectoryNodeMPW = phoistAcyclic $ plam $ \claimConfig ctx ->
-  let red = punsafeCoerce @_ @_ @PDirectoryNodeAction (pto (pfield @"redeemer" # ctx))
-   in mkDirectoryNodeMP # claimConfig # red # ctx
