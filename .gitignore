@@ -30,3 +30,5 @@ haddocks/
 .envrc
 get-protocol-parameters.sh
 protocol-parameters-mainnet.json
+.pre-commit-config.yaml
+tags
