@@ -1,12 +1,12 @@
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ImpredicativeTypes    #-}
+{-# LANGUAGE OverloadedLabels      #-}
+{-# LANGUAGE OverloadedRecordDot   #-}
+{-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE ImpredicativeTypes #-}
-{-# LANGUAGE OverloadedLabels #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE QualifiedDo #-}
-{-# LANGUAGE OverloadedRecordDot  #-}
+{-# LANGUAGE QualifiedDo           #-}
+{-# LANGUAGE UndecidableInstances  #-}
 
 module SmartTokens.Types.PTokenDirectory (
   DirectorySetNode (..),
@@ -23,28 +23,24 @@ module SmartTokens.Types.PTokenDirectory (
   pisEmptyNode,
 ) where
 
-import Plutarch.Core.PlutusDataList
-    ( DerivePConstantViaDataList(..),
-      PlutusTypeDataList,
-      ProductIsData(..) )
 import Generics.SOP qualified as SOP
-import Plutarch.LedgerApi.V3 ( PCredential, PCurrencySymbol )
+import Plutarch (Config (NoTracing))
+import Plutarch.Builtin (pasByteStr, pasConstr, pasList, pforgetData, plistData)
+import Plutarch.Core.PlutusDataList (DerivePConstantViaDataList (..),
+                                     PlutusTypeDataList, ProductIsData (..))
+import Plutarch.Core.Utils (pcond, pheadSingleton, pmkBuiltinList)
+import Plutarch.DataRepr (PDataFields)
 import Plutarch.DataRepr.Internal.Field (HRec (..), Labeled (Labeled))
-import Plutarch.Builtin ( pforgetData, plistData, pasList, pasByteStr, psndBuiltin, pasConstr )
-import Plutarch.Internal.PlutusType (pcon', pmatch')
-import Plutarch.Unsafe (punsafeCoerce)
-import Plutarch.DataRepr ( PDataFields )
-import PlutusTx qualified
-import PlutusLedgerApi.V3 (Credential, CurrencySymbol)
-import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (PLifted))
 import Plutarch.Evaluate (unsafeEvalTerm)
-import Plutarch (Config(NoTracing))
-import Plutarch.Core.Utils (pmkBuiltinList, pheadSingleton, pcond)
+import Plutarch.Internal.PlutusType (pcon', pmatch')
+import Plutarch.LedgerApi.V3 (PCredential, PCurrencySymbol)
+import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (PLifted))
 import Plutarch.List
 import Plutarch.Prelude
-import PlutusTx (
-  Data (B, Constr),
- )
+import Plutarch.Unsafe (punsafeCoerce)
+import PlutusLedgerApi.V3 (Credential, CurrencySymbol)
+import PlutusTx (Data (B, Constr))
+import PlutusTx qualified
 
 pdeserializeCredential :: Term s (PAsData PCredential) -> Term s (PAsData PCredential)
 pdeserializeCredential term =
@@ -78,9 +74,9 @@ newtype PBlacklistNode (s :: S)
       )
   deriving stock (Generic)
 
--- TODO: 
+-- TODO:
 -- The reason we have to manually implement this is because the PlutusTypeDataList DerivePlutusType strategy
--- breaks when we use PByteString fields probably due to the fact that the PLifted/PConstant instances use ByteString 
+-- breaks when we use PByteString fields probably due to the fact that the PLifted/PConstant instances use ByteString
 -- instead of BuiltinByteString. We should fix the PlutusTypeDataList strategy to work with PByteString fields.
 instance PlutusType PBlacklistNode where
   type PInner PBlacklistNode = PDataRecord '[ "key" ':= PByteString, "next" ':= PByteString ]
@@ -135,13 +131,13 @@ deriving via
 -- import PlutusTx.Builtins.Internal qualified as BI
 -- import PlutusTx.Prelude (BuiltinByteString, fromBuiltin, toBuiltin)
 -- instance PlutusTx.ToData DirectorySetNode where
---   toBuiltinData DirectorySetNode{key, next, transferLogicScript, issuerLogicScript} = 
+--   toBuiltinData DirectorySetNode{key, next, transferLogicScript, issuerLogicScript} =
 --     BI.mkList $ BI.mkCons (BI.mkB $ toBuiltin key) $ BI.mkCons (BI.mkB $ toBuiltin next) $ BI.mkCons (PlutusTx.toBuiltinData transferLogicScript) $ BI.mkCons (PlutusTx.toBuiltinData issuerLogicScript) $ BI.mkNilData BI.unitval
 
 -- instance PlutusTx.FromData DirectorySetNode where
---   fromBuiltinData builtinData = 
+--   fromBuiltinData builtinData =
 --     let fields = BI.snd $ BI.unsafeDataAsConstr builtinData
---         key = BI.head fields 
+--         key = BI.head fields
 --         fields1 = BI.tail fields
 --         next = BI.head fields1
 --         fields2 = BI.tail fields1
@@ -211,11 +207,11 @@ pisInsertedOnNode = phoistAcyclic $
 --      in outputNode #== expectedDirectoryNode
 
 pisInsertedNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PDirectorySetNode :--> PBool)
-pisInsertedNode = phoistAcyclic $ 
+pisInsertedNode = phoistAcyclic $
   plam $ \insertedKey coveringNext outputNode ->
     pletFields @'["transferLogicScript", "issuerLogicScript"] outputNode $ \outputNodeDatumF ->
       let transferLogicCred_ = outputNodeDatumF.transferLogicScript
           issuerLogicCred_ = outputNodeDatumF.issuerLogicScript
-          expectedDirectoryNode = 
+          expectedDirectoryNode =
             pmkDirectorySetNode # insertedKey # coveringNext # pdeserializeCredential transferLogicCred_ # pdeserializeCredential issuerLogicCred_
       in outputNode #== expectedDirectoryNode

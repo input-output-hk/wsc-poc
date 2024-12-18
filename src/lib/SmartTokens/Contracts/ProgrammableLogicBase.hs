@@ -1,99 +1,47 @@
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ImpredicativeTypes    #-}
+{-# LANGUAGE OverloadedLabels      #-}
+{-# LANGUAGE OverloadedRecordDot   #-}
+{-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE ImpredicativeTypes #-}
-{-# LANGUAGE OverloadedLabels #-}
-{-# LANGUAGE QualifiedDo #-}
-{-# LANGUAGE OverloadedRecordDot  #-}
+{-# LANGUAGE QualifiedDo           #-}
 module SmartTokens.Contracts.ProgrammableLogicBase (
   mkProgrammableLogicBase,
   mkProgrammableLogicGlobal
 ) where
 
-import Plutarch.LedgerApi.V3
-    ( pdnothing,
-      KeyGuarantees(Sorted),
-      PMap(..),
-      PMaybeData(PDNothing, PDJust),
-      PCredential(..),
-      PStakingCredential(PStakingHash),
-      PPubKeyHash,
-      AmountGuarantees(Positive),
-      PCurrencySymbol,
-      PLovelace,
-      PTokenName,
-      PValue(..),
-      POutputDatum(POutputDatum),
-      PTxOut(..),
-      PScriptContext,
-      PTxInInfo )
+import Plutarch.Builtin (pasByteStr, pasConstr, pforgetData)
+import Plutarch.Core.Utils (pand'List, pcanFind, pcountInputsFromCred,
+                            pelemAtFast, pfilterCSFromValue, phasDataCS,
+                            pisRewarding, pmustFind, ptxSignedByPkh,
+                            pvalidateConditions, pvalueContains)
+import Plutarch.Extra.Record (mkRecordConstr, (.&), (.=))
+import Plutarch.LedgerApi.V3 (AmountGuarantees (Positive),
+                              KeyGuarantees (Sorted), PCredential (..),
+                              PCurrencySymbol, PLovelace, PMap (..),
+                              PMaybeData (PDJust, PDNothing),
+                              POutputDatum (POutputDatum), PPubKeyHash,
+                              PScriptContext, PStakingCredential (PStakingHash),
+                              PTokenName, PTxInInfo, PTxOut (..), PValue (..),
+                              pdnothing)
 import Plutarch.Monadic qualified as P
-import Plutarch.Prelude
-    ( Generic,
-      (#),
-      (#$),
-      perror,
-      phoistAcyclic,
-      plet,
-      pfix,
-      pto,
-      pcon,
-      pmatch,
-      type (:-->),
-      ClosedTerm,
-      S,
-      Term,
-      plam,
-      DerivePlutusType(..),
-      PlutusType,
-      PByteString,
-      pconstant,
-      PEq(..),
-      PBool,
-      PPartialOrd((#<)),
-      PInteger,
-      (#||),
-      pif,
-      pdata,
-      pfromData,
-      pfstBuiltin,
-      psndBuiltin,
-      pfield,
-      pletFields,
-      ptraceInfo,
-      pelem,
-      pmap,
-      PAsData,
-      PBuiltinList,
-      PBuiltinPair,
-      PIsData,
-      PDataRecord,
-      PLabeledType((:=)),
-      PlutusTypeData,
-      PListLike(phead, pelimList, pcons, ptail),
-      PUnit )
-import Plutarch.Builtin ( pasByteStr, pasConstr, pforgetData )
-import Plutarch.Core.Utils
-    ( pisRewarding,
-      pcountInputsFromCred,
-      phasDataCS,
-      pelemAtFast,
-      pmustFind,
-      pcanFind,
-      ptxSignedByPkh,
-      pfilterCSFromValue,
-      pvalueContains,
-      pand'List,
-      pvalidateConditions,
-      )
-import Plutarch.Unsafe ( punsafeCoerce )
-import PlutusLedgerApi.V1.Value ( Value )
+import Plutarch.Prelude (ClosedTerm, DerivePlutusType (..), Generic, PAsData,
+                         PBool, PBuiltinList, PBuiltinPair, PByteString,
+                         PDataRecord, PEq (..), PInteger, PIsData,
+                         PLabeledType ((:=)),
+                         PListLike (pcons, pelimList, phead, ptail),
+                         PPartialOrd ((#<)), PUnit, PlutusType, PlutusTypeData,
+                         S, Term, pcon, pconstant, pdata, pelem, perror, pfield,
+                         pfix, pfromData, pfstBuiltin, phoistAcyclic, pif, plam,
+                         plet, pletFields, pmap, pmatch, psndBuiltin, pto,
+                         ptraceInfo, type (:-->), (#$), (#), (#||))
+import Plutarch.Unsafe (punsafeCoerce)
+import PlutusLedgerApi.V1.Value (Value)
 import SmartTokens.Types.ProtocolParams (PProgrammableLogicGlobalParams)
-import Plutarch.Extra.Record ( mkRecordConstr, (.=), (.&) )
-import SmartTokens.Types.PTokenDirectory ( PDirectorySetNode )
+import SmartTokens.Types.PTokenDirectory (PDirectorySetNode)
 
--- | Strip Ada from a ledger value 
+-- | Strip Ada from a ledger value
 -- Importantly this function assumes that the Value is provided by the ledger (i.e. via the ScriptContext)
 -- and thus the invariant that Ada is the first entry in the Value is maintained
 pstripAda ::
@@ -104,7 +52,7 @@ pstripAda = phoistAcyclic $
     let nonAdaValueMapInner = ptail # pto (pto value)
     in pcon (PValue $ pcon $ PMap nonAdaValueMapInner)
 
--- TODO: 
+-- TODO:
 -- The current implementation of the contracts in this module are not designed to be maximally efficient.
 -- In the future, this should be optimized to use the redeemer indexing design pattern to identify and validate
 -- the programmable inputs.
@@ -189,7 +137,7 @@ pvalueToCred = phoistAcyclic $ plam $ \cred inputs ->
 
 -- | Programmable logic base
 -- This validator forwards its validation logic to the programmable logic stake script
--- using the withdraw-zero design pattern. 
+-- using the withdraw-zero design pattern.
 mkProgrammableLogicBase :: ClosedTerm (PAsData PCredential :--> PScriptContext :--> PUnit)
 mkProgrammableLogicBase = plam $ \stakeCred ctx ->
   let wdrls :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace)))
@@ -208,8 +156,8 @@ mkProgrammableLogicBase = plam $ \stakeCred ctx ->
                 )
       in pvalidateConditions [hasCred]
 
--- | Traverse the currency symbols of the combined value of all programmable base inputs 
--- (excluding the first currency symbol in `totalValue` which the ledger enforces must be Ada). 
+-- | Traverse the currency symbols of the combined value of all programmable base inputs
+-- (excluding the first currency symbol in `totalValue` which the ledger enforces must be Ada).
 -- For each currency symbol, we check a proof that either:
 -- 1. The currency symbol is in the directory and the associated transfer logic script is executed in the transaction.
 -- 2. The currency symbol is not in the directory.
@@ -229,7 +177,7 @@ pcheckTransferLogic = plam $ \directoryNodeCS refInputs proofList scripts totalV
                         POutputDatum ((pfield @"outputDatum" #) -> paramDat') <- pmatch directoryNodeUTxOF.datum
                         directoryNodeDatumF <- pletFields @'["key", "next", "transferLogicScript"] (punsafeCoerce @_ @_ @PDirectorySetNode (pto paramDat'))
                         let transferLogicScriptHash = punsafeCoerce @_ @_ @(PAsData PByteString) $ phead #$ psndBuiltin #$ pasConstr # pforgetData directoryNodeDatumF.transferLogicScript
-                        -- validate that the directory entry for the currency symbol is referenced by the proof 
+                        -- validate that the directory entry for the currency symbol is referenced by the proof
                         -- and that the associated transfer logic script is executed in the transaction
                         let checks =
                               pand'List
@@ -254,7 +202,7 @@ pcheckTransferLogic = plam $ \directoryNodeCS refInputs proofList scripts totalV
                                 -- the currency symbol is not in the directory
                                 nodeKey #< currCS
                                 , currCS #< nodeNext #|| nodeNext #== pconstant ""
-                                -- both directory entries are legitimate, this is proven by the 
+                                -- both directory entries are legitimate, this is proven by the
                                 -- presence of the directory node currency symbol.
                                 , phasDataCS # directoryNodeCS # pfromData prevNodeUTxOF.value
                                 ]
@@ -264,13 +212,13 @@ pcheckTransferLogic = plam $ \directoryNodeCS refInputs proofList scripts totalV
                 )
                 (pconstant True)
                 innerValue
-    -- drop the ada entry in the value before traversing the rest of the value entries 
+    -- drop the ada entry in the value before traversing the rest of the value entries
     in go # proofList # (ptail # mapInnerList)
 
--- | Traverse the currency symbols of the combined value of all programmable base inputs 
--- (excluding the first currency symbol in `totalValue` which the ledger enforces must be Ada). 
+-- | Traverse the currency symbols of the combined value of all programmable base inputs
+-- (excluding the first currency symbol in `totalValue` which the ledger enforces must be Ada).
 -- For each currency symbol, we check a proof that either:
--- 1. The currency symbol is in the directory (and thus is a programmable token) 
+-- 1. The currency symbol is in the directory (and thus is a programmable token)
 --      - given that it is a programmable token, we check that associated transfer logic script is executed in the transaction
 --        and add the value entry to the result.
 -- 2. The currency symbol is not in the directory.
@@ -293,7 +241,7 @@ pcheckTransferLogicAndGetProgrammableValue = plam $ \directoryNodeCS refInputs p
                         POutputDatum ((pfield @"outputDatum" #) -> paramDat') <- pmatch directoryNodeUTxOF.datum
                         directoryNodeDatumF <- pletFields @'["key", "next", "transferLogicScript"] (pfromData $ punsafeCoerce @_ @_ @(PAsData PDirectorySetNode) (pto paramDat'))
                         let transferLogicScriptHash = punsafeCoerce @_ @_ @(PAsData PByteString) $ phead #$ psndBuiltin #$ pasConstr # pforgetData directoryNodeDatumF.transferLogicScript
-                        -- validate that the directory entry for the currency symbol is referenced by the proof 
+                        -- validate that the directory entry for the currency symbol is referenced by the proof
                         -- and that the associated transfer logic script is executed in the transaction
                         let checks =
                               pand'List
@@ -318,7 +266,7 @@ pcheckTransferLogicAndGetProgrammableValue = plam $ \directoryNodeCS refInputs p
                                 -- the currency symbol is not in the directory
                                 nodeKey #< currCS
                                 , currCS #< nodeNext #|| nodeNext #== pconstant ""
-                                -- both directory entries are legitimate, this is proven by the 
+                                -- both directory entries are legitimate, this is proven by the
                                 -- presence of the directory node currency symbol.
                                 , phasDataCS # directoryNodeCS # pfromData prevNodeUTxOF.value
                                 ]
@@ -328,7 +276,7 @@ pcheckTransferLogicAndGetProgrammableValue = plam $ \directoryNodeCS refInputs p
                 )
                 (pcon $ PValue $ pcon $ PMap actualProgrammableTokenValue)
                 inputInnerValue
-    -- drop the ada entry in the value before traversing the rest of the value entries 
+    -- drop the ada entry in the value before traversing the rest of the value entries
     in go # proofList # (ptail # mapInnerList) # pto (pto pemptyLedgerValue)
 
 -- type ProgrammableLogicGlobalRedeemer = PBuiltinList (PAsData PTokenProof)
@@ -392,7 +340,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                 # invokedScripts
                 # infoF.inputs
       ptraceInfo "PTransferAct checkTransferLogicAndGetProgrammableValue"
-      totalProgTokenValue <-
+      totalProgTokenValue_ <-
         plet $ pcheckTransferLogicAndGetProgrammableValue
                 # protocolParamsF.directoryNodeCS
                 # referenceInputs
@@ -407,11 +355,11 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
               # referenceInputs
               # pfromData proofs
               # invokedScripts
-              # totalProgTokenValue
-          -- For POC we enforce that all value spent from the programmable contracts must 
-          -- return to the programmable contracts. We can easily extend this to allow 
+              # totalProgTokenValue_
+          -- For POC we enforce that all value spent from the programmable contracts must
+          -- return to the programmable contracts. We can easily extend this to allow
           -- for non-programmable tokens to leave the programmable contract.
-          , pvalueContains # (pvalueToCred # progLogicCred # pfromData infoF.outputs) # totalProgTokenValue
+          , pvalueContains # (pvalueToCred # progLogicCred # pfromData infoF.outputs) # totalProgTokenValue_
           ]
     PSeizeAct seizeAct -> P.do
       -- TODO:
@@ -443,7 +391,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                     .& #referenceScript
                     .= pdata pdnothing
                 )
-      -- For ease of implementation of POC we only allow one UTxO to be seized per transaction. 
+      -- For ease of implementation of POC we only allow one UTxO to be seized per transaction.
       -- This can be easily modified to support seizure of multiple UTxOs.
       let issuerLogicScriptHash = punsafeCoerce @_ @_ @(PAsData PByteString) $ phead #$ psndBuiltin #$ pasConstr # pforgetData directoryNodeDatumF.issuerLogicScript
       pvalidateConditions

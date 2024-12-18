@@ -1,50 +1,25 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE OverloadedRecordDot  #-}
-{-# LANGUAGE QualifiedDo #-}
+{-# OPTIONS_GHC -Wno-unused-do-bind #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE QualifiedDo         #-}
 
 module SmartTokens.LinkedList.MintDirectory (
   mkDirectoryNodeMP,
 ) where
 
-import Plutarch.LedgerApi.V3 ( PScriptContext, PTxOutRef )
+import Plutarch.LedgerApi.V3 (PScriptContext, PTxOutRef)
 import Plutarch.Monadic qualified as P
 import Plutarch.Unsafe (punsafeCoerce)
-import SmartTokens.LinkedList.Common (
-  makeCommon,
-  pInit,
-  pInsert,
- )
+import SmartTokens.LinkedList.Common (makeCommon, pInit, pInsert)
 
-import Plutarch.Prelude
-    ( Generic,
-      (#),
-      perror,
-      plet,
-      pto,
-      pmatch,
-      type (:-->),
-      ClosedTerm,
-      S,
-      Term,
-      plam,
-      DerivePlutusType(..),
-      PlutusType,
-      TermCont(runTermCont),
-      PByteString,
-      pconstant,
-      PEq,
-      pif,
-      pfromData,
-      pfield,
-      pletFields,
-      PAsData,
-      PIsData,
-      PDataRecord,
-      PLabeledType((:=)),
-      PlutusTypeData,
-      PUnit )
 import Plutarch.Core.Utils (pand'List, passert, phasUTxO)
+import Plutarch.Prelude (ClosedTerm, DerivePlutusType (..), Generic, PAsData,
+                         PByteString, PDataRecord, PEq, PIsData,
+                         PLabeledType ((:=)), PUnit, PlutusType, PlutusTypeData,
+                         S, Term, TermCont (runTermCont), pconstant, perror,
+                         pfield, pfromData, pif, plam, plet, pletFields, pmatch,
+                         pto, type (:-->), (#))
 
 --------------------------------
 -- FinSet Node Minting Policy:
@@ -66,7 +41,7 @@ mkDirectoryNodeMP ::
     )
 mkDirectoryNodeMP = plam $ \initUTxO ctx -> P.do
   let red = punsafeCoerce @_ @_ @PDirectoryNodeAction (pto (pfield @"redeemer" # ctx))
- 
+
   common <- runTermCont $ makeCommon ctx
 
   pmatch red $ \case
@@ -79,7 +54,7 @@ mkDirectoryNodeMP = plam $ \initUTxO ctx -> P.do
     PInsert action -> P.do
       act <- pletFields @'["keyToInsert"] action
       pkToInsert <- plet act.keyToInsert
-      let mintsProgrammableToken = pconstant False 
+      let mintsProgrammableToken = pconstant False
           insertChecks =
             pand'List
                 [ mintsProgrammableToken
