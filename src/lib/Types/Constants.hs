@@ -1,20 +1,19 @@
-{-# OPTIONS_GHC -Wno-missing-export-lists #-}
+{-# LANGUAGE QualifiedDo #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-unused-do-bind #-}
 
-module Types.Constants where
+module Types.Constants(
+  psetNodePrefix,
+  pnodeKeyTN,
+  poriginNodeTN,
+  ptryParseNodeKey
+) where
 
-import Plutarch
 import Plutarch.LedgerApi.V1 (PTokenName (..))
 import Plutarch.Prelude
-import SmartTokens.Core.Utils
+import Plutarch.Core.Utils (pnonew, passert, pisPrefixOf)
 import PlutusLedgerApi.V1 (TokenName(..))
 import Plutarch.Builtin (PDataNewtype(..))
-
-{-# INLINABLE djedOrderToken #-}
-djedOrderToken :: TokenName
-djedOrderToken = "DjedOrderTicket"
-
-pdjedOrderToken :: ClosedTerm PTokenName 
-pdjedOrderToken = pconstant djedOrderToken
 
 psetNodePrefix :: ClosedTerm PByteString
 psetNodePrefix = pconstant "FSN"

@@ -31,3 +31,10 @@ source-repository-package
       .
       plutarch-ledger-api
       plutarch-extra
+
+source-repository-package
+    type: git
+    location: https://github.com/input-output-hk/catalyst-onchain-libs
+    tag: 25996ca26f1b33ffef611bc81423aae5841e297f
+    subdir:
+      src/plutarch-onchain-lib

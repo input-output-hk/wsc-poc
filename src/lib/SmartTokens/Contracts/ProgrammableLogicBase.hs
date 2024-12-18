@@ -1,3 +1,11 @@
+{-# OPTIONS_GHC -Wno-unused-do-bind #-}
+{-# OPTIONS_GHC -Wno-partial-type-signatures #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE QualifiedDo #-}
+{-# LANGUAGE OverloadedRecordDot  #-}
 module SmartTokens.Contracts.ProgrammableLogicBase (
   mkProgrammableLogicBase,
   mkProgrammableLogicGlobal
@@ -133,8 +141,8 @@ pvalueFromCred = phoistAcyclic $ plam $ \cred sigs scripts inputs ->
                                   pif (ptxSignedByPkh # pkh # sigs)
                                       (acc <> pfromData txInF.value)
                                       perror
-                                PScriptCredential ((pfield @"_0" #) -> scriptHash) ->
-                                  pif (pelem # punsafeCoerce scriptHash # scripts)
+                                PScriptCredential ((pfield @"_0" #) -> scriptHash_) ->
+                                  pif (pelem # punsafeCoerce scriptHash_ # scripts)
                                       (acc <> pfromData txInF.value)
                                       perror
                             _ -> perror

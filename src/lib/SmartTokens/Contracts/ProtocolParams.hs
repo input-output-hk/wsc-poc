@@ -1,3 +1,6 @@
+{-# LANGUAGE QualifiedDo #-}
+{-# LANGUAGE OverloadedRecordDot  #-}
+{-# LANGUAGE OverloadedStrings #-}
 module SmartTokens.Contracts.ProtocolParams (
   mkProtocolParametersMinting,
   alwaysFailScript,
@@ -22,7 +25,7 @@ import Plutarch.Prelude
       psndBuiltin,
       pletFields,
       PUnit, pfield )
-import SmartTokens.Core.Utils
+import Plutarch.Core.Utils
     ( pheadSingleton,
       ptryLookupValue,
       phasUTxO,

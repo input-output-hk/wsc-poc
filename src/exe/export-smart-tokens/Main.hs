@@ -1,8 +1,4 @@
-{-# OPTIONS_GHC -Wno-unused-imports #-}
-{-# OPTIONS_GHC -Wno-unused-top-binds #-}
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# HLINT ignore "Eta reduce" #-}
-
+{-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
 import Cardano.Binary qualified as CBOR
@@ -13,7 +9,6 @@ import Data.Bifunctor (
  )
 import Data.ByteString.Base16 qualified as Base16
 import Data.ByteString.Lazy qualified as LBS
-import Data.Default (def)
 import Data.Text (
   Text,
   pack,
@@ -24,7 +19,6 @@ import Plutarch (
   TracingMode (..),
   LogLevel (..),
   compile,
-  printScript,
  )
 import Plutarch.Evaluate (
   evalScript,
@@ -36,7 +30,6 @@ import PlutusLedgerApi.V2 (
   Data,
   ExBudget,
  )
-import System.IO
 import SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicBase, mkProgrammableLogicGlobal)
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
 import SmartTokens.Contracts.ProtocolParams (mkProtocolParametersMinting, alwaysFailScript, mkPermissionedMinting)
@@ -71,14 +64,6 @@ writePlutusScript cfg title filepath term = do
 writePlutusScriptTraceBind :: String -> FilePath -> ClosedTerm a -> IO ()
 writePlutusScriptTraceBind title filepath term =
   writePlutusScript (Tracing LogInfo DoTracingAndBinds) title filepath term
-
-writePlutusScriptTrace :: String -> FilePath -> ClosedTerm a -> IO ()
-writePlutusScriptTrace title filepath term =
-  writePlutusScript (Tracing LogInfo DoTracing) title filepath term
-
-writePlutusScriptNoTrace :: String -> FilePath -> ClosedTerm a -> IO ()
-writePlutusScriptNoTrace title filepath term =
-  writePlutusScript NoTracing title filepath term
 
 main :: IO ()
 main = do

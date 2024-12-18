@@ -1,8 +1,9 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
-{-# OPTIONS_GHC -Wno-missing-export-lists #-}
 
-module Types.Classes where
+module Types.Classes(
+  ScottConvertible(..)
+) where
 
 import Plutarch.Prelude
 

@@ -51,7 +51,8 @@ import Plutarch.Prelude
       PPair(..),
       PUnit )
 import Plutarch.Unsafe (punsafeCoerce)
-import SmartTokens.Core.Utils (
+import Plutarch.Core.Utils (
+  pand'List,
   passert,
   paysToAddress,
   pcountOfUniqueTokens,

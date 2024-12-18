@@ -1,3 +1,6 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedRecordDot  #-}
+{-# LANGUAGE QualifiedDo #-}
 module SmartTokens.Contracts.ExampleTransferLogic (
   mkPermissionedTransfer,
   mkFreezeAndSeizeTransfer,
@@ -48,7 +51,7 @@ import Plutarch.Prelude
       PListLike(pcons, ptail, pelimList, phead),
       PUnit, (#||) )
 import Plutarch.Builtin ( pasByteStr, pasConstr, pforgetData )
-import SmartTokens.Core.Utils
+import Plutarch.Core.Utils
     ( pisRewarding,
       phasDataCS,
       pelemAtFast,
