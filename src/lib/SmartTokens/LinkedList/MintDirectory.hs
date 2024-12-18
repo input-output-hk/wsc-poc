@@ -1,4 +1,7 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedRecordDot  #-}
+{-# LANGUAGE QualifiedDo #-}
 
 module SmartTokens.LinkedList.MintDirectory (
   mkDirectoryNodeMP,
@@ -41,7 +44,7 @@ import Plutarch.Prelude
       PLabeledType((:=)),
       PlutusTypeData,
       PUnit )
-import SmartTokens.Core.Utils (pand'List, passert, phasUTxO)
+import Plutarch.Core.Utils (pand'List, passert, phasUTxO)
 
 --------------------------------
 -- FinSet Node Minting Policy:

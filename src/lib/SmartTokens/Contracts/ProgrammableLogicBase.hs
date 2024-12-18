@@ -74,7 +74,7 @@ import Plutarch.Prelude
       PListLike(phead, pelimList, pcons, ptail),
       PUnit )
 import Plutarch.Builtin ( pasByteStr, pasConstr, pforgetData )
-import SmartTokens.Core.Utils
+import Plutarch.Core.Utils
     ( pisRewarding,
       pcountInputsFromCred,
       phasDataCS,
@@ -86,18 +86,28 @@ import SmartTokens.Core.Utils
       pvalueContains,
       pand'List,
       pvalidateConditions,
-      pstripAda )
+      )
 import Plutarch.Unsafe ( punsafeCoerce )
 import PlutusLedgerApi.V1.Value ( Value )
 import SmartTokens.Types.ProtocolParams (PProgrammableLogicGlobalParams)
 import Plutarch.Extra.Record ( mkRecordConstr, (.=), (.&) )
 import SmartTokens.Types.PTokenDirectory ( PDirectorySetNode )
 
+-- | Strip Ada from a ledger value 
+-- Importantly this function assumes that the Value is provided by the ledger (i.e. via the ScriptContext)
+-- and thus the invariant that Ada is the first entry in the Value is maintained
+pstripAda ::
+  forall (v :: AmountGuarantees) (s :: S).
+  Term s (PValue 'Sorted v :--> PValue 'Sorted v)
+pstripAda = phoistAcyclic $
+  plam $ \value ->
+    let nonAdaValueMapInner = ptail # pto (pto value)
+    in pcon (PValue $ pcon $ PMap nonAdaValueMapInner)
+
 -- TODO: 
 -- The current implementation of the contracts in this module are not designed to be maximally efficient.
 -- In the future, this should be optimized to use the redeemer indexing design pattern to identify and validate
 -- the programmable inputs.
-
 
 data PTokenProof (s :: S)
   = PTokenExists

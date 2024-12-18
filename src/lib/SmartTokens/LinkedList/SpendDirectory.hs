@@ -3,6 +3,9 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedRecordDot  #-}
+{-# LANGUAGE QualifiedDo #-}
 
 module SmartTokens.LinkedList.SpendDirectory (pmkDirectorySpending, pmkDirectorySpendingYielding, pmkDirectoryGlobalLogic) where 
 
@@ -30,7 +33,7 @@ import Plutarch.Prelude
       PMaybe(PNothing, PJust),
       PUnit )
 import Plutarch.Unsafe (punsafeCoerce)
-import SmartTokens.Core.Utils (pvalidateConditions, phasDataCS, pmustFind)
+import Plutarch.Core.Utils (pvalidateConditions, phasDataCS, pmustFind)
 import Plutarch.LedgerApi.AssocMap qualified as AssocMap
 import SmartTokens.Types.ProtocolParams (PProgrammableLogicGlobalParams)
 

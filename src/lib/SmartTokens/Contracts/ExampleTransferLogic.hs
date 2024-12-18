@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use newtype instead of data" #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedRecordDot  #-}
 {-# LANGUAGE QualifiedDo #-}
@@ -139,8 +141,8 @@ pvalidateWitnesses = phoistAcyclic $ plam $ \blacklistNodeCS proofs refInputs wi
               POutputDatum ((pfield @"outputDatum" #) -> prevNodeDat') <- pmatch prevNodeUTxOF.datum
               prevNodeDatumF <- pletFieldsBlacklistNode $ punsafeCoerce @_ @_ @(PAsData PBlacklistNode) (pto prevNodeDat')
               witnessKey <- plet $ pasByteStr # pforgetData wit
-              nodeKey <- plet $ pfromData $ prevNodeDatumF.key
-              nodeNext <- plet $ pfromData $ prevNodeDatumF.next -- pasByteStr # pforgetData (phead # (ptail # prevNodeDatumF))
+              nodeKey <- plet $ pfromData prevNodeDatumF.key
+              nodeNext <- plet $ pfromData prevNodeDatumF.next -- pasByteStr # pforgetData (phead # (ptail # prevNodeDatumF))
               let checks =
                     pand'List
                       [

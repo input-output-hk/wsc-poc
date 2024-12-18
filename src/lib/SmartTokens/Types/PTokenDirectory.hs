@@ -1,6 +1,13 @@
+{-# OPTIONS_GHC -Wno-unused-do-bind #-}
+{-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE QualifiedDo #-}
+{-# LANGUAGE OverloadedRecordDot  #-}
+
 module SmartTokens.Types.PTokenDirectory (
   DirectorySetNode (..),
   PDirectorySetNode (..),
@@ -23,7 +30,7 @@ import Plutarch.Core.PlutusDataList
 import Generics.SOP qualified as SOP
 import Plutarch.LedgerApi.V3 ( PCredential, PCurrencySymbol )
 import Plutarch.DataRepr.Internal.Field (HRec (..), Labeled (Labeled))
-import Plutarch.Builtin ( pforgetData, plistData, pasList )
+import Plutarch.Builtin ( pforgetData, plistData, pasList, pasByteStr, psndBuiltin, pasConstr )
 import Plutarch.Internal.PlutusType (pcon', pmatch')
 import Plutarch.Unsafe (punsafeCoerce)
 import Plutarch.DataRepr ( PDataFields )
@@ -32,12 +39,27 @@ import PlutusLedgerApi.V3 (Credential, CurrencySymbol)
 import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (PLifted))
 import Plutarch.Evaluate (unsafeEvalTerm)
 import Plutarch (Config(NoTracing))
-import Plutarch.Core.Utils (pmkBuiltinList, pheadSingleton, pdeserializeCredential)
+import Plutarch.Core.Utils (pmkBuiltinList, pheadSingleton, pcond)
 import Plutarch.List
 import Plutarch.Prelude
 import PlutusTx (
   Data (B, Constr),
  )
+
+pdeserializeCredential :: Term s (PAsData PCredential) -> Term s (PAsData PCredential)
+pdeserializeCredential term =
+  plet (pasConstr # pforgetData term) $ \constrPair ->
+    plet (pfstBuiltin # constrPair) $ \constrIdx ->
+      pif (plengthBS # (pasByteStr # (pheadSingleton # (psndBuiltin # constrPair))) #== 28)
+          (
+            pcond
+              [ ( constrIdx #== 0 , term)
+              , ( constrIdx #== 1 , term)
+              ]
+              perror
+          )
+          perror
+
 -- data BlackListNode =
 --   BlackListNode {
 --     key :: BuiltinByteString,
@@ -79,9 +101,9 @@ type PBlacklistNodeHRec (s :: S) =
 pletFieldsBlacklistNode :: forall {s :: S} {r :: PType}. Term s (PAsData PBlacklistNode) -> (PBlacklistNodeHRec s -> Term s r) -> Term s r
 pletFieldsBlacklistNode term = runTermCont $ do
   fields <- tcont $ plet $ pasList # (pforgetData term)
-  let key = punsafeCoerce @_ @_ @(PAsData PByteString) $ phead # fields
-      next = punsafeCoerce @_ @_ @(PAsData PByteString) $ pheadSingleton # (ptail # fields)
-  tcont $ \f -> f $ HCons (Labeled @"key" key) (HCons (Labeled @"next" next) HNil)
+  let key_ = punsafeCoerce @_ @_ @(PAsData PByteString) $ phead # fields
+      next_ = punsafeCoerce @_ @_ @(PAsData PByteString) $ pheadSingleton # (ptail # fields)
+  tcont $ \f -> f $ HCons (Labeled @"key" key_) (HCons (Labeled @"next" next_) HNil)
 
 -- instance DerivePlutusType PBlacklistNode where
 --   type DPTStrat _ = PlutusTypeDataList
@@ -192,8 +214,8 @@ pisInsertedNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :-->
 pisInsertedNode = phoistAcyclic $ 
   plam $ \insertedKey coveringNext outputNode ->
     pletFields @'["transferLogicScript", "issuerLogicScript"] outputNode $ \outputNodeDatumF ->
-      let transferLogicCred = outputNodeDatumF.transferLogicScript
-          issuerLogicCred = outputNodeDatumF.issuerLogicScript
+      let transferLogicCred_ = outputNodeDatumF.transferLogicScript
+          issuerLogicCred_ = outputNodeDatumF.issuerLogicScript
           expectedDirectoryNode = 
-            pmkDirectorySetNode # insertedKey # coveringNext # pdeserializeCredential transferLogicCred # pdeserializeCredential issuerLogicCred
+            pmkDirectorySetNode # insertedKey # coveringNext # pdeserializeCredential transferLogicCred_ # pdeserializeCredential issuerLogicCred_
       in outputNode #== expectedDirectoryNode

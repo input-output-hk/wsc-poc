@@ -39,15 +39,15 @@ library
     SmartTokens.Types.Constants
     SmartTokens.Types.ProtocolParams
     SmartTokens.Types.PTokenDirectory
-    Types.Classes
+    SmartTokens.LinkedList.MintDirectory
+    SmartTokens.LinkedList.SpendDirectory
+    SmartTokens.LinkedList.Common
     Types.Constants
     Wst.Cli
     Wst.Offchain
     Wst.Onchain
     Wst.Server
     Profile
-    Types.Classes
-    Types.Constants
 
   -- Compile
 

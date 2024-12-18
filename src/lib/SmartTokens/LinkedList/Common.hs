@@ -1,3 +1,12 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedRecordDot  #-}
+{-# LANGUAGE QualifiedDo #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# OPTIONS_GHC -Wno-unused-do-bind #-}
+{-# OPTIONS_GHC -Wno-partial-type-signatures #-}
+
 module SmartTokens.LinkedList.Common (
   PDirectoryCommon (..),
   makeCommon,
@@ -52,9 +61,7 @@ import Plutarch.Prelude
       PUnit )
 import Plutarch.Unsafe (punsafeCoerce)
 import Plutarch.Core.Utils (
-  pand'List,
   passert,
-  paysToAddress,
   pcountOfUniqueTokens,
   pfindCurrencySymbolsByTokenPrefix,
   pheadSingleton,
@@ -78,8 +85,12 @@ import Plutarch.LedgerApi.V3
       POutputDatum(POutputDatum),
       PTxOut,
       PScriptContext,
-      PScriptInfo(PMintingScript) )
+      PScriptInfo(PMintingScript),
+      PAddress )
 import Plutarch.Builtin (pforgetData, pasByteStr)
+
+paysToAddress :: Term s (PAddress :--> (PAsData PTxOut) :--> PBool)
+paysToAddress = phoistAcyclic $ plam $ \adr txOut -> adr #== (pfield @"address" # txOut)
 
 {- | Ensures that the minted amount of the FinSet CS is exactly the specified
      tokenName and amount
