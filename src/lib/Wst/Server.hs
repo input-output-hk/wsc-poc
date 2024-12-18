@@ -1,21 +1,23 @@
-{-# LANGUAGE TypeOperators      #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators    #-}
 
 {-| servant server for stablecoin POC
 -}
 module Wst.Server(runServer) where
 
+import Data.Data (Proxy (..))
+import Network.Wai.Handler.Warp qualified as Warp
 import Servant (Server)
-import Wst.Server.Types (API)
-import Servant.Server (serve)
-import Data.Data (Proxy(..))
-import qualified Network.Wai.Handler.Warp as Warp
 import Servant.API ((:<|>) (..))
-import Wst.Server.Endpoints (healthcheck, initMerkleTree, updateMerkleTree, transferToUser, transferToIssuer, queryAddress, queryAllSanctionedAddresses)
+import Servant.Server (serve)
+import Wst.Server.Endpoints (healthcheck, initMerkleTree, queryAddress,
+                             queryAllSanctionedAddresses, transferToIssuer,
+                             transferToUser, updateMerkleTree)
+import Wst.Server.Types (API)
 
 server :: Server API
-server = 
-  healthcheck 
+server =
+  healthcheck
   :<|> initMerkleTree
   :<|> updateMerkleTree
   :<|> transferToUser

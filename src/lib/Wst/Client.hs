@@ -12,11 +12,11 @@ module Wst.Client (
   getAllSanctionedAddresses
 ) where
 
+import Data.Data (Proxy (..))
+import Servant.API (NoContent, (:<|>) ((:<|>)))
 import Servant.Client (ClientEnv, client, runClientM)
 import Servant.Client.Core (ClientError)
-import Servant.API (NoContent, (:<|>) ((:<|>)))
 import Wst.Server.Types (API)
-import Data.Data (Proxy(..))
 
 getHealthcheck :: ClientEnv -> IO (Either ClientError NoContent)
 getHealthcheck env = do

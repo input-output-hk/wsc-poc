@@ -5,11 +5,7 @@
       "locked": {
         "lastModified": 1734128100,
         "narHash": "sha256-LTML3sdQbUL+FeXoafPPUOScBmIdWkofNwa1Fjuz7PU=",
-<<<<<<< HEAD
         "owner": "input-output-hk",
-=======
-        "owner": "IntersectMBO",
->>>>>>> ade4757 (Offchain protocol params and directory)
         "repo": "cardano-haskell-packages",
         "rev": "8df3e3656dcaac2c6328ac199ad90500a6a359bf",
         "type": "github"

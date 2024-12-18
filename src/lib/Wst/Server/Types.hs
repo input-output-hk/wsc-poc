@@ -1,27 +1,20 @@
-{-# LANGUAGE TypeOperators      #-}
 {-# LANGUAGE DataKinds          #-}
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DeriveAnyClass     #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE TypeOperators      #-}
 
 
 {- | This module contains the relevant types for the server.
  -}
 module Wst.Server.Types (
   API,
-  InitParams(..),
-  UpdateParams(..),
-  TransferToUserParams(..),
-  TransferToIssuerParams(..),
-  QueryAddressParams(..),
-  QueryAllSanctionedAddressesParams(..)
 ) where
 
-import Servant.API (Description, Get, JSON, NoContent,
-                    Post, ReqBody,
-                    type (:>), (:<|>) (..), Capture)
 import Data.Aeson (FromJSON)
-import GHC.Generics (Generic)
 import Data.Aeson.Types (ToJSON)
+import GHC.Generics (Generic)
+import Servant.API (Capture, Description, Get, JSON, NoContent, Post, ReqBody,
+                    type (:>), (:<|>) (..))
 
 type API =
   "healthcheck" :> Description "Is the server alive?" :> Get '[JSON] NoContent
@@ -49,28 +42,3 @@ type API =
   :<|> "address" :> Description "Query the balance of an address." :> Capture "address" String :> Get '[JSON] String
   :<|> "all-sanctioned-addresses" :> Description "Query all sanctioned addresses." :> Get '[JSON] String
 
-
-data InitParams = InitParams {
-  ipName :: String
-} deriving stock (Show, Generic)
-  deriving anyclass (FromJSON, ToJSON)
-
-data UpdateParams = UpdateParams {
-  upName :: String
-}
-
-data TransferToUserParams = TransferToUserParams {
-  ttpName :: String
-}
-
-data TransferToIssuerParams = TransferToIssuerParams {
-  ttipName :: String
-}
-
-data QueryAddressParams = QueryAddressParams {
-  qapName :: String
-}
-
-data QueryAllSanctionedAddressesParams = QueryAllSanctionedAddressesParams {
-  qasapName :: String
-}

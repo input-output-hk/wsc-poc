@@ -1,5 +1,5 @@
-{-# LANGUAGE TypeOperators      #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators    #-}
 
 {- | This module contains the endpoints of the server.
 -}
@@ -12,8 +12,8 @@ module Wst.Server.Endpoints (
   queryAddress,
   queryAllSanctionedAddresses
 ) where
-import Servant.API (NoContent (..))
 import Servant (Handler)
+import Servant.API (NoContent (..))
 
 healthcheck :: Handler NoContent
 healthcheck = pure NoContent
