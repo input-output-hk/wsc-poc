@@ -27,6 +27,6 @@ jobs:
         key: cabal-${{ hashFiles('cabal.project') }}
 
     # We currently do not have a default target
-    - run: nix build .#wst-poc
-    - run: nix flake check
+    - run: nix build --accept-flake-config .#wst-poc
+    - run: nix flake --accept-flake-config check
 
