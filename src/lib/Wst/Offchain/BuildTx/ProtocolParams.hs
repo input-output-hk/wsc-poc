@@ -6,11 +6,12 @@ module Wst.Offchain.BuildTx.ProtocolParams (
 
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
-import Control.Lens (over)
-import Convex.BuildTx (MonadBuildTx, addBtx, mintPlutus, spendPublicKeyOutput)
-import Convex.CardanoApi.Lenses qualified as L
+import Convex.BuildTx (MonadBuildTx, mintPlutus, prependTxOut,
+                       spendPublicKeyOutput)
+import Convex.Class (MonadBlockchain (..))
 import Convex.PlutusLedger.V1 (unTransAssetName)
 import Convex.Scripts (toHashableScriptData)
+import Convex.Utils qualified as Utils
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 qualified as P
 import Wst.Offchain.Scripts (protocolParamsMintingScript,
@@ -19,27 +20,28 @@ import Wst.Offchain.Scripts (protocolParamsMintingScript,
 protocolParamsToken :: C.AssetName
 protocolParamsToken = unTransAssetName $ P.TokenName "ProtocolParamsNFT"
 
-mintProtocolParams :: (MonadBuildTx C.ConwayEra m, P.ToData a) => C.NetworkId -> a -> C.TxIn -> m ()
-mintProtocolParams netId d txIn = do
+mintProtocolParams :: forall era a m. (C.IsBabbageBasedEra era, MonadBuildTx era m, P.ToData a, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => a -> C.TxIn -> m ()
+mintProtocolParams d txIn = Utils.inBabbage @era $ do
+  netId <- queryNetworkId
   let
       mintingScript = protocolParamsMintingScript txIn
 
-      val = C.TxOutValueShelleyBased C.ShelleyBasedEraConway $ C.toLedgerValue C.MaryEraOnwardsBabbage
+      val = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
             $ fromList [(C.AssetId (scriptPolicyIdV3 mintingScript) protocolParamsToken, 1)]
 
       addr =
         C.makeShelleyAddressInEra
-          C.ShelleyBasedEraConway
+          C.shelleyBasedEra
           netId
           (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 protocolParamsSpendingScript)
           C.NoStakeAddress
 
       -- Should contain directoryNodeCS and progLogicCred fields
-      dat = C.TxOutDatumInline C.BabbageEraOnwardsConway $ toHashableScriptData d
+      dat = C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData d
 
-      output :: C.TxOut C.CtxTx C.ConwayEra
+      output :: C.TxOut C.CtxTx era
       output = C.TxOut addr val dat C.ReferenceScriptNone
 
   spendPublicKeyOutput txIn
   mintPlutus mintingScript () protocolParamsToken 1
-  addBtx (over L.txOuts (output :))
+  prependTxOut output
