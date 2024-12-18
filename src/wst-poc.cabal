@@ -138,3 +138,28 @@ executable export-smart-tokens
     , wst-poc
 
   hs-source-dirs: exe/export-smart-tokens
+
+test-suite wst-poc-test
+  import:         lang
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  ghc-options:
+    -fobject-code -fno-ignore-interface-pragmas
+    -fno-omit-interface-pragmas -fno-specialise -Wno-unused-packages
+
+  main-is:        Spec.hs
+  other-modules:
+    Wst.Test.Env
+    Wst.Test.UnitTest
+
+  build-depends:
+    , base               >=4.14.0
+    , cardano-api
+    , convex-base
+    , convex-mockchain
+    , convex-wallet
+    , mtl
+    , plutus-ledger-api
+    , tasty
+    , tasty-hunit
+    , wst-poc

@@ -13,13 +13,13 @@ import Convex.PlutusLedger.V1 (unTransAssetName)
 import Convex.Scripts (toHashableScriptData)
 import Convex.Utils qualified as Utils
 import GHC.Exts (IsList (..))
-import PlutusLedgerApi.V3 qualified as P
+import SmartTokens.Types.Constants (protocolParamsToken)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import Wst.Offchain.Scripts (protocolParamsMintingScript,
                              protocolParamsSpendingScript, scriptPolicyIdV3)
 
-protocolParamsToken :: C.AssetName
-protocolParamsToken = unTransAssetName $ P.TokenName "ProtocolParamsNFT"
+protocolParamsTokenC :: C.AssetName
+protocolParamsTokenC = unTransAssetName protocolParamsToken
 
 mintProtocolParams :: forall era m. (C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => ProgrammableLogicGlobalParams -> C.TxIn -> m ()
 mintProtocolParams params txIn = Utils.inBabbage @era $ do
@@ -28,7 +28,7 @@ mintProtocolParams params txIn = Utils.inBabbage @era $ do
       mintingScript = protocolParamsMintingScript txIn
 
       val = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
-            $ fromList [(C.AssetId (scriptPolicyIdV3 mintingScript) protocolParamsToken, 1)]
+            $ fromList [(C.AssetId (scriptPolicyIdV3 mintingScript) protocolParamsTokenC, 1)]
 
       addr =
         C.makeShelleyAddressInEra
@@ -44,5 +44,5 @@ mintProtocolParams params txIn = Utils.inBabbage @era $ do
       output = C.TxOut addr val dat C.ReferenceScriptNone
 
   spendPublicKeyOutput txIn
-  mintPlutus mintingScript () protocolParamsToken 1
+  mintPlutus mintingScript () protocolParamsTokenC 1
   prependTxOut output

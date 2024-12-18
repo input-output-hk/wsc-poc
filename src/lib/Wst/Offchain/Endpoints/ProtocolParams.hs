@@ -7,7 +7,6 @@ module Wst.Offchain.Endpoints.ProtocolParams (
 import Cardano.Api qualified as C
 import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader)
-import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain)
 import Convex.CoinSelection qualified
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
@@ -21,5 +20,4 @@ deployParamsTx :: (MonadReader (BuildTxEnv era) m, MonadBlockchain era m, MonadE
 deployParamsTx params = do
   fmap (Convex.CoinSelection.signBalancedTxBody [] . fst)
     $ Env.selectOperatorOutput
-        >>= BuildTx.execBuildTxT . mintProtocolParams params . fst
-        >>= Env.balanceTxEnv
+        >>= Env.balanceTxEnv . mintProtocolParams params . fst

@@ -15,9 +15,10 @@ import Cardano.Api (UTxO)
 import Cardano.Api qualified as C
 import Control.Monad.Except (MonadError, throwError)
 import Control.Monad.Reader (MonadReader, ask, asks)
-import Convex.BuildTx (TxBuilder)
+import Convex.BuildTx (BuildTxT)
+import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain, MonadUtxoQuery (..),
-                     utxosByPaymentCredential)
+                     queryProtocolParameters, utxosByPaymentCredential)
 import Convex.CoinSelection qualified as CoinSelection
 import Convex.Utils (mapError)
 import Convex.Utxos (BalanceChanges)
@@ -51,6 +52,7 @@ loadEnv verificationKey oStakeKey = do
 data BuildTxError era =
   OperatorNoUTxOs -- ^ The operator does not have any UTxOs
   | BalancingError (CoinSelection.BalanceTxError era)
+  deriving stock (Show)
 
 {-| Select an output owned by the operator
 -}
@@ -61,8 +63,10 @@ selectOperatorOutput = asks (listToMaybe . Map.toList . C.unUTxO . bteOperatorUt
 
 {-| Balance a transaction using the operator's funds and return output
 -}
-balanceTxEnv :: (MonadBlockchain era m, MonadReader (BuildTxEnv era) m, MonadError (BuildTxError era) m, C.IsBabbageBasedEra era) => TxBuilder era -> m (C.BalancedTxBody era, BalanceChanges)
-balanceTxEnv txBuilder = do
+balanceTxEnv :: forall era a m. (MonadBlockchain era m, MonadReader (BuildTxEnv era) m, MonadError (BuildTxError era) m, C.IsBabbageBasedEra era) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
+balanceTxEnv btx = do
   BuildTxEnv{bteOperatorUtxos, bteOperator} <- ask
+  params <- queryProtocolParameters
+  txBuilder <- BuildTx.execBuildTxT $ btx >> BuildTx.setMinAdaDepositAll params
   output <- operatorReturnOutput bteOperator
   mapError BalancingError (CoinSelection.balanceTx mempty output (Utxos.fromApiUtxo bteOperatorUtxos) txBuilder CoinSelection.TrailingChange)
