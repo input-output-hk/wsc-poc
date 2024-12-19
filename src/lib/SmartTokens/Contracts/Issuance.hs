@@ -39,8 +39,53 @@ instance PIsData PSmartTokenMintingAction where
     pdataImpl x =
         pdataImpl $ pto x
 
-mkProgrammableLogicMinting :: ClosedTerm (PAsData PCredential :--> PAsData PCredential :--> PAsData PCurrencySymbol :--> PScriptContext :--> PUnit)
-mkProgrammableLogicMinting = plam $ \programmableLogicBase mintingLogicCred nodeCS ctx -> P.do
+{-| Minting Policy for Programmable Logic Tokens
+
+This minting policy enables the creation and management of programmable tokens with 
+configurable transfer and issuer logic.
+
+== Overview
+The policy supports two primary actions:
+1. Token Registration (PRegisterPToken)
+2. Token Minting/Burning (PMintPToken)
+
+== Registration Process
+When registering a new programmable token, the policy:
+- Creates a directory entry for the token
+- Associates the programmable token with specific transfer and issuer logic scripts
+- Ensures one-time registration per minting policy instance
+
+== Directory Node Structure
+Each programmable token entry is represented in a directory with the following attributes:
+- @key@: Currency symbol of the programmable token
+- @next@: The currency symbol of the next programmable token identified by the next directory node (enables a linked list structure)
+- @transferLogicScript@: Credential of the script that must validate all token transfers of the programmable token
+- @issuerLogicScript@: Credential for issuer-specific actions (e.g., clawbacks) for the programmable token
+
+== Constraints
+=== Registration Constraints
+- Only one token can be registered per minting policy instance
+- The first transaction output must contain the minted tokens
+- The output must be associated with the base programmable logic credential
+- Exactly one node must be inserted into the directory
+- The minting logic script must be invoked in the transaction.
+
+=== Minting/Burning Constraints
+==== Minting
+- Number of tokens in the output must match the minted amount
+- Output must be sent to the base programmable logic credential
+- Minting logic credential must be invoked in the transaction.
+
+==== Burning
+- Minting logic credential must be invoked in the transaction.
+
+@programmableLogicBase@ Script Credential of the programmable logic script
+@mintingLogicCred@ Script Credential for the script which must be invoked to perform minting/burning operations
+@nodeCS@ Currency symbol of the directory node
+@ctx@ Script context containing transaction details
+-}
+mkProgrammableLogicMinting :: ClosedTerm (PAsData PCredential :--> PAsData PCurrencySymbol :--> PAsData PCredential :--> PScriptContext :--> PUnit)
+mkProgrammableLogicMinting = plam $ \programmableLogicBase nodeCS mintingLogicCred ctx -> P.do
   ctxF <- pletFields @'["txInfo", "redeemer", "scriptInfo"] ctx
   infoF <- pletFields @'["referenceInputs", "outputs", "mint", "wdrl"] ctxF.txInfo
   let red = punsafeCoerce @_ @_ @PSmartTokenMintingAction (pto ctxF.redeemer)
