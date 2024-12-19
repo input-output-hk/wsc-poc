@@ -20,7 +20,7 @@ import Data.Maybe (mapMaybe)
 import PlutusTx qualified
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
-import Wst.Offchain.Endpoints.Deployment (DeploymentScripts (dsDirectorySpendingScript))
+import Wst.Offchain.Env (DirectoryEnv (dsDirectorySpendingScript))
 import Wst.Offchain.Scripts (protocolParamsSpendingScript)
 
 -- TODO: We should probably filter the UTxOs to check that they have the correct NFTs
@@ -36,14 +36,14 @@ data UTxO era a =
 
 {-| Find all UTxOs that make up the registry
 -}
-registryNodes :: forall era m. (MonadReader DeploymentScripts m, MonadUtxoQuery m, C.IsBabbageBasedEra era) => m [UTxO era DirectorySetNode]
+registryNodes :: forall era m. (MonadReader DirectoryEnv m, MonadUtxoQuery m, C.IsBabbageBasedEra era) => m [UTxO era DirectorySetNode]
 registryNodes =
   asks (C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsDirectorySpendingScript)
     >>= fmap (extractUTxO @era) . utxosByPaymentCredential
 
 {-| Find the UTxO with the global params
 -}
-globalParamsNode :: forall era m. (MonadReader DeploymentScripts m, MonadUtxoQuery m, C.IsBabbageBasedEra era) => m [UTxO era ProgrammableLogicGlobalParams]
+globalParamsNode :: forall era m. (MonadReader DirectoryEnv m, MonadUtxoQuery m, C.IsBabbageBasedEra era) => m [UTxO era ProgrammableLogicGlobalParams]
 globalParamsNode = do
   let cred = C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 $ protocolParamsSpendingScript
   fmap (extractUTxO @era) (utxosByPaymentCredential cred)

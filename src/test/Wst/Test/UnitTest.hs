@@ -14,6 +14,7 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase)
 import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Endpoints.Query qualified as Query
+import Wst.Offchain.Env qualified as Env
 import Wst.Test.Env (admin, asAdmin)
 
 tests :: TestTree
@@ -25,7 +26,7 @@ deployDirectorySet :: (MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFai
 deployDirectorySet = failOnError $ asAdmin @C.ConwayEra $ do
   (tx, txI) <- Endpoints.deployTx
   void $ sendTx $ signTxOperator admin tx
-  flip runReaderT (Endpoints.deploymentScripts txI) $ do
+  flip runReaderT (Env.directoryEnv txI) $ do
     Query.registryNodes @C.ConwayEra
       >>= void . expectSingleton "registry output"
     Query.globalParamsNode @C.ConwayEra

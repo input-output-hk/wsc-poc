@@ -7,13 +7,23 @@ module Wst.Offchain.Env(
   loadEnv,
   BuildTxError(..),
 
-  -- ** Using the environment
+  -- ** Using the operator environment
   selectOperatorOutput,
-  balanceTxEnv
+  balanceTxEnv,
+
+  -- * Directory environment
+  DirectoryEnv(..),
+  directoryEnv,
+  programmableLogicStakeCredential,
+  programmableLogicBaseCredential,
+  directoryNodePolicyId,
+  protocolParamsPolicyId,
+  globalParams
 ) where
 
-import Cardano.Api (UTxO)
+import Cardano.Api (PlutusScript, PlutusScriptV3, UTxO)
 import Cardano.Api qualified as C
+import Cardano.Api.Shelley qualified as C
 import Control.Monad.Except (MonadError, throwError)
 import Control.Monad.Reader (MonadReader, ask, asks)
 import Convex.BuildTx (BuildTxT)
@@ -21,6 +31,7 @@ import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain, MonadUtxoQuery (..),
                      queryProtocolParameters, utxosByPaymentCredential)
 import Convex.CoinSelection qualified as CoinSelection
+import Convex.PlutusLedger.V1 (transCredential, transPolicyId)
 import Convex.Utils (mapError)
 import Convex.Utxos (BalanceChanges)
 import Convex.Utxos qualified as Utxos
@@ -29,6 +40,12 @@ import Convex.Wallet.Operator (Operator (..), PaymentExtendedKey (..),
                                operatorReturnOutput)
 import Data.Map qualified as Map
 import Data.Maybe (listToMaybe)
+import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
+import Wst.Offchain.Scripts (directoryNodeMintingScript,
+                             directoryNodeSpendingScript,
+                             programmableLogicBaseScript,
+                             programmableLogicGlobalScript,
+                             protocolParamsMintingScript, scriptPolicyIdV3)
 
 {-| Information needed to build transactions
 -}
@@ -71,3 +88,54 @@ balanceTxEnv btx = do
   txBuilder <- BuildTx.execBuildTxT $ btx >> BuildTx.setMinAdaDepositAll params
   output <- operatorReturnOutput bteOperator
   mapError BalancingError (CoinSelection.balanceTx mempty output (Utxos.fromApiUtxo bteOperatorUtxos) txBuilder CoinSelection.TrailingChange)
+
+{-| Scripts relatd to managing the token policy directory.
+All of the scripts and their hashes are determined by the 'TxIn'.
+-}
+data DirectoryEnv =
+  DirectoryEnv
+    { dsTxIn :: C.TxIn -- ^ The 'txIn' that we spend when deploying the protocol params and directory set
+    , dsDirectoryMintingScript        :: PlutusScript PlutusScriptV3
+    , dsDirectorySpendingScript       :: PlutusScript PlutusScriptV3
+    , dsProtocolParamsMintingScript   :: PlutusScript PlutusScriptV3
+    , dsProgrammableLogicBaseScript   :: PlutusScript PlutusScriptV3
+    , dsProgrammableLogicGlobalScript :: PlutusScript PlutusScriptV3
+    }
+
+directoryEnv :: C.TxIn -> DirectoryEnv
+directoryEnv dsTxIn =
+  let dsDirectoryMintingScript        = directoryNodeMintingScript dsTxIn
+      dsProtocolParamsMintingScript   = protocolParamsMintingScript dsTxIn
+      dsDirectorySpendingScript       = directoryNodeSpendingScript (protocolParamsPolicyId result)
+      dsProgrammableLogicBaseScript   = programmableLogicBaseScript (programmableLogicStakeCredential result) -- Parameterized by the stake cred of the global script
+      dsProgrammableLogicGlobalScript = programmableLogicGlobalScript (directoryNodePolicyId result) -- Parameterized by the CS holding protocol params datum
+      result = DirectoryEnv
+                { dsTxIn
+                , dsDirectoryMintingScript
+                , dsProtocolParamsMintingScript
+                , dsProgrammableLogicBaseScript
+                , dsProgrammableLogicGlobalScript
+                , dsDirectorySpendingScript
+                }
+  in result
+
+programmableLogicStakeCredential :: DirectoryEnv -> C.StakeCredential
+programmableLogicStakeCredential =
+  C.StakeCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsProgrammableLogicGlobalScript
+
+programmableLogicBaseCredential :: DirectoryEnv -> C.PaymentCredential
+programmableLogicBaseCredential =
+  C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsProgrammableLogicBaseScript
+
+directoryNodePolicyId :: DirectoryEnv -> C.PolicyId
+directoryNodePolicyId = scriptPolicyIdV3 . dsDirectoryMintingScript
+
+protocolParamsPolicyId :: DirectoryEnv -> C.PolicyId
+protocolParamsPolicyId = scriptPolicyIdV3 . dsProtocolParamsMintingScript
+
+globalParams :: DirectoryEnv -> ProgrammableLogicGlobalParams
+globalParams scripts =
+  ProgrammableLogicGlobalParams
+    { directoryNodeCS = transPolicyId (directoryNodePolicyId scripts)
+    , progLogicCred   = transCredential (programmableLogicBaseCredential scripts) -- its the script hash of the programmable base spending script
+    }
