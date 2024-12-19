@@ -1,12 +1,13 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-| Transaction building environment
 -}
-module Wst.Offchain.Endpoints.Env(
-  BuildTxEnv(..),
+module Wst.Offchain.Env(
+  -- * Operator environment
+  OperatorEnv(..),
   loadEnv,
   BuildTxError(..),
 
-  -- * Using the environment
+  -- ** Using the environment
   selectOperatorOutput,
   balanceTxEnv
 ) where
@@ -31,15 +32,15 @@ import Data.Maybe (listToMaybe)
 
 {-| Information needed to build transactions
 -}
-data BuildTxEnv era =
-  BuildTxEnv
+data OperatorEnv era =
+  OperatorEnv
     { bteOperator :: Operator Verification
     , bteOperatorUtxos :: UTxO era -- ^ UTxOs owned by the operator, available for spending
     }
 
-{-| Populate the 'BuildTxEnv' with UTxOs locked by the verification key
+{-| Populate the 'OperatorEnv' with UTxOs locked by the verification key
 -}
-loadEnv :: (MonadUtxoQuery m, C.IsBabbageBasedEra era) => C.VerificationKey C.PaymentKey -> Maybe (C.VerificationKey C.StakeKey) -> m (BuildTxEnv era)
+loadEnv :: (MonadUtxoQuery m, C.IsBabbageBasedEra era) => C.VerificationKey C.PaymentKey -> Maybe (C.VerificationKey C.StakeKey) -> m (OperatorEnv era)
 loadEnv verificationKey oStakeKey = do
   let bteOperator
         = Operator
@@ -47,7 +48,7 @@ loadEnv verificationKey oStakeKey = do
             , oStakeKey
             }
   bteOperatorUtxos <- Utxos.toApiUtxo <$> utxosByPaymentCredential (operatorPaymentCredential bteOperator)
-  pure BuildTxEnv{bteOperator, bteOperatorUtxos}
+  pure OperatorEnv{bteOperator, bteOperatorUtxos}
 
 data BuildTxError era =
   OperatorNoUTxOs -- ^ The operator does not have any UTxOs
@@ -56,16 +57,16 @@ data BuildTxError era =
 
 {-| Select an output owned by the operator
 -}
-selectOperatorOutput :: (MonadReader (BuildTxEnv era) m, MonadError (BuildTxError era) m) => m (C.TxIn, C.TxOut C.CtxUTxO era)
+selectOperatorOutput :: (MonadReader (OperatorEnv era) m, MonadError (BuildTxError era) m) => m (C.TxIn, C.TxOut C.CtxUTxO era)
 selectOperatorOutput = asks (listToMaybe . Map.toList . C.unUTxO . bteOperatorUtxos) >>= \case
   Nothing -> throwError OperatorNoUTxOs
   Just k -> pure k
 
 {-| Balance a transaction using the operator's funds and return output
 -}
-balanceTxEnv :: forall era a m. (MonadBlockchain era m, MonadReader (BuildTxEnv era) m, MonadError (BuildTxError era) m, C.IsBabbageBasedEra era) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
+balanceTxEnv :: forall era a m. (MonadBlockchain era m, MonadReader (OperatorEnv era) m, MonadError (BuildTxError era) m, C.IsBabbageBasedEra era) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
 balanceTxEnv btx = do
-  BuildTxEnv{bteOperatorUtxos, bteOperator} <- ask
+  OperatorEnv{bteOperatorUtxos, bteOperator} <- ask
   params <- queryProtocolParameters
   txBuilder <- BuildTx.execBuildTxT $ btx >> BuildTx.setMinAdaDepositAll params
   output <- operatorReturnOutput bteOperator

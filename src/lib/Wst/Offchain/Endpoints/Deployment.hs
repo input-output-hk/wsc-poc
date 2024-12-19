@@ -23,8 +23,8 @@ import Convex.PlutusLedger.V1 (transCredential, transPolicyId)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 import Wst.Offchain.BuildTx.DirectorySet (initDirectorySet)
 import Wst.Offchain.BuildTx.ProtocolParams (mintProtocolParams)
-import Wst.Offchain.Endpoints.Env (BuildTxEnv, BuildTxError)
-import Wst.Offchain.Endpoints.Env qualified as Env
+import Wst.Offchain.Env (BuildTxError, OperatorEnv)
+import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Scripts (directoryNodeMintingScript,
                              directoryNodeSpendingScript,
                              programmableLogicBaseScript,
@@ -82,7 +82,7 @@ globalParams scripts =
 {-| Build a transaction that deploys the directory and global params. Returns the
 transaction and the 'TxIn' that was selected for the one-shot NFTs.
 -}
-deployTx :: (MonadReader (BuildTxEnv era) m, MonadBlockchain era m, MonadError (BuildTxError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => m (C.Tx era, C.TxIn)
+deployTx :: (MonadReader (OperatorEnv era) m, MonadBlockchain era m, MonadError (BuildTxError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => m (C.Tx era, C.TxIn)
 deployTx = do
   (txi, _) <- Env.selectOperatorOutput
   let scripts = deploymentScripts txi
