@@ -49,16 +49,17 @@ import Plutarch.Prelude
       pfield,
       pletFields,
       pall,
+      plengthBS,
       pany,
       pfilter,
       pmap,
       pguardC,
       PAsData,
       PBuiltinList,
-      PListLike(pnull, phead),
+      PListLike(pnull),
       PMaybe(PJust),
       PPair(..),
-      PUnit )
+      PUnit, pelimList )
 import Plutarch.Unsafe (punsafeCoerce)
 import Plutarch.Core.Utils (
   passert,
@@ -214,10 +215,14 @@ makeCommon ctx' = do
   toNodeValidator <- tcont . plet $ pfilter @PBuiltinList # plam (\txo -> hasNodeTk # (pfield @"value" # txo)) # txOutputs
   ------------------------------
 
-  let firstNodeInput :: Term _ (PAsData PTxOut) = phead @PBuiltinList # fromNodeValidator
   let atNodeValidator =
-        let isSameAddress = (paysToAddress # (pfield @"address" # firstNodeInput))
-         in pall # isSameAddress # toNodeValidator
+        pelimList
+          ( \firstNodeInput _ -> 
+            let isSameAddress = (paysToAddress # (pfield @"address" # firstNodeInput))
+             in pall # isSameAddress # toNodeValidator
+          )
+          (pconstant True)
+          fromNodeValidator
 
   pguardC "all same origin" atNodeValidator
 
@@ -273,6 +278,8 @@ pInsert ::
   Term s (PAsData PByteString :--> PUnit)
 pInsert common = plam $ \pkToInsert -> P.do
   keyToInsert <- plet $ pfromData pkToInsert
+
+  passert "Key to insert must be valid Currency Symbol" $ plengthBS # keyToInsert #== 28
 
   -- Input Checks:
   -- There is only one spent node (tx inputs contains only one node UTxO)

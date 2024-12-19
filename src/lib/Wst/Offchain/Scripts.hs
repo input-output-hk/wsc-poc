@@ -75,8 +75,8 @@ programmableLogicMintingScript progLogicBaseSpndingCred mintingCred nodePolId =
   let script = tryCompile prodConfig
                $ mkProgrammableLogicMinting
                   # pdata (pconstant $ transCredential progLogicBaseSpndingCred)
-                  # pdata (pconstant $ transStakeCredential mintingCred)
                   # pdata (pconstant $ transPolicyId nodePolId)
+                  # pdata (pconstant $ transStakeCredential mintingCred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 programmableLogicBaseScript :: C.StakeCredential -> C.PlutusScript C.PlutusScriptV3 -- Parameterized by the stake cred of the global script

@@ -34,20 +34,17 @@ import Plutarch.Core.PlutusDataList (DerivePConstantViaDataList (..),
 import Plutarch.Core.Utils (pcond, pheadSingleton, pmkBuiltinList)
 import Plutarch.DataRepr (PDataFields)
 import Plutarch.DataRepr.Internal
+import Plutarch.DataRepr.Internal (DerivePConstantViaData (..))
 import Plutarch.DataRepr.Internal.Field (HRec (..), Labeled (Labeled))
 import Plutarch.Evaluate (unsafeEvalTerm)
 import Plutarch.Internal qualified as PI
 import Plutarch.Internal.Other (printScript)
 import Plutarch.LedgerApi.V3 (PCredential, PCurrencySymbol)
 import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (PLifted))
-import Plutarch.List
 import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V3 (BuiltinByteString, Credential, CurrencySymbol)
-import PlutusTx (Data (B, Constr))
-import PlutusTx qualified
-
-
+import PlutusTx (Data (B, Constr), FromData, ToData, UnsafeFromData)
 
 data BlacklistNode =
   BlacklistNode {
@@ -81,8 +78,6 @@ instance DerivePlutusType PBlacklistNode where
 instance PUnsafeLiftDecl PBlacklistNode where
   type PLifted PBlacklistNode = BlacklistNode
 
-
-
 -- _printTerm (communicated by Philip) just print some term as string. The term we want to print is
 -- @
 -- _term :: forall {s :: S}. Term s PBlacklistNode
@@ -92,11 +87,10 @@ instance PUnsafeLiftDecl PBlacklistNode where
 -- language server. The lens will then replace the string starting with "program ..." with exactly
 -- the same string.
 --
--- >>>  _printTerm NoTracing $ unsafeEvalTerm NoTracing (pconstant $ BlacklistNode { blnKey = "a hi", blnNext = "a" })
--- "program 1.0.0 (List [B #61206869, B #60])"
+-- >>> _printTerm NoTracing (pconstantData $ BlacklistNode { blnKey = "a hi", blnNext = "a" })
+-- "program 1.0.0 (List [B #61206869, B #61])"
 _printTerm :: HasCallStack => Config -> ClosedTerm a -> String
 _printTerm config term = printScript $ either (error . T.unpack) id $ PI.compile config term
-
 
 
 type PBlacklistNodeHRec (s :: S) =
@@ -105,15 +99,15 @@ type PBlacklistNodeHRec (s :: S) =
      , '("next", Term s (PAsData PByteString))
      ]
 
+-- | Helper function to extract fields from a 'PBlacklistNode' term.
+-- >>> _printTerm NoTracing $ unsafeEvalTerm NoTracing (pletFieldsBlacklistNode (unsafeEvalTerm NoTracing (pconstantData $ BlacklistNode { blnKey = "deadbeee", blnNext = "deadbeef" })) $ \fields -> fields.key)
+-- "programs 1.0.0 (B #6465616462656565)"
 pletFieldsBlacklistNode :: forall {s :: S} {r :: PType}. Term s (PAsData PBlacklistNode) -> (PBlacklistNodeHRec s -> Term s r) -> Term s r
 pletFieldsBlacklistNode term = runTermCont $ do
-  fields <- tcont $ plet $ pasList # (pforgetData term)
+  fields <- tcont $ plet $ pasList # pforgetData term
   let key_ = punsafeCoerce @_ @_ @(PAsData PByteString) $ phead # fields
       next_ = punsafeCoerce @_ @_ @(PAsData PByteString) $ pheadSingleton # (ptail # fields)
   tcont $ \f -> f $ HCons (Labeled @"key" key_) (HCons (Labeled @"next" next_) HNil)
-
--- instance DerivePlutusType PBlacklistNode where
---   type DPTStrat _ = PlutusTypeDataList
 
 data DirectorySetNode = DirectorySetNode
   { key :: CurrencySymbol
@@ -191,7 +185,7 @@ pisEmptyNode :: ClosedTerm (PAsData PDirectorySetNode :--> PBool)
 pisEmptyNode = plam $ \node ->
   let nullTransferLogicCred = pconstant (Constr 0 [PlutusTx.B ""])
       nullIssuerLogicCred = pconstant (Constr 0 [PlutusTx.B ""])
-      expectedEmptyNode = punsafeCoerce $ plistData # pmkBuiltinList [pforgetData pemptyBSData, pforgetData pemptyBSData, nullTransferLogicCred, nullIssuerLogicCred]
+      expectedEmptyNode = punsafeCoerce $ plistData # pmkBuiltinList [pforgetData pemptyBSData, pforgetData ptailNextData, nullTransferLogicCred, nullIssuerLogicCred]
   in node #== expectedEmptyNode
 
 pemptyBSData :: ClosedTerm (PAsData PByteString)
@@ -199,6 +193,9 @@ pemptyBSData = unsafeEvalTerm NoTracing (punsafeCoerce (pconstant $ PlutusTx.B "
 
 pemptyCSData :: ClosedTerm (PAsData PCurrencySymbol)
 pemptyCSData = unsafeEvalTerm NoTracing (punsafeCoerce (pconstant $ PlutusTx.B ""))
+
+ptailNextData  :: ClosedTerm (PAsData PCurrencySymbol)
+ptailNextData = unsafeEvalTerm NoTracing (punsafeCoerce $ pdata (phexByteStr "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"))
 
 pmkDirectorySetNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PCredential :--> PAsData PCredential :--> PAsData PDirectorySetNode)
 pmkDirectorySetNode = phoistAcyclic $
