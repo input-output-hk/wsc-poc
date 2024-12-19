@@ -78,6 +78,7 @@ library
     Wst.Offchain.BuildTx.TransferLogic
     Wst.Offchain.Endpoints.Deployment
     Wst.Offchain.Endpoints.Env
+    Wst.Offchain.Endpoints.Query
     Wst.Offchain.Scripts
     Wst.Onchain
     Wst.Server

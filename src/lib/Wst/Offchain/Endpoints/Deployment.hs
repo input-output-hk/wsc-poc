@@ -26,6 +26,7 @@ import Wst.Offchain.BuildTx.ProtocolParams (mintProtocolParams)
 import Wst.Offchain.Endpoints.Env (BuildTxEnv, BuildTxError)
 import Wst.Offchain.Endpoints.Env qualified as Env
 import Wst.Offchain.Scripts (directoryNodeMintingScript,
+                             directoryNodeSpendingScript,
                              programmableLogicBaseScript,
                              programmableLogicGlobalScript,
                              protocolParamsMintingScript, scriptPolicyIdV3)
@@ -34,6 +35,7 @@ data DeploymentScripts =
   DeploymentScripts
     { dsTxIn :: C.TxIn -- ^ The 'txIn' that we spend when deploying the protocol params and directory set
     , dsDirectoryMintingScript        :: PlutusScript PlutusScriptV3
+    , dsDirectorySpendingScript       :: PlutusScript PlutusScriptV3
     , dsProtocolParamsMintingScript   :: PlutusScript PlutusScriptV3
     , dsProgrammableLogicBaseScript   :: PlutusScript PlutusScriptV3
     , dsProgrammableLogicGlobalScript :: PlutusScript PlutusScriptV3
@@ -43,6 +45,7 @@ deploymentScripts :: C.TxIn -> DeploymentScripts
 deploymentScripts dsTxIn =
   let dsDirectoryMintingScript        = directoryNodeMintingScript dsTxIn
       dsProtocolParamsMintingScript   = protocolParamsMintingScript dsTxIn
+      dsDirectorySpendingScript       = directoryNodeSpendingScript (protocolParamsPolicyId result)
       dsProgrammableLogicBaseScript   = programmableLogicBaseScript (programmableLogicStakeCredential result) -- Parameterized by the stake cred of the global script
       dsProgrammableLogicGlobalScript = programmableLogicGlobalScript (directoryNodePolicyId result) -- Parameterized by the CS holding protocol params datum
       result = DeploymentScripts
@@ -51,6 +54,7 @@ deploymentScripts dsTxIn =
                 , dsProtocolParamsMintingScript
                 , dsProgrammableLogicBaseScript
                 , dsProgrammableLogicGlobalScript
+                , dsDirectorySpendingScript
                 }
   in result
 
