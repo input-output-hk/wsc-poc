@@ -6,9 +6,13 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE QualifiedDo           #-}
+{-# LANGUAGE UndecidableInstances #-}
+
 module SmartTokens.Contracts.ProgrammableLogicBase (
+  TokenProof (..),
+  ProgrammableLogicGlobalRedeemer (..),
   mkProgrammableLogicBase,
-  mkProgrammableLogicGlobal
+  mkProgrammableLogicGlobal,
 ) where
 
 import Plutarch.Builtin (pasByteStr, pasConstr, pforgetData)
@@ -40,6 +44,9 @@ import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V1.Value (Value)
 import SmartTokens.Types.ProtocolParams (PProgrammableLogicGlobalParams)
 import SmartTokens.Types.PTokenDirectory (PDirectorySetNode)
+import qualified PlutusTx
+import Plutarch.DataRepr (DerivePConstantViaData (..))
+import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (..))
 
 -- | Strip Ada from a ledger value
 -- Importantly this function assumes that the Value is provided by the ledger (i.e. via the ScriptContext)
@@ -56,6 +63,17 @@ pstripAda = phoistAcyclic $
 -- The current implementation of the contracts in this module are not designed to be maximally efficient.
 -- In the future, this should be optimized to use the redeemer indexing design pattern to identify and validate
 -- the programmable inputs.
+data TokenProof 
+  = TokenExists Integer
+  | TokenDoesNotExist Integer
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
+
+deriving via
+  (DerivePConstantViaData TokenProof PTokenProof)
+  instance
+    (PConstantDecl TokenProof)
+
 
 data PTokenProof (s :: S)
   = PTokenExists
@@ -73,6 +91,9 @@ data PTokenProof (s :: S)
 
 instance DerivePlutusType PTokenProof where
   type DPTStrat _ = PlutusTypeData
+
+instance PUnsafeLiftDecl PTokenProof where
+  type PLifted PTokenProof = TokenProof
 
 emptyValue :: Value
 emptyValue = mempty
@@ -279,9 +300,23 @@ pcheckTransferLogicAndGetProgrammableValue = plam $ \directoryNodeCS refInputs p
     -- drop the ada entry in the value before traversing the rest of the value entries
     in go # proofList # (ptail # mapInnerList) # pto (pto pemptyLedgerValue)
 
--- type ProgrammableLogicGlobalRedeemer = PBuiltinList (PAsData PTokenProof)
 
-data ProgrammableLogicGlobalRedeemer (s :: S)
+data ProgrammableLogicGlobalRedeemer 
+  = TransferAct [TokenProof]
+  | SeizeAct {
+        plgrSeizeInputIdx :: Integer,
+        plgrSeizeOutputIdx :: Integer,
+        plgrDirectoryNodeIdx :: Integer
+      }
+  deriving (Show, Eq, Generic)
+  deriving anyclass (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
+
+deriving via
+  (DerivePConstantViaData ProgrammableLogicGlobalRedeemer PProgrammableLogicGlobalRedeemer)
+  instance
+    (PConstantDecl ProgrammableLogicGlobalRedeemer)
+
+data PProgrammableLogicGlobalRedeemer (s :: S)
   = PTransferAct
       ( Term s ( PDataRecord '[ "proofs" ':= PBuiltinList (PAsData PTokenProof) ] ) )
   | PSeizeAct
@@ -297,14 +332,17 @@ data ProgrammableLogicGlobalRedeemer (s :: S)
   deriving stock (Generic)
   deriving anyclass (PlutusType, PIsData, PEq)
 
-instance DerivePlutusType ProgrammableLogicGlobalRedeemer where
+instance DerivePlutusType PProgrammableLogicGlobalRedeemer where
   type DPTStrat _ = PlutusTypeData
+
+instance PUnsafeLiftDecl PProgrammableLogicGlobalRedeemer where
+  type PLifted PProgrammableLogicGlobalRedeemer = ProgrammableLogicGlobalRedeemer
 
 mkProgrammableLogicGlobal :: ClosedTerm (PAsData PCurrencySymbol :--> PScriptContext :--> PUnit)
 mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
   ctxF <- pletFields @'["txInfo", "redeemer", "scriptInfo"] ctx
   infoF <- pletFields @'["inputs", "referenceInputs", "outputs", "signatories", "wdrl"] ctxF.txInfo
-  let red = pfromData $ punsafeCoerce @_ @_ @(PAsData ProgrammableLogicGlobalRedeemer) (pto ctxF.redeemer)
+  let red = pfromData $ punsafeCoerce @_ @_ @(PAsData PProgrammableLogicGlobalRedeemer) (pto ctxF.redeemer)
   referenceInputs <- plet $ pfromData infoF.referenceInputs
   -- Extract protocol parameter UTxO
   ptraceInfo "Extracting protocol parameter UTxO"

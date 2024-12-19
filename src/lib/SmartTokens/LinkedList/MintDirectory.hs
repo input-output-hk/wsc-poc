@@ -54,6 +54,11 @@ data DirectoryNodeAction
   deriving anyclass (SOP.Generic)
   deriving anyclass (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
 
+deriving via
+  (DerivePConstantViaData DirectoryNodeAction PDirectoryNodeAction)
+  instance
+    (PConstantDecl DirectoryNodeAction)
+
 data PDirectoryNodeAction (s :: S)
   = PInit (Term s (PDataRecord '[]))
   | PInsert (Term s (PDataRecord '["keyToInsert" ':= PByteString]))
@@ -65,10 +70,6 @@ instance PUnsafeLiftDecl PDirectoryNodeAction where
 
 instance DerivePlutusType PDirectoryNodeAction where type DPTStrat _ = PlutusTypeData
 
-deriving via
-  (DerivePConstantViaData DirectoryNodeAction PDirectoryNodeAction)
-  instance
-    (PConstantDecl DirectoryNodeAction)
 
 mkDirectoryNodeMP ::
   ClosedTerm
