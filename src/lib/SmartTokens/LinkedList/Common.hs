@@ -49,6 +49,7 @@ import Plutarch.Prelude
       pfield,
       pletFields,
       pall,
+      plengthBS,
       pany,
       pfilter,
       pmap,
@@ -273,6 +274,8 @@ pInsert ::
   Term s (PAsData PByteString :--> PUnit)
 pInsert common = plam $ \pkToInsert -> P.do
   keyToInsert <- plet $ pfromData pkToInsert
+
+  passert "Key to insert must be valid Currency Symbol" $ plengthBS # keyToInsert #== 32
 
   -- Input Checks:
   -- There is only one spent node (tx inputs contains only one node UTxO)

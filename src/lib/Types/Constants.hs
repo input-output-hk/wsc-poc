@@ -14,7 +14,6 @@ import Plutarch.Core.Utils (pnonew)
 import PlutusLedgerApi.V1 (TokenName(..))
 import Plutarch.Builtin (PDataNewtype(..))
 
-
 pnodeKeyTN :: ClosedTerm (PByteString :--> PTokenName)
 pnodeKeyTN = phoistAcyclic $
   plam $

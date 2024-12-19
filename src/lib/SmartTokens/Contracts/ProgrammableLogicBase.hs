@@ -34,7 +34,7 @@ import Plutarch.Prelude (ClosedTerm, DerivePlutusType (..), Generic, PAsData,
                          PPartialOrd ((#<)), PUnit, PlutusType, PlutusTypeData,
                          S, Term, pcon, pconstant, pdata, pelem, perror, pfield,
                          pfix, pfromData, pfstBuiltin, phoistAcyclic, pif, plam,
-                         plet, pletFields, pmap, pmatch, psndBuiltin, pto,
+                         plet, pletFields, pmap, pmatch, pnot, psndBuiltin, pto,
                          ptraceInfo, type (:-->), (#$), (#), (#||))
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V1.Value (Value)
@@ -271,7 +271,7 @@ pcheckTransferLogicAndGetProgrammableValue = plam $ \directoryNodeCS refInputs p
                                 , phasDataCS # directoryNodeCS # pfromData prevNodeUTxOF.value
                                 ]
                         pif checks
-                            (self # (ptail # proofs) # csPairs # (pcons @PBuiltinList # csPair # actualProgrammableTokenValue))
+                            (self # (ptail # proofs) # csPairs # actualProgrammableTokenValue)
                             perror
                 )
                 (pcon $ PValue $ pcon $ PMap actualProgrammableTokenValue)
@@ -279,7 +279,6 @@ pcheckTransferLogicAndGetProgrammableValue = plam $ \directoryNodeCS refInputs p
     -- drop the ada entry in the value before traversing the rest of the value entries
     in go # proofList # (ptail # mapInnerList) # pto (pto pemptyLedgerValue)
 
--- type ProgrammableLogicGlobalRedeemer = PBuiltinList (PAsData PTokenProof)
 
 data ProgrammableLogicGlobalRedeemer (s :: S)
   = PTransferAct
@@ -356,9 +355,6 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
               # pfromData proofs
               # invokedScripts
               # totalProgTokenValue_
-          -- For POC we enforce that all value spent from the programmable contracts must
-          -- return to the programmable contracts. We can easily extend this to allow
-          -- for non-programmable tokens to leave the programmable contract.
           , pvalueContains # (pvalueToCred # progLogicCred # pfromData infoF.outputs) # totalProgTokenValue_
           ]
     PSeizeAct seizeAct -> P.do
@@ -378,6 +374,9 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
       seizeInputF <- pletFields @'["address", "value", "datum"] seizeInput
       seizeInputAddress <- plet seizeInputF.address
 
+      seizeInputValue <- plet $ pfromData seizeInputF.value
+      seizeOutputValue <- plet $ pfilterCSFromValue # seizeInputValue # directoryNodeDatumF.key
+
       let expectedSeizeOutput =
             pdata $
               mkRecordConstr
@@ -385,12 +384,13 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                 ( #address
                     .= seizeInputF.address
                     .& #value
-                    .= pdata (pfilterCSFromValue # pfromData seizeInputF.value # directoryNodeDatumF.key)
+                    .= pdata seizeOutputValue
                     .& #datum
                     .= seizeInputF.datum
                     .& #referenceScript
                     .= pdata pdnothing
                 )
+
       -- For ease of implementation of POC we only allow one UTxO to be seized per transaction.
       -- This can be easily modified to support seizure of multiple UTxOs.
       let issuerLogicScriptHash = punsafeCoerce @_ @_ @(PAsData PByteString) $ phead #$ psndBuiltin #$ pasConstr # pforgetData directoryNodeDatumF.issuerLogicScript
@@ -399,6 +399,12 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
           , pfield @"credential" # seizeInputAddress #== progLogicCred
           , seizeOutput #== expectedSeizeOutput
           , pelem # issuerLogicScriptHash # invokedScripts
+          -- Prevent DDOS greifing attacks via the seize action
+          -- i.e. the issuer logic script being used to spend a programmable token UTxO that does not have the given programmable token
+          -- back to the mkProgrammableLogicBase script without modifying it (thus preventing any others from spending
+          -- that UTxO in that block). Or using it to repeatedly spend a programmable token UTxO that does have the programmable token back back to 
+          -- the mkProgrammableLogicBase script without removing the programmable token associated with the `issuerLogicCredential`.
+          , pnot # (pdata seizeInputValue #== pdata seizeOutputValue)
           ]
 
 
