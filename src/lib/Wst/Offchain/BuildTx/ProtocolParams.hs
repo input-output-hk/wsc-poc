@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Wst.Offchain.BuildTx.ProtocolParams (
   mintProtocolParams,
   getProtocolParamsGlobalInline
@@ -22,14 +20,18 @@ import Wst.Offchain.Scripts (protocolParamsMintingScript,
 protocolParamsTokenC :: C.AssetName
 protocolParamsTokenC = unTransAssetName protocolParamsToken
 
+{-| Mint the protocol parameters NFT. Returns NFT's policy ID.
+-}
 mintProtocolParams :: forall era m. (C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => ProgrammableLogicGlobalParams -> C.TxIn -> m ()
 mintProtocolParams params txIn = Utils.inBabbage @era $ do
   netId <- queryNetworkId
   let
       mintingScript = protocolParamsMintingScript txIn
 
+      policyId = scriptPolicyIdV3 mintingScript
+
       val = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
-            $ fromList [(C.AssetId (scriptPolicyIdV3 mintingScript) protocolParamsTokenC, 1)]
+            $ fromList [(C.AssetId policyId protocolParamsTokenC, 1)]
 
       addr =
         C.makeShelleyAddressInEra

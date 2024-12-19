@@ -1,6 +1,7 @@
 {-| Running tests that use the 'BuildTxEv'
 -}
 module Wst.Test.Env(
+  admin,
   asAdmin
 ) where
 

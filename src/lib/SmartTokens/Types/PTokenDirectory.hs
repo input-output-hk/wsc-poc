@@ -24,36 +24,28 @@ module SmartTokens.Types.PTokenDirectory (
   BlacklistNode(..),
 ) where
 
+import Data.Text qualified as T
 import Generics.SOP qualified as SOP
-import Plutarch ( Config(NoTracing), Config(NoTracing) )
-import Plutarch.Builtin
-    ( pasByteStr,
-      pasConstr,
-      pasList,
-      pforgetData,
-      plistData,
-      pforgetData,
-      plistData )
+import GHC.Stack (HasCallStack)
+import Plutarch (Config (NoTracing))
+import Plutarch.Builtin (pasByteStr, pasConstr, pasList, pforgetData, plistData)
 import Plutarch.Core.PlutusDataList (DerivePConstantViaDataList (..),
                                      PlutusTypeDataList, ProductIsData (..))
 import Plutarch.Core.Utils (pcond, pheadSingleton, pmkBuiltinList)
 import Plutarch.DataRepr (PDataFields)
+import Plutarch.DataRepr.Internal
 import Plutarch.DataRepr.Internal.Field (HRec (..), Labeled (Labeled))
 import Plutarch.Evaluate (unsafeEvalTerm)
+import Plutarch.Internal qualified as PI
+import Plutarch.Internal.Other (printScript)
 import Plutarch.LedgerApi.V3 (PCredential, PCurrencySymbol)
 import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (PLifted))
 import Plutarch.List
 import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
-import PlutusLedgerApi.V3
-    ( Credential, CurrencySymbol, BuiltinByteString )
+import PlutusLedgerApi.V3 (BuiltinByteString, Credential, CurrencySymbol)
 import PlutusTx (Data (B, Constr))
 import PlutusTx qualified
-import Plutarch.DataRepr.Internal
-import GHC.Stack (HasCallStack)
-import Plutarch.Internal.Other (printScript)
-import qualified Data.Text as T
-import qualified Plutarch.Internal as PI
 
 
 
@@ -101,7 +93,7 @@ instance PUnsafeLiftDecl PBlacklistNode where
 -- the same string.
 --
 -- >>>  _printTerm NoTracing $ unsafeEvalTerm NoTracing (pconstant $ BlacklistNode { blnKey = "a hi", blnNext = "a" })
--- "program 1.0.0 (List [B #61206869, B #61])"
+-- "program 1.0.0 (List [B #61206869, B #60])"
 _printTerm :: HasCallStack => Config -> ClosedTerm a -> String
 _printTerm config term = printScript $ either (error . T.unpack) id $ PI.compile config term
 

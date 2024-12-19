@@ -59,7 +59,7 @@ protocolParamsSpendingScript =
 -- symbol uniqueness across instances
 directoryNodeMintingScript :: C.TxIn -> C.PlutusScript C.PlutusScriptV3
 directoryNodeMintingScript txIn =
-  let script = tryCompile prodConfig $ mkDirectoryNodeMP # pdata (pconstant $ transTxOutRef txIn)
+  let script = tryCompile tracingConfig $ mkDirectoryNodeMP # pdata (pconstant $ transTxOutRef txIn)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- | The spending script for the directory node tokens, parameterized by the

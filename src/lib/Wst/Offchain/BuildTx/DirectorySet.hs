@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveAnyClass    #-}
 {-# LANGUAGE DerivingVia       #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications  #-}
@@ -7,6 +6,8 @@
 module Wst.Offchain.BuildTx.DirectorySet (
   initDirectorySet,
   insertDirectoryNode,
+  -- * Values
+  initialNode
 ) where
 
 import Cardano.Api qualified as C
@@ -21,25 +22,24 @@ import Convex.Utils qualified as Utils
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (Credential (..), CurrencySymbol (..), TokenName (..))
 import SmartTokens.LinkedList.MintDirectory (DirectoryNodeAction (..))
+import SmartTokens.Types.Constants (directoryNodeToken)
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.Offchain.Scripts (directoryNodeMintingScript,
                              directoryNodeSpendingScript, scriptPolicyIdV3)
 
--- TODO: Where should this go
-directoryNodeToken :: C.AssetName
-directoryNodeToken = unTransAssetName $ TokenName "DirectoryNodeNFT"
+initialNode :: DirectorySetNode
+initialNode = DirectorySetNode (CurrencySymbol "") (CurrencySymbol "") (PubKeyCredential "") (PubKeyCredential "")
 
 initDirectorySet :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.PolicyId -> C.TxIn -> m ()
 initDirectorySet paramsPolicyId txIn = Utils.inBabbage @era $ do
   netId <- queryNetworkId
-
   let mintingScript = directoryNodeMintingScript txIn
 
-  mintPlutus mintingScript InitDirectory directoryNodeToken 1
+  mintPlutus mintingScript InitDirectory (unTransAssetName directoryNodeToken) 1
 
   let
       val = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
-            $ fromList [(C.AssetId (scriptPolicyIdV3 mintingScript) directoryNodeToken, 1)]
+            $ fromList [(C.AssetId (scriptPolicyIdV3 mintingScript) (unTransAssetName directoryNodeToken), 1)]
 
       addr =
         C.makeShelleyAddressInEra
@@ -48,9 +48,9 @@ initDirectorySet paramsPolicyId txIn = Utils.inBabbage @era $ do
           (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 $ directoryNodeSpendingScript paramsPolicyId)
           C.NoStakeAddress
 
-      d = DirectorySetNode (CurrencySymbol "") (CurrencySymbol "") (PubKeyCredential "") (PubKeyCredential "")
-      dat = C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData d
+      dat = C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData initialNode
 
+      output :: C.TxOut C.CtxTx era
       output = C.TxOut addr val dat C.ReferenceScriptNone
 
   addBtx (over L.txOuts (output :))
@@ -70,7 +70,7 @@ insertDirectoryNode paramsPolicyId initialTxIn (_, firstTxOut) (newKey, transfer
         _ -> error "insertDirectoryNode: invalid output"
 
       newVal = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
-          $ fromList [(C.AssetId (scriptPolicyIdV3 directoryMintingScript) directoryNodeToken, 1)]
+          $ fromList [(C.AssetId (scriptPolicyIdV3 directoryMintingScript) (unTransAssetName directoryNodeToken), 1)]
 
       addr =
         C.makeShelleyAddressInEra
@@ -92,7 +92,7 @@ insertDirectoryNode paramsPolicyId initialTxIn (_, firstTxOut) (newKey, transfer
       firstDat = firstTxData { next = newKey}
       firstOutput = C.TxOut addr firstTxVal (C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData firstDat) C.ReferenceScriptNone
 
-  mintPlutus directoryMintingScript (InsertDirectoryNode newKey) directoryNodeToken 1
+  mintPlutus directoryMintingScript (InsertDirectoryNode newKey) (unTransAssetName directoryNodeToken) 1
   addBtx (over L.txOuts (newOutput :))
   addBtx (over L.txOuts (firstOutput :))
 
