@@ -75,9 +75,8 @@ library
     Wst.Offchain.BuildTx.LinkedList
     Wst.Offchain.BuildTx.ProgrammableLogic
     Wst.Offchain.BuildTx.ProtocolParams
-    Wst.Offchain.Endpoints.DirectorySet
+    Wst.Offchain.Endpoints.Deployment
     Wst.Offchain.Endpoints.Env
-    Wst.Offchain.Endpoints.ProtocolParams
     Wst.Offchain.Scripts
     Wst.Onchain
     Wst.Server

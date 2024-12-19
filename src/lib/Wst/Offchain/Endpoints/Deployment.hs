@@ -1,8 +1,16 @@
 {-# LANGUAGE NamedFieldPuns #-}
-{-| Endpoints for managing and initializing the policy directory
+
+{-| Deploy the directory and global params
 -}
-module Wst.Offchain.Endpoints.DirectorySet(
-  initDirectoryTx
+module Wst.Offchain.Endpoints.Deployment(
+  DeploymentScripts(..),
+  deploymentScripts,
+  programmableLogicStakeCredential,
+  programmableLogicBaseCredential,
+  directoryNodePolicyId,
+  protocolParamsPolicyId,
+  globalParams,
+  deployTx
 ) where
 
 import Cardano.Api (PlutusScript, PlutusScriptV3)
@@ -67,11 +75,11 @@ globalParams scripts =
     , progLogicCred   = transCredential (programmableLogicBaseCredential scripts) -- its the script hash of the programmable base spending script
     }
 
-{-| Build a transaction that initialises the directory. Returns the
+{-| Build a transaction that deploys the directory and global params. Returns the
 transaction and the 'TxIn' that was selected for the one-shot NFTs.
 -}
-initDirectoryTx :: (MonadReader (BuildTxEnv era) m, MonadBlockchain era m, MonadError (BuildTxError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => m (C.Tx era, C.TxIn)
-initDirectoryTx = do
+deployTx :: (MonadReader (BuildTxEnv era) m, MonadBlockchain era m, MonadError (BuildTxError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => m (C.Tx era, C.TxIn)
+deployTx = do
   (txi, _) <- Env.selectOperatorOutput
   let scripts = deploymentScripts txi
   (tx, _) <- Env.balanceTxEnv $ do
