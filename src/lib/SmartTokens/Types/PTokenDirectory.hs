@@ -48,8 +48,8 @@ import PlutusTx (Data (B, Constr), FromData, ToData, UnsafeFromData)
 
 data BlacklistNode =
   BlacklistNode {
-    blnKey :: BuiltinByteString,
-    blnNext :: BuiltinByteString
+    blnKey :: Credential,
+    blnNext :: Credential
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (SOP.Generic)

@@ -74,6 +74,7 @@ library
     Wst.Offchain.BuildTx.LinkedList
     Wst.Offchain.BuildTx.ProgrammableLogic
     Wst.Offchain.BuildTx.ProtocolParams
+    Wst.Offchain.BuildTx.TransferLogic
     Wst.Offchain.Endpoints.DirectorySet
     Wst.Offchain.Endpoints.Env
     Wst.Offchain.Endpoints.ProtocolParams

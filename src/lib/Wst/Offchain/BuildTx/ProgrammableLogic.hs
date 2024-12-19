@@ -8,7 +8,7 @@
 module Wst.Offchain.BuildTx.ProgrammableLogic
   ( issueProgrammableToken,
     transferProgrammableToken,
-    seizePragrammableToken,
+    seizeProgrammableToken,
   )
 where
 
@@ -130,8 +130,8 @@ transferProgrammableToken (paramsTxIn, paramsPolId) tokenTxIn programmableTokenS
    ensure that the specific issuer logic stake script witness is included in the
    final transaction.
 -}
-seizePragrammableToken :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => (C.TxIn, C.PolicyId) -> (C.TxIn, C.TxOut C.CtxTx era) -> (C.TxIn, C.TxOut C.CtxTx era) -> CurrencySymbol -> [(C.TxIn, C.InAnyCardanoEra (C.TxOut C.CtxTx))] -> m ()
-seizePragrammableToken (paramsTxIn, paramsPolId) (seizingTxIn, seizingOutput) (issuerTxIn, issuerTxOut) seizingTokenSymbol directoryList = Utils.inBabbage @era $ do
+seizeProgrammableToken :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => (C.TxIn, C.PolicyId) -> (C.TxIn, C.TxOut C.CtxTx era) -> (C.TxIn, C.TxOut C.CtxTx era) -> CurrencySymbol -> [(C.TxIn, C.InAnyCardanoEra (C.TxOut C.CtxTx))] -> m ()
+seizeProgrammableToken (paramsTxIn, paramsPolId) (seizingTxIn, seizingOutput) (issuerTxIn, issuerTxOut) seizingTokenSymbol directoryList = Utils.inBabbage @era $ do
   nid <- queryNetworkId
 
   let globalStakeScript = programmableLogicGlobalScript paramsPolId
