@@ -13,6 +13,7 @@ module Wst.Offchain.BuildTx.DirectorySet (
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Control.Lens (over)
+import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx, addBtx, mintPlutus)
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain, queryNetworkId)
@@ -30,6 +31,7 @@ import SmartTokens.CodeLens (_printTerm)
 import SmartTokens.LinkedList.MintDirectory (DirectoryNodeAction (..))
 import SmartTokens.Types.Constants (directoryNodeToken)
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
+import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Scripts (directoryNodeMintingScript,
                              directoryNodeSpendingScript, scriptPolicyIdV3)
 
@@ -49,8 +51,10 @@ initialNode = DirectorySetNode
   , issuerLogicScript = PubKeyCredential ""
   }
 
-initDirectorySet :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.PolicyId -> C.TxIn -> m ()
-initDirectorySet paramsPolicyId txIn = Utils.inBabbage @era $ do
+initDirectorySet :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => m ()
+initDirectorySet = Utils.inBabbage @era $ do
+  txIn <- asks (Env.dsTxIn . Env.directoryEnv)
+  paramsPolicyId <- asks (Env.protocolParamsPolicyId . Env.directoryEnv)
   netId <- queryNetworkId
   let mintingScript = directoryNodeMintingScript txIn
 

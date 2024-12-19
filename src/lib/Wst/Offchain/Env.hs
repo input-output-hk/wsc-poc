@@ -1,8 +1,11 @@
-{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE NamedFieldPuns         #-}
 {-| Transaction building environment
 -}
 module Wst.Offchain.Env(
   -- * Operator environment
+  HasOperatorEnv(..),
   OperatorEnv(..),
   loadEnv,
   BuildTxError(..),
@@ -12,20 +15,25 @@ module Wst.Offchain.Env(
   balanceTxEnv,
 
   -- * Directory environment
+  HasDirectoryEnv(..),
   DirectoryEnv(..),
-  directoryEnv,
+  mkDirectoryEnv,
   programmableLogicStakeCredential,
   programmableLogicBaseCredential,
   directoryNodePolicyId,
   protocolParamsPolicyId,
-  globalParams
+  globalParams,
+
+  -- * Combined environment
+  CombinedEnv(..),
+  withDirectoryFor
 ) where
 
 import Cardano.Api (PlutusScript, PlutusScriptV3, UTxO)
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Control.Monad.Except (MonadError, throwError)
-import Control.Monad.Reader (MonadReader, ask, asks)
+import Control.Monad.Reader (MonadReader, ReaderT, asks, runReaderT)
 import Convex.BuildTx (BuildTxT)
 import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain, MonadUtxoQuery (..),
@@ -46,6 +54,14 @@ import Wst.Offchain.Scripts (directoryNodeMintingScript,
                              programmableLogicBaseScript,
                              programmableLogicGlobalScript,
                              protocolParamsMintingScript, scriptPolicyIdV3)
+
+{-| Environments that have an 'OperatorEnv'
+-}
+class HasOperatorEnv era e | e -> era where
+  operatorEnv :: e -> OperatorEnv era
+
+instance HasOperatorEnv era (OperatorEnv era) where
+  operatorEnv = id
 
 {-| Information needed to build transactions
 -}
@@ -74,20 +90,26 @@ data BuildTxError era =
 
 {-| Select an output owned by the operator
 -}
-selectOperatorOutput :: (MonadReader (OperatorEnv era) m, MonadError (BuildTxError era) m) => m (C.TxIn, C.TxOut C.CtxUTxO era)
-selectOperatorOutput = asks (listToMaybe . Map.toList . C.unUTxO . bteOperatorUtxos) >>= \case
+selectOperatorOutput :: (MonadReader env m, HasOperatorEnv era env, MonadError (BuildTxError era) m) => m (C.TxIn, C.TxOut C.CtxUTxO era)
+selectOperatorOutput = asks (listToMaybe . Map.toList . C.unUTxO . bteOperatorUtxos . operatorEnv) >>= \case
   Nothing -> throwError OperatorNoUTxOs
   Just k -> pure k
 
 {-| Balance a transaction using the operator's funds and return output
 -}
-balanceTxEnv :: forall era a m. (MonadBlockchain era m, MonadReader (OperatorEnv era) m, MonadError (BuildTxError era) m, C.IsBabbageBasedEra era) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
+balanceTxEnv :: forall era env a m. (MonadBlockchain era m, MonadReader env m, HasOperatorEnv era env, MonadError (BuildTxError era) m, C.IsBabbageBasedEra era) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
 balanceTxEnv btx = do
-  OperatorEnv{bteOperatorUtxos, bteOperator} <- ask
+  OperatorEnv{bteOperatorUtxos, bteOperator} <- asks operatorEnv
   params <- queryProtocolParameters
   txBuilder <- BuildTx.execBuildTxT $ btx >> BuildTx.setMinAdaDepositAll params
   output <- operatorReturnOutput bteOperator
   mapError BalancingError (CoinSelection.balanceTx mempty output (Utxos.fromApiUtxo bteOperatorUtxos) txBuilder CoinSelection.TrailingChange)
+
+class HasDirectoryEnv e where
+  directoryEnv :: e -> DirectoryEnv
+
+instance HasDirectoryEnv DirectoryEnv where
+  directoryEnv = id
 
 {-| Scripts relatd to managing the token policy directory.
 All of the scripts and their hashes are determined by the 'TxIn'.
@@ -102,8 +124,8 @@ data DirectoryEnv =
     , dsProgrammableLogicGlobalScript :: PlutusScript PlutusScriptV3
     }
 
-directoryEnv :: C.TxIn -> DirectoryEnv
-directoryEnv dsTxIn =
+mkDirectoryEnv :: C.TxIn -> DirectoryEnv
+mkDirectoryEnv dsTxIn =
   let dsDirectoryMintingScript        = directoryNodeMintingScript dsTxIn
       dsProtocolParamsMintingScript   = protocolParamsMintingScript dsTxIn
       dsDirectorySpendingScript       = directoryNodeSpendingScript (protocolParamsPolicyId result)
@@ -139,3 +161,24 @@ globalParams scripts =
     { directoryNodeCS = transPolicyId (directoryNodePolicyId scripts)
     , progLogicCred   = transCredential (programmableLogicBaseCredential scripts) -- its the script hash of the programmable base spending script
     }
+
+data CombinedEnv era =
+  CombinedEnv
+    { ceOperator :: OperatorEnv era
+    , ceDirectory :: DirectoryEnv
+    }
+
+instance HasOperatorEnv era (CombinedEnv era) where
+  operatorEnv = ceOperator
+
+instance HasDirectoryEnv (CombinedEnv era) where
+  directoryEnv = ceDirectory
+
+{-| Add a 'DirectoryEnv' to the environment
+-}
+withDirectoryFor :: (MonadReader env m, HasOperatorEnv era env) => C.TxIn -> ReaderT (CombinedEnv era) m a -> m a
+withDirectoryFor txi action = do
+  asks (CombinedEnv . operatorEnv) <*> pure (mkDirectoryEnv txi)
+    >>= runReaderT action
+
+

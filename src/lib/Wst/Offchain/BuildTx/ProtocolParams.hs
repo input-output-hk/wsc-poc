@@ -5,6 +5,7 @@ module Wst.Offchain.BuildTx.ProtocolParams (
 
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
+import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx, mintPlutus, prependTxOut,
                        spendPublicKeyOutput)
 import Convex.Class (MonadBlockchain (..))
@@ -14,16 +15,19 @@ import Convex.Utils qualified as Utils
 import GHC.Exts (IsList (..))
 import SmartTokens.Types.Constants (protocolParamsToken)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
+import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Scripts (protocolParamsMintingScript,
                              protocolParamsSpendingScript, scriptPolicyIdV3)
 
 protocolParamsTokenC :: C.AssetName
 protocolParamsTokenC = unTransAssetName protocolParamsToken
 
-{-| Mint the protocol parameters NFT. Returns NFT's policy ID.
+{-| Mint the protocol parameters NFT and place it in the output locked by 'protocolParamsSpendingScript'
 -}
-mintProtocolParams :: forall era m. (C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => ProgrammableLogicGlobalParams -> C.TxIn -> m ()
-mintProtocolParams params txIn = Utils.inBabbage @era $ do
+mintProtocolParams :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => m ()
+mintProtocolParams = Utils.inBabbage @era $ do
+  txIn <- asks (Env.dsTxIn . Env.directoryEnv)
+  params <- asks (Env.globalParams . Env.directoryEnv)
   netId <- queryNetworkId
   let
       mintingScript = protocolParamsMintingScript txIn
