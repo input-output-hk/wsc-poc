@@ -1,0 +1,53 @@
+# https://github.com/marketplace/actions/install-nix
+
+name: "ci-nix"
+on:
+  pull_request:
+  push:
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+
+    - uses: actions/checkout@v4
+
+    - name: Install nix
+      uses: cachix/install-nix-action@v27
+
+    # https://github.com/marketplace/actions/cache-nix-store
+    - name: Restore and cache Nix store
+      uses: nix-community/cache-nix-action@v5
+      with:
+        # restore and save a cache using this key
+        # TODO: Also hash the cabal.config and *cabal files, since we depend on them
+        primary-key: nix-${{ runner.os }}-${{ hashFiles('**/*.nix') }}
+        # if there's no cache hit, restore a cache by this prefix
+        restore-prefixes-first-match: nix-${{ runner.os }}-
+        # collect garbage until Nix store size (in bytes) is at most this number
+        # before trying to save a new cache
+        gc-max-store-size-linux: 1073741824
+        # do purge caches
+        purge: true
+        # purge all versions of the cache
+        purge-prefixes: cache-${{ runner.os }}-
+        # created more than this number of seconds ago relative to the start of the `Post Restore` phase
+        purge-created: 0
+        # except the version with the `primary-key`, if it exists
+        purge-primary-key: never
+
+    # # Possibly need to cache cabal.
+    # - name: Cache .cabal
+    #   uses: actions/cache@v3
+    #   with:
+    #     path: ${{ steps.cabal-setup.outputs.cabal-store }}
+    #     key: cabal-${{ hashFiles('cabal.project') }}
+
+    # We currently do not have a default target
+    - run: nix build --accept-flake-config .#wst-poc
+    - run: nix flake --accept-flake-config check
+
