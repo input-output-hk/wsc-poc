@@ -25,35 +25,37 @@ module SmartTokens.Types.PTokenDirectory (
 ) where
 
 import Generics.SOP qualified as SOP
-import Plutarch ( Config(NoTracing), Config(NoTracing) )
-import Plutarch.Builtin
-    ( pasByteStr,
-      pasConstr,
-      pasList,
-      pforgetData,
-      plistData,
-      pforgetData,
-      plistData )
+import Plutarch (Config (NoTracing))
+import Plutarch.Builtin (pasByteStr, pasConstr, pasList, pforgetData, plistData)
 import Plutarch.Core.PlutusDataList (DerivePConstantViaDataList (..),
                                      PlutusTypeDataList, ProductIsData (..))
 import Plutarch.Core.Utils (pcond, pheadSingleton, pmkBuiltinList)
 import Plutarch.DataRepr (PDataFields)
+import Plutarch.DataRepr.Internal (DerivePConstantViaData (..))
 import Plutarch.DataRepr.Internal.Field (HRec (..), Labeled (Labeled))
 import Plutarch.Evaluate (unsafeEvalTerm)
 import Plutarch.LedgerApi.V3 (PCredential, PCurrencySymbol)
 import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (PLifted))
 import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
-import PlutusLedgerApi.V3
-    ( Credential, CurrencySymbol, BuiltinByteString )
-import PlutusTx
-    ( Data(B, Constr), ToData, FromData, UnsafeFromData ) 
-import Plutarch.DataRepr.Internal
-    ( DerivePConstantViaData(..) )
-import GHC.Stack (HasCallStack)
-import Plutarch.Internal.Other (printScript)
-import qualified Data.Text as T
-import qualified Plutarch.Internal as PI
+import PlutusLedgerApi.V3 (BuiltinByteString, Credential, CurrencySymbol)
+import PlutusTx (Data (B, Constr), FromData, ToData, UnsafeFromData)
+
+-- $setup
+--
+-- >>> import GHC.Stack (HasCallStack)
+-- >>> import Plutarch.Internal.Other (printScript)
+-- >>> import qualified Data.Text as T
+-- >>> import qualified Plutarch.Internal as PI
+-- >>> let printTerm :: HasCallStack => Config -> ClosedTerm a -> String ; printTerm config term = printScript $ either (error . T.unpack) id $ PI.compile config term
+--
+-- Setup for doctest / HLS. Everything in this block is available for each test. Function
+-- definitions are a bit annoying but we probably should introduce printTerm somewhere anyway and
+-- then just import.
+--
+-- Note: Dont put comments over the setup line!
+--
+
 
 data BlacklistNode =
   BlacklistNode {
@@ -96,10 +98,8 @@ instance PUnsafeLiftDecl PBlacklistNode where
 -- language server. The lens will then replace the string starting with "program ..." with exactly
 -- the same string.
 --
--- >>> _printTerm NoTracing (pconstantData $ BlacklistNode { blnKey = "a hi", blnNext = "a" })
+-- >>> printTerm NoTracing (pconstantData $ BlacklistNode { blnKey = "a hi", blnNext = "a" })
 -- "program 1.0.0 (List [B #61206869, B #61])"
-_printTerm :: HasCallStack => Config -> ClosedTerm a -> String
-_printTerm config term = printScript $ either (error . T.unpack) id $ PI.compile config term
 
 
 type PBlacklistNodeHRec (s :: S) =
@@ -109,7 +109,7 @@ type PBlacklistNodeHRec (s :: S) =
      ]
 
 -- | Helper function to extract fields from a 'PBlacklistNode' term.
--- >>> _printTerm NoTracing $ unsafeEvalTerm NoTracing (pletFieldsBlacklistNode (unsafeEvalTerm NoTracing (pconstantData $ BlacklistNode { blnKey = "deadbeee", blnNext = "deadbeef" })) $ \fields -> fields.key)
+-- >>> printTerm NoTracing $ unsafeEvalTerm NoTracing (pletFieldsBlacklistNode (unsafeEvalTerm NoTracing (pconstantData $ BlacklistNode { blnKey = "deadbeee", blnNext = "deadbeef" })) $ \fields -> fields.key)
 -- "programs 1.0.0 (B #6465616462656565)"
 pletFieldsBlacklistNode :: forall {s :: S} {r :: PType}. Term s (PAsData PBlacklistNode) -> (PBlacklistNodeHRec s -> Term s r) -> Term s r
 pletFieldsBlacklistNode term = runTermCont $ do
