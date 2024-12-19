@@ -54,6 +54,7 @@ library
   import:          lang
   exposed-modules:
     Profile
+    SmartTokens.CodeLens
     SmartTokens.Contracts.ExampleTransferLogic
     SmartTokens.Contracts.Issuance
     SmartTokens.Contracts.ProgrammableLogicBase
@@ -87,6 +88,7 @@ library
   build-depends:
     , aeson
     , base                   >=4.14 && <4.20
+    , base16-bytestring
     , bytestring
     , cardano-api
     , cardano-ledger-api

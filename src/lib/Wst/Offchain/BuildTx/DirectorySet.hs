@@ -19,16 +19,35 @@ import Convex.Class (MonadBlockchain, queryNetworkId)
 import Convex.PlutusLedger.V1 (transStakeCredential, unTransAssetName)
 import Convex.Scripts (fromHashableScriptData, toHashableScriptData)
 import Convex.Utils qualified as Utils
+import Data.ByteString.Base16 (decode)
 import GHC.Exts (IsList (..))
-import PlutusLedgerApi.V3 (Credential (..), CurrencySymbol (..), TokenName (..))
+import Plutarch (Config (NoTracing))
+import Plutarch.Evaluate (unsafeEvalTerm)
+import Plutarch.Prelude (pconstantData)
+import PlutusLedgerApi.V3 (Credential (..), CurrencySymbol (..))
+import PlutusTx.Prelude (toBuiltin)
+import SmartTokens.CodeLens (_printTerm)
 import SmartTokens.LinkedList.MintDirectory (DirectoryNodeAction (..))
 import SmartTokens.Types.Constants (directoryNodeToken)
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.Offchain.Scripts (directoryNodeMintingScript,
                              directoryNodeSpendingScript, scriptPolicyIdV3)
 
+_unused :: String
+_unused = _printTerm $ unsafeEvalTerm NoTracing (pconstantData initialNode)
+
+{-|
+
+>>> _printTerm $ unsafeEvalTerm NoTracing (pconstantData initialNode)
+"program\n  1.0.0\n  (List\n     [ B #\n     , B #ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\n     , Constr 0 [B #]\n     , Constr 0 [B #] ])"
+-}
 initialNode :: DirectorySetNode
-initialNode = DirectorySetNode (CurrencySymbol "") (CurrencySymbol "") (PubKeyCredential "") (PubKeyCredential "")
+initialNode = DirectorySetNode
+  { key = CurrencySymbol ""
+  , next = CurrencySymbol $ toBuiltin $ either (error "bytestring") id $ decode "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  , transferLogicScript = PubKeyCredential ""
+  , issuerLogicScript = PubKeyCredential ""
+  }
 
 initDirectorySet :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.PolicyId -> C.TxIn -> m ()
 initDirectorySet paramsPolicyId txIn = Utils.inBabbage @era $ do
