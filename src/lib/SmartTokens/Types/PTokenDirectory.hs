@@ -46,7 +46,8 @@ import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V3
     ( Credential, CurrencySymbol, BuiltinByteString )
-import PlutusTx qualified
+import PlutusTx
+    ( Data(B, Constr), ToData, FromData, UnsafeFromData ) 
 import Plutarch.DataRepr.Internal
     ( DerivePConstantViaData(..) )
 import GHC.Stack (HasCallStack)
@@ -193,7 +194,7 @@ pisEmptyNode :: ClosedTerm (PAsData PDirectorySetNode :--> PBool)
 pisEmptyNode = plam $ \node ->
   let nullTransferLogicCred = pconstant (Constr 0 [PlutusTx.B ""])
       nullIssuerLogicCred = pconstant (Constr 0 [PlutusTx.B ""])
-      expectedEmptyNode = punsafeCoerce $ plistData # pmkBuiltinList [pforgetData pemptyBSData, pforgetData pemptyBSData, nullTransferLogicCred, nullIssuerLogicCred]
+      expectedEmptyNode = punsafeCoerce $ plistData # pmkBuiltinList [pforgetData pemptyBSData, pforgetData ptailNextData, nullTransferLogicCred, nullIssuerLogicCred]
   in node #== expectedEmptyNode
 
 pemptyBSData :: ClosedTerm (PAsData PByteString)
@@ -201,6 +202,9 @@ pemptyBSData = unsafeEvalTerm NoTracing (punsafeCoerce (pconstant $ PlutusTx.B "
 
 pemptyCSData :: ClosedTerm (PAsData PCurrencySymbol)
 pemptyCSData = unsafeEvalTerm NoTracing (punsafeCoerce (pconstant $ PlutusTx.B ""))
+
+ptailNextData  :: ClosedTerm (PAsData PCurrencySymbol)
+ptailNextData = unsafeEvalTerm NoTracing (punsafeCoerce $ pdata (phexByteStr "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"))
 
 pmkDirectorySetNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PCredential :--> PAsData PCredential :--> PAsData PDirectorySetNode)
 pmkDirectorySetNode = phoistAcyclic $
