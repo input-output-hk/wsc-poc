@@ -2,6 +2,7 @@
 
 let
   sha256map = {
+    "https://github.com/j-mueller/sc-tools"."a1bb7958b5a2d1cfde27daec360822e07513bd2b" = "sha256-nhlXl/WCQDq3o9gwFRFu0FsOtySDZBjXKmkUHGxXSyI=";
     "https://github.com/colll78/plutarch-plutus"."b2379767c7f1c70acf28206bf922f128adc02f28" = "sha256-mhuW2CHxnc6FDWuMcjW/51PKuPOdYc4yxz+W5RmlQew=";
     "https://github.com/input-output-hk/catalyst-onchain-libs"."650a3435f8efbd4bf36e58768fac266ba5beede4" = "sha256-NUh+l97+eO27Ppd8Bx0yMl0E5EV+p7+7GuFun1B8gRc=";
   };
@@ -13,7 +14,7 @@ let
     src = ../.;
     name = "smart-tokens-plutarch";
     compiler-nix-name = "ghc966";
-    index-state = "2024-10-16T00:00:00Z";
+    # index-state = "2024-10-16T00:00:00Z";
     inputMap = {
       "https://chap.intersectmbo.org/" = inputs.CHaP;
     };
