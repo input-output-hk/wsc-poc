@@ -36,6 +36,9 @@ import Plutarch.Prelude (ClosedTerm, DerivePlutusType (..), Generic, PAsData,
                          pto, type (:-->), (#))
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusCore.Data qualified as PLC
+import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (..))
+import Plutarch.DataRepr (DerivePConstantViaData (..), PDataFields)
+import qualified PlutusTx
 import PlutusLedgerApi.V3 (CurrencySymbol)
 import PlutusTx qualified
 import PlutusTx.Builtins.Internal qualified as BI

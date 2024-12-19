@@ -10,13 +10,19 @@ module Wst.Offchain.Scripts (
   programmableLogicMintingScript,
   programmableLogicBaseScript,
   programmableLogicGlobalScript,
+
+  -- Transfer logic
+  permissionedTransferScript,
+  freezeAndSezieTransferScript,
+
+  -- Utils
   scriptPolicyIdV3
   )
   where
 
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
-import Convex.PlutusLedger.V1 (transCredential, transPolicyId,
+import Convex.PlutusLedger.V1 (transCredential, transPolicyId, transPubKeyHash,
                                transStakeCredential)
 import Convex.PlutusLedger.V3 (transTxOutRef)
 import Plutarch (ClosedTerm, Config (..), LogLevel (..), TracingMode (..), (#))
@@ -24,6 +30,8 @@ import Plutarch.Builtin (pdata, pforgetData)
 import Plutarch.ByteString (PByteString)
 import Plutarch.Lift (pconstant)
 import Plutarch.Script (serialiseScript)
+import SmartTokens.Contracts.ExampleTransferLogic (mkFreezeAndSeizeTransfer,
+                                                   mkPermissionedTransfer)
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
 import SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicBase,
                                                     mkProgrammableLogicGlobal)
@@ -87,6 +95,18 @@ programmableLogicBaseScript globalCred =
 programmableLogicGlobalScript :: C.PolicyId -> C.PlutusScript C.PlutusScriptV3 -- Parameterized by the CS holding protocol params datum
 programmableLogicGlobalScript paramsPolId =
   let script = tryCompile prodConfig $ mkProgrammableLogicGlobal # pdata (pconstant $ transPolicyId paramsPolId)
+  in C.PlutusScriptSerialised $ serialiseScript script
+
+permissionedTransferScript :: C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
+permissionedTransferScript cred =
+  let script = tryCompile prodConfig $ mkPermissionedTransfer # pdata (pconstant $ transPubKeyHash cred)
+  in C.PlutusScriptSerialised $ serialiseScript script
+
+freezeAndSezieTransferScript :: C.PolicyId -> C.PlutusScript C.PlutusScriptV3
+freezeAndSezieTransferScript blacklistPolicyId =
+  -- TODO: maybe mkFreezeAndSeizeTransfer should be called mkFreezeTransfer as
+  -- seizing is handled separately
+  let script = tryCompile prodConfig $ mkFreezeAndSeizeTransfer # pdata (pconstant $ transPolicyId blacklistPolicyId)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- Utilities
