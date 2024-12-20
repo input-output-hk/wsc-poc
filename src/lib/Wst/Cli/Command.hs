@@ -32,6 +32,7 @@ data Command =
 -- | Commands that require a deployed system
 data ManageCommand =
   Status
+  | StartServer
   deriving stock Show
 
 parseDeploy :: Mod CommandFields Command
@@ -63,7 +64,6 @@ txInReader = eitherReader $ \str -> do
   (txId, txIx) <- case break ((==) '.') str of
     (txId, _:txIx) -> Right (txId, txIx)
     _ -> Left "Expected <tx-id>.<index>"
-  -- 8c728a68fed42fe4893fb84ee2c6276a25e642d9892962af3234f952ea641993
   when (length txId /= 64) $ Left "Expected tx ID with 64 characters"
   ix <- case readMaybe @Word txIx of
           Nothing -> Left "Expected tx index"

@@ -70,6 +70,7 @@ library
     Types.Constants
     Wst.Cli
     Wst.Cli.Command
+    Wst.Cli.RuntimeEnv
     Wst.Client
     Wst.Offchain
     Wst.Offchain.BuildTx.Blacklist
@@ -90,8 +91,11 @@ library
   hs-source-dirs:  lib
   build-depends:
     , aeson
-    , base                   >=4.14 && <4.20
+    , base                    >=4.14 && <4.20
     , base16-bytestring
+    , Blammo
+    , blockfrost-api
+    , blockfrost-client-core
     , bytestring
     , cardano-api
     , cardano-ledger-api
