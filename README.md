@@ -40,7 +40,7 @@ There is also no risk of UTxO congestion as the "system outputs" are used as ref
 
 ### Sanctioned Addresses
 
-The list of sanctioned addresses is stored on-chain as a _linked list_. This means that each entry (address) in the list is represented single transaction output that includes the address itself as well as a pointer to the next address in lexicographical order.
+The list of sanctioned addresses is stored on-chain as a [_linked list_](https://github.com/Anastasia-Labs/plutarch-linked-list). This means that each entry (address) in the list is represented single transaction output that includes the address itself as well as a pointer to the next address in lexicographical order.
 
 When checking a transfer the transfer logic script is provided with a single reference input pointing to the relevant entry in the ordered linked list. 
 
