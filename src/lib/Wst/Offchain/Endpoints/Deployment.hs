@@ -5,13 +5,15 @@ module Wst.Offchain.Endpoints.Deployment(
   insertNodeTx
 ) where
 
+import Cardano.Api (Quantity (Quantity))
 import Cardano.Api.Shelley qualified as C
 import Control.Monad.Except (MonadError)
-import Control.Monad.Reader (MonadReader)
+import Control.Monad.Reader (MonadReader, asks)
 import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Convex.CoinSelection qualified
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs)
 import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
+import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
 import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
 import Wst.Offchain.Env (BuildTxError)
 import Wst.Offchain.Env qualified as Env
@@ -40,3 +42,26 @@ insertNodeTx args = do
   paramsNode <- head <$> Query.globalParamsNode @era
   (tx, _) <- Env.balanceTxEnv (BuildTx.insertDirectoryNode paramsNode headNode args)
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
+{-| Build a transaction that issues a progammable token
+-}
+issueProgrammableTokenTx :: forall era env m.
+  ( MonadReader env m
+  , Env.HasOperatorEnv era env
+  , Env.HasDirectoryEnv env
+  , Env.HasTransferLogicEnv env
+  , MonadBlockchain era m
+  , MonadError (BuildTxError era) m
+  , C.IsBabbageBasedEra era
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , MonadUtxoQuery m
+  )
+  => C.AssetName -- ^ Name of the asset
+  -> Quantity -- ^ Amount of tokens to be minted
+  -> m ()
+issueProgrammableTokenTx assetName quantity = do
+  directory <- Query.registryNodes @era
+  paramsNode <- head <$> Query.globalParamsNode @era
+  issueTokenArgs <- asks (BuildTx.fromTransferEnv . Env.transferLogicEnv)
+  (tx, _) <- Env.balanceTxEnv (BuildTx.issueProgrammableToken paramsNode (assetName, quantity) issueTokenArgs directory)
+  pure ()

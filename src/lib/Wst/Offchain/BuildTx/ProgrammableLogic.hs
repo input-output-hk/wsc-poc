@@ -8,6 +8,7 @@
 module Wst.Offchain.BuildTx.ProgrammableLogic
   (
     IssueNewTokenArgs (..),
+    fromTransferEnv,
     issueProgrammableToken,
     transferProgrammableToken,
     seizeProgrammableToken,
@@ -40,6 +41,7 @@ import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..),
                                           insertDirectoryNode)
 import Wst.Offchain.BuildTx.ProtocolParams (getProtocolParamsGlobalInline)
+import Wst.Offchain.Env (TransferLogicEnv (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Query qualified as Query
@@ -54,15 +56,24 @@ data IssueNewTokenArgs = IssueNewTokenArgs
     intaIssuerLogic :: C.StakeCredential
   }
 
+{-| 'IssueNewTokenArgs' for the transfer logic
+-}
+fromTransferEnv :: TransferLogicEnv -> IssueNewTokenArgs
+fromTransferEnv TransferLogicEnv{tleMintingScript, tleTransferScript, tleIssuerScript} =
+  let hsh = C.StakeCredentialByScript . C.hashScript . C.PlutusScript C.plutusScriptVersion
+  in IssueNewTokenArgs
+      { intaMintingLogic  = hsh tleMintingScript
+      , intaTransferLogic = hsh tleTransferScript
+      , intaIssuerLogic   = hsh tleIssuerScript
+      }
+
 {- Issue a programmable token and register it in the directory set if necessary. The caller should ensure that the specific
    minting logic stake script witness is included in the final transaction.
   - If the programmable token is not in the directory, then it is registered
   - If the programmable token is in the directory, then it is minted
 -}
-issueProgrammableToken :: forall env era m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> IssueNewTokenArgs -> [UTxODat era DirectorySetNode] -> m C.PolicyId
+issueProgrammableToken :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> IssueNewTokenArgs -> [UTxODat era DirectorySetNode] -> m C.PolicyId
 issueProgrammableToken paramsTxOut (an, q) IssueNewTokenArgs{intaMintingLogic, intaTransferLogic, intaIssuerLogic} directoryList = Utils.inBabbage @era $ do
-  directoryInitialTxIn <- asks (Env.dsTxIn . Env.directoryEnv)
-
   let ProgrammableLogicGlobalParams {directoryNodeCS, progLogicCred} = uDatum paramsTxOut
 
   progLogicScriptCredential <- either (const $ error "could not parse protocol params") pure $ unTransCredential progLogicCred
@@ -83,8 +94,7 @@ issueProgrammableToken paramsTxOut (an, q) IssueNewTokenArgs{intaMintingLogic, i
     else do
       let nodeArgs  = InsertNodeArgs{inaNewKey = issuedSymbol, inaTransferLogic = intaTransferLogic, inaIssuerLogic = intaIssuerLogic}
       mintPlutus mintingScript RegisterPToken an q
-        -- TODO: propagate the HasEnv constraint upwards
-        >> runReaderT (insertDirectoryNode paramsTxOut udat nodeArgs) (Env.mkDirectoryEnv directoryInitialTxIn)
+        >> insertDirectoryNode paramsTxOut udat nodeArgs
 
   pure issuedPolicyId
 
