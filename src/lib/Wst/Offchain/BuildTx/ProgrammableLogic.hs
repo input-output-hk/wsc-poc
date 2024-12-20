@@ -148,10 +148,15 @@ transferProgrammableToken tokenTxIns programmableTokenSymbol directoryList = Uti
    IMPORTANT: It is the caller's responsibility to
    ensure that the specific issuer logic stake script witness is included in the
    final transaction.
+
+   NOTE: Seems the issuer is only able to seize 1 UTxO at a time.
+   In the future we should allow multiple UTxOs in 1 Tx.
 -}
-seizeProgrammableToken :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => (C.TxIn, C.PolicyId) -> (C.TxIn, C.TxOut C.CtxTx era) -> (C.TxIn, C.TxOut C.CtxTx era) -> CurrencySymbol -> [(C.TxIn, C.InAnyCardanoEra (C.TxOut C.CtxTx))] -> m ()
-seizeProgrammableToken (paramsTxIn, paramsPolId) (seizingTxIn, seizingOutput) (issuerTxIn, issuerTxOut) seizingTokenSymbol directoryList = Utils.inBabbage @era $ do
+seizeProgrammableToken :: forall a env era m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era a -> UTxODat era a -> C.PolicyId -> [UTxODat era DirectorySetNode] -> m ()
+seizeProgrammableToken UTxODat{uIn = seizingTxIn, uOut = seizingTxOut} UTxODat{uIn = issuerTxIn, uOut = issuerTxOut} seizingTokenPolicyId directoryList = Utils.inBabbage @era $ do
   nid <- queryNetworkId
+  paramsPolId <- asks (Env.protocolParamsPolicyId . Env.directoryEnv)
+  paramsTxIn <- asks (Env.dsTxIn . Env.directoryEnv)
 
   let globalStakeScript = programmableLogicGlobalScript paramsPolId
       globalStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 globalStakeScript
@@ -159,14 +164,12 @@ seizeProgrammableToken (paramsTxIn, paramsPolId) (seizingTxIn, seizingOutput) (i
 
   -- Finds the directory node entry that references the programmable token symbol
   dirNodeRef <-
-    maybe (error "Cannot seize non-programmable token. Entry does not exist in directoryList") (pure . fst) $
-      find (isNodeWithProgrammableSymbol seizingTokenSymbol) directoryList
-
-  seizingTokenPolicyId <- either (error . show) pure $ unTransPolicyId seizingTokenSymbol
+    maybe (error "Cannot seize non-programmable token. Entry does not exist in directoryList") (pure . uIn) $
+      find (isNodeWithProgrammableSymbol (transPolicyId seizingTokenPolicyId)) directoryList
 
   checkIssuerAddressIsProgLogicCred (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 baseSpendingScript) issuerTxOut
 
-  let seizedValue = case seizingOutput of
+  let seizedValue = case seizingTxOut of
         (C.TxOut _ v _ _) ->
           C.filterValue
             ( \case
@@ -214,16 +217,13 @@ seizeProgrammableToken (paramsTxIn, paramsPolId) (seizingTxIn, seizingOutput) (i
     $ C.ScriptWitness C.ScriptWitnessForStakeAddr . programmableGlobalWitness
 
   -- TODO: check that the issuerTxOut is at a programmable logic payment credential
-checkIssuerAddressIsProgLogicCred :: forall era m. ( MonadBuildTx era m) => C.PaymentCredential -> C.TxOut C.CtxTx era -> m ()
+checkIssuerAddressIsProgLogicCred :: forall era ctx m. ( MonadBuildTx era m) => C.PaymentCredential -> C.TxOut ctx era -> m ()
 checkIssuerAddressIsProgLogicCred _progLogicCred (C.TxOut (C.AddressInEra _ (C.ShelleyAddress _ _pcred _stakeRef)) _ _ C.ReferenceScriptNone) =
   pure ()
 checkIssuerAddressIsProgLogicCred _ _ = error "Issuer address is not a programmable logic credential"
 
-isNodeWithProgrammableSymbol :: CurrencySymbol -> (C.TxIn, C.InAnyCardanoEra (C.TxOut C.CtxTx)) -> Bool
-isNodeWithProgrammableSymbol programmableTokenSymbol (_, dn) =
-  case getDirectoryNodeInline dn of
-    Just d -> key d == programmableTokenSymbol
-    _ -> False
+isNodeWithProgrammableSymbol :: forall era. CurrencySymbol -> UTxODat era DirectorySetNode -> Bool
+isNodeWithProgrammableSymbol programmableTokenSymbol (uDatum -> dat) = key dat == programmableTokenSymbol
 
 getDirectoryNodeInline :: C.InAnyCardanoEra (C.TxOut C.CtxTx) -> Maybe DirectorySetNode
 getDirectoryNodeInline (C.InAnyCardanoEra C.ConwayEra (C.TxOut _ _ dat _)) =
