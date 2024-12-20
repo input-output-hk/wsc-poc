@@ -1,9 +1,9 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE OverloadedRecordDot  #-}
-{-# LANGUAGE QualifiedDo #-}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE NamedFieldPuns        #-}
+{-# LANGUAGE OverloadedRecordDot   #-}
+{-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE PolyKinds             #-}
+{-# LANGUAGE QualifiedDo           #-}
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
@@ -16,79 +16,32 @@ module SmartTokens.LinkedList.Common (
   parseNodeOutputUtxoPair,
 ) where
 
-import Plutarch.LedgerApi.Value (pnormalize)
-import Plutarch.LedgerApi.AssocMap qualified as AssocMap
-import Plutarch.Monadic qualified as P
 import Plutarch.Bool (pand')
-import Plutarch.Prelude
-    ( Generic,
-      (#),
-      (#$),
-      phoistAcyclic,
-      plet,
-      pto,
-      pcon,
-      pmatch,
-      tcont,
-      type (:-->),
-      ClosedTerm,
-      PType,
-      S,
-      Term,
-      plam,
-      TermCont,
-      PByteString,
-      pconstant,
-      PEq((#==)),
-      PBool,
-      PPartialOrd((#<)),
-      PInteger,
-      (#&&),
-      pdata,
-      pfromData,
-      pfield,
-      pletFields,
-      pall,
-      plengthBS,
-      pany,
-      pfilter,
-      pmap,
-      pguardC,
-      PAsData,
-      PBuiltinList,
-      PListLike(pnull),
-      PMaybe(PJust),
-      PPair(..),
-      PUnit, pelimList )
+import Plutarch.Builtin (pasByteStr, pforgetData)
+import Plutarch.Core.Utils (passert, pcountOfUniqueTokens,
+                            pfindCurrencySymbolsByTokenPrefix, phasDataCS,
+                            pheadSingleton, pmapFilter, psingletonOfCS,
+                            ptryFromInlineDatum)
+import Plutarch.LedgerApi.AssocMap qualified as AssocMap
+import Plutarch.LedgerApi.V3 (AmountGuarantees (NonZero, Positive),
+                              KeyGuarantees (Sorted), PAddress, PCurrencySymbol,
+                              POutputDatum (POutputDatum), PScriptContext,
+                              PScriptInfo (PMintingScript), PTokenName, PTxOut,
+                              PValue)
+import Plutarch.LedgerApi.Value (pnormalize)
+import Plutarch.Monadic qualified as P
+import Plutarch.Prelude (ClosedTerm, Generic, PAsData, PBool, PBuiltinList,
+                         PByteString, PEq ((#==)), PInteger, PListLike (pnull),
+                         PMaybe (PJust), PPair (..), PPartialOrd ((#<)), PType,
+                         PUnit, S, Term, TermCont, pall, pany, pcon, pconstant,
+                         pdata, pelimList, pfield, pfilter, pfromData, pguardC,
+                         phoistAcyclic, plam, plength, plengthBS, plet,
+                         pletFields, pmap, pmatch, pto, tcont, type (:-->),
+                         (#$), (#&&), (#))
 import Plutarch.Unsafe (punsafeCoerce)
-import Plutarch.Core.Utils (
-  passert,
-  pcountOfUniqueTokens,
-  pfindCurrencySymbolsByTokenPrefix,
-  pheadSingleton,
-  phasDataCS,
-  psingletonOfCS,
-  ptryFromInlineDatum,
-  pmapFilter,
- )
+import SmartTokens.Types.PTokenDirectory (PDirectorySetNode, pisEmptyNode,
+                                          pisInsertedNode, pisInsertedOnNode)
 import Types.Constants (pnodeKeyTN, poriginNodeTN, ptryParseNodeKey)
-import SmartTokens.Types.PTokenDirectory
-    ( PDirectorySetNode,
-      pisInsertedOnNode,
-      pisInsertedNode,
-      pisEmptyNode )
-import Plutarch.LedgerApi.V3
-    ( KeyGuarantees(Sorted),
-      AmountGuarantees(NonZero, Positive),
-      PCurrencySymbol,
-      PTokenName,
-      PValue,
-      POutputDatum(POutputDatum),
-      PTxOut,
-      PScriptContext,
-      PScriptInfo(PMintingScript),
-      PAddress )
-import Plutarch.Builtin (pforgetData, pasByteStr)
 
 paysToAddress :: Term s (PAddress :--> (PAsData PTxOut) :--> PBool)
 paysToAddress = phoistAcyclic $ plam $ \adr txOut -> adr #== (pfield @"address" # txOut)
@@ -111,7 +64,7 @@ correctNodeTokenMinted = phoistAcyclic $
     tokenMap #== nodeMint
 
 -- Potentially use this in the future if we plan to manage additional
--- value in the directory nodes. 
+-- value in the directory nodes.
 nodeInputUtxoDatumUnsafePair ::
   ClosedTerm
     ( PAsData PTxOut
@@ -146,7 +99,7 @@ parseNodeOutputUtxo = phoistAcyclic $
     let nodeKey = pasByteStr # nodeKeyData
         nodeNext = pasByteStr # pforgetData datumF.next
 
-    -- The following are checked by `pisInsertedNode` 
+    -- The following are checked by `pisInsertedNode`
     -- passert "transferLogicScript deserialization" $ pdeserializesToCredential # datumF.transferLogicScript
     -- passert "issuerLogicScript deserialization" $ pdeserializesToCredential # datumF.issuerLogicScript
 
@@ -158,7 +111,7 @@ parseNodeOutputUtxo = phoistAcyclic $
     datum
 
 -- Potentially use this in the future if we plan to manage additional
--- value in the directory nodes. 
+-- value in the directory nodes.
 parseNodeOutputUtxoPair ::
   ClosedTerm
     ( PAsData PCurrencySymbol
@@ -217,7 +170,7 @@ makeCommon ctx' = do
 
   let atNodeValidator =
         pelimList
-          ( \firstNodeInput _ -> 
+          ( \firstNodeInput _ ->
             let isSameAddress = (paysToAddress # (pfield @"address" # firstNodeInput))
              in pall # isSameAddress # toNodeValidator
           )
@@ -244,9 +197,9 @@ makeCommon ctx' = do
   pure common
 
 
--- | Initialize the linked list 
+-- | Initialize the linked list
 --   Validations:
---     - No node inputs should be spent 
+--     - No node inputs should be spent
 --     - There should be only a single node token minted (the origin node token)
 --     - There should be exactly one node output, the key of which should be empty and the next key should be empty
 pInit :: forall (s :: S). PDirectoryCommon s -> Term s PUnit
@@ -290,9 +243,9 @@ pInsert common = plam $ \pkToInsert -> P.do
   coveringDatumKey <- plet $ pasByteStr # pforgetData coveringDatumF.key
   coveringDatumNext <- plet $ pasByteStr # pforgetData coveringDatumF.next
 
-  -- The key of the spent node is lexographically less than pkToInsert and 
+  -- The key of the spent node is lexographically less than pkToInsert and
   -- the next key of the spent node is lexographically greater than pkToInsert.
-  -- Thus the coveringNode is the node upon which we are inserting. 
+  -- Thus the coveringNode is the node upon which we are inserting.
   passert "Spent node should cover inserting key" $
     pand' # (coveringDatumKey #< keyToInsert) # (keyToInsert #< coveringDatumNext)
 
@@ -318,8 +271,8 @@ data PDirectoryCommon (s :: S) = MkCommon
   , mint :: Term s (PValue 'Sorted 'NonZero)
   -- ^ value minted in current Tx
   , nodeInputs :: Term s (PBuiltinList (PAsData PDirectorySetNode))
-  -- ^ node inputs in the tx 
+  -- ^ node inputs in the tx
   , nodeOutputs :: Term s (PBuiltinList (PAsData PDirectorySetNode))
-  -- ^ node outputs in the tx 
+  -- ^ node outputs in the tx
   }
   deriving stock (Generic)

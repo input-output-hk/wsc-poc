@@ -3,9 +3,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedRecordDot  #-}
 {-# LANGUAGE QualifiedDo #-}
+{-# LANGUAGE UndecidableInstances #-}
+
 module SmartTokens.Contracts.ExampleTransferLogic (
   mkPermissionedTransfer,
   mkFreezeAndSeizeTransfer,
+  BlacklistProof (..),
 ) where
 
 import Plutarch.LedgerApi.V3
@@ -26,6 +29,19 @@ import Plutarch.Core.Utils
       pvalidateConditions )
 import Plutarch.Unsafe ( punsafeCoerce )
 import SmartTokens.Types.PTokenDirectory ( PBlacklistNode, pletFieldsBlacklistNode)
+import qualified PlutusTx
+import Plutarch.DataRepr (DerivePConstantViaData (..))
+import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (..))
+
+data BlacklistProof
+  = NonmembershipProof Integer
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
+
+deriving via
+  (DerivePConstantViaData BlacklistProof PBlacklistProof)
+  instance
+    (PConstantDecl BlacklistProof)
 
 data PBlacklistProof (s :: S)
   = PNonmembershipProof
@@ -41,6 +57,9 @@ data PBlacklistProof (s :: S)
 
 instance DerivePlutusType PBlacklistProof where
   type DPTStrat _ = PlutusTypeData
+
+instance PUnsafeLiftDecl PBlacklistProof where
+  type PLifted PBlacklistProof = BlacklistProof
 
 {-|
   The 'mkPermissionedTransfer' is a transfer logic script that enforces that all transactions which spend the 

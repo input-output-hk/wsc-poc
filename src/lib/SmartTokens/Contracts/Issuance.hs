@@ -1,19 +1,31 @@
-{-# LANGUAGE QualifiedDo #-}
 {-# LANGUAGE OverloadedRecordDot  #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings    #-}
+{-# LANGUAGE QualifiedDo          #-}
+{-# LANGUAGE UndecidableInstances #-}
+
 module SmartTokens.Contracts.Issuance (
   mkProgrammableLogicMinting,
+  SmartTokenMintingAction (..),
 ) where
 
-import Plutarch.LedgerApi.V3 (PCredential, PScriptContext, PScriptInfo(PMintingScript))
+import Plutarch.Builtin (pdataImpl, pfromDataImpl)
+import Plutarch.Core.Utils (pand'List, pheadSingleton, ptryLookupValue,
+                            pvalidateConditions, (#>))
+import Plutarch.Internal.PlutusType (PlutusType (pcon', pmatch'))
+import Plutarch.LedgerApi.V3 (PCredential, PScriptContext,
+                              PScriptInfo (PMintingScript))
+import Plutarch.LedgerApi.Value (PCurrencySymbol, pvalueOf)
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
-import Plutarch.Builtin (pfromDataImpl, pdataImpl)
-import Plutarch.LedgerApi.Value (PCurrencySymbol, pvalueOf)
-import Plutarch.Core.Utils (ptryLookupValue, pheadSingleton, pand'List, (#>), pvalidateConditions)
 import Plutarch.Unsafe (punsafeCoerce)
-import Plutarch.Internal.PlutusType (PlutusType(pcon', pmatch'))
---import SmartTokens.Types.PTokenDirectory (PDirectorySetNode)
+import PlutusTx qualified
+
+data SmartTokenMintingAction = RegisterPToken | MintPToken
+  deriving stock (Show, Eq, Generic)
+
+instance PlutusTx.ToData SmartTokenMintingAction where
+  toBuiltinData RegisterPToken = PlutusTx.dataToBuiltinData (PlutusTx.I 0)
+  toBuiltinData MintPToken = PlutusTx.dataToBuiltinData (PlutusTx.I 1)
 
 data PSmartTokenMintingAction (s :: S) = PRegisterPToken | PMintPToken
 
@@ -27,7 +39,7 @@ instance PlutusType PSmartTokenMintingAction where
   pcon' PRegisterPToken = 0
   pcon' PMintPToken = 1
 
-  -- redeemer data is untrusted and non-permanent so we can safely decide zero is 
+  -- redeemer data is untrusted and non-permanent so we can safely decide zero is
   -- PRegisterPToken and anything else we consider PMintPToken.
   pmatch' x f =
     pif (x #== 0) (f PRegisterPToken) (f PMintPToken)
@@ -41,7 +53,7 @@ instance PIsData PSmartTokenMintingAction where
 
 {-| Minting Policy for Programmable Logic Tokens
 
-This minting policy enables the creation and management of programmable tokens with 
+This minting policy enables the creation and management of programmable tokens with
 configurable transfer and issuer logic.
 
 == Overview
@@ -88,7 +100,7 @@ mkProgrammableLogicMinting :: ClosedTerm (PAsData PCredential :--> PAsData PCurr
 mkProgrammableLogicMinting = plam $ \programmableLogicBase nodeCS mintingLogicCred ctx -> P.do
   ctxF <- pletFields @'["txInfo", "redeemer", "scriptInfo"] ctx
   infoF <- pletFields @'["referenceInputs", "outputs", "mint", "wdrl"] ctxF.txInfo
-  let red = punsafeCoerce @_ @_ @PSmartTokenMintingAction (pto ctxF.redeemer)
+  let red = pfromData (punsafeCoerce @_ @_ @(PAsData PSmartTokenMintingAction) (pto ctxF.redeemer))
   PMintingScript scriptInfo <- pmatch ctxF.scriptInfo
   ownCS <- plet $ pfield @"_0" # scriptInfo
   mintedValue <- plet $ pfromData infoF.mint
@@ -100,7 +112,7 @@ mkProgrammableLogicMinting = plam $ \programmableLogicBase nodeCS mintingLogicCr
   ownTokenName <- plet (pfstBuiltin # ownTkPair)
   ownNumMinted <- plet (pfromData $ psndBuiltin # ownTkPair)
   txOutputs <- plet $ pfromData infoF.outputs
-  -- For ease of implementation of the POC we enforce that the first output must contain the minted tokens. 
+  -- For ease of implementation of the POC we enforce that the first output must contain the minted tokens.
   -- This can be easily changed later.
   mintingToOutputF <- pletFields @'["value", "address"] (phead # txOutputs)
 
@@ -114,7 +126,7 @@ mkProgrammableLogicMinting = plam $ \programmableLogicBase nodeCS mintingLogicCr
     -- It creates a permanent association between the currency symbol with a transferLogicScript and issuerLogicScript.
     -- All transfers of the token will be validated by either the transferLogicScript or the issuerLogicScript.
     -- This redeemer can only be invoked once per instance of this minting policy since the directory contracts do not permit duplicate
-    -- entries. 
+    -- entries.
     PRegisterPToken -> P.do
       let nodeTkPairs = ptryLookupValue # nodeCS # mintedValue
       nodeTkPair <- plet (pheadSingleton # nodeTkPairs)
