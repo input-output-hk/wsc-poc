@@ -62,6 +62,7 @@ import Wst.Offchain.Scripts (blacklistMintingScript, blacklistSpendingScript,
                              permissionedTransferScript,
                              programmableLogicBaseScript,
                              programmableLogicGlobalScript,
+                             programmableLogicMintingScript,
                              protocolParamsMintingScript, scriptPolicyIdV3)
 
 {-| Environments that have an 'OperatorEnv'
@@ -126,11 +127,11 @@ All of the scripts and their hashes are determined by the 'TxIn'.
 data DirectoryEnv =
   DirectoryEnv
     { dsTxIn :: C.TxIn -- ^ The 'txIn' that we spend when deploying the protocol params and directory set
-    , dsDirectoryMintingScript        :: PlutusScript PlutusScriptV3
-    , dsDirectorySpendingScript       :: PlutusScript PlutusScriptV3
-    , dsProtocolParamsMintingScript   :: PlutusScript PlutusScriptV3
-    , dsProgrammableLogicBaseScript   :: PlutusScript PlutusScriptV3
-    , dsProgrammableLogicGlobalScript :: PlutusScript PlutusScriptV3
+    , dsDirectoryMintingScript         :: PlutusScript PlutusScriptV3
+    , dsDirectorySpendingScript        :: PlutusScript PlutusScriptV3
+    , dsProtocolParamsMintingScript    :: PlutusScript PlutusScriptV3
+    , dsProgrammableLogicBaseScript    :: PlutusScript PlutusScriptV3
+    , dsProgrammableLogicGlobalScript  :: PlutusScript PlutusScriptV3
     }
 
 mkDirectoryEnv :: C.TxIn -> DirectoryEnv

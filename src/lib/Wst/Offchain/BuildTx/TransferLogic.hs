@@ -11,6 +11,7 @@ module Wst.Offchain.BuildTx.TransferLogic (
 import Cardano.Api qualified as C
 import Cardano.Api.Ledger (hashKey)
 import Cardano.Api.Shelley qualified as C
+import Control.Lens (over)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx, addBtx, addReference, addScriptWithdrawal,
                        addStakeWitness, addWithdrawalWithTxBody,
@@ -24,6 +25,8 @@ import Convex.PlutusLedger.V1 (transCredential, transPolicyId,
                                unTransStakeCredential)
 import Convex.Scripts (fromHashableScriptData)
 import Convex.Utils qualified as Utils
+import Convex.Utxos (UtxoSet (UtxoSet))
+import Convex.Wallet (selectMixedInputsCovering)
 import Convex.Wallet.Operator (Operator (..), verificationKey)
 import Data.Either (fromRight)
 import Data.Foldable (find, maximumBy)
@@ -41,10 +44,11 @@ import SmartTokens.Types.PTokenDirectory (BlacklistNode (..),
                                           DirectorySetNode (..))
 import Wst.Offchain.BuildTx.DirectorySet (insertDirectoryNode)
 import Wst.Offchain.BuildTx.ProgrammableLogic (IssueNewTokenArgs,
-                                               issueProgrammableToken)
+                                               issueProgrammableToken,
+                                               transferProgrammableToken)
 import Wst.Offchain.BuildTx.ProtocolParams (getProtocolParamsGlobalInline)
 import Wst.Offchain.Env qualified as Env
-import Wst.Offchain.Query (UTxODat)
+import Wst.Offchain.Query (UTxODat (..))
 
 issueStablecoins :: forall era env m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, Env.HasOperatorEnv era env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> IssueNewTokenArgs -> [UTxODat era DirectorySetNode] -> C.PaymentCredential ->  m ()
 issueStablecoins paramsTxOut (an, q) inta directoryList destinationCred = Utils.inBabbage @era $ do
@@ -58,16 +62,43 @@ issueStablecoins paramsTxOut (an, q) inta directoryList destinationCred = Utils.
   let opPkh = C.verificationKeyHash opVerKey
   addIssueWitness opPkh
 
-  issuedPolicyId <- issueProgrammableToken txIn paramsTxOut (an, q) inta directoryList
+  issuedPolicyId <- issueProgrammableToken paramsTxOut (an, q) inta directoryList
   -- TODO: check if there is a better way to achieve: C.PaymentCredential -> C.StakeCredential
   stakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential destinationCred
   let value = fromList [(C.AssetId issuedPolicyId an, q)]
-      addr = C.makeShelleyAddressInEra C.shelleyBasedEra nid progLogicBaseCred (C.StakeAddressByValue $ stakeCred)
+      addr = C.makeShelleyAddressInEra C.shelleyBasedEra nid progLogicBaseCred (C.StakeAddressByValue stakeCred)
 
   payToAddress addr value
 
-transferStablecoins :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.PaymentCredential -> C.PolicyId -> [(C.TxIn, C.TxOut C.CtxTx era)] -> [(C.TxIn, C.TxOut C.CtxTx era)] -> C.Value -> C.PaymentCredential -> m ()
-transferStablecoins transferLogicCred blacklistPolicyId blacklistOutputs userOutputs amount destinationCred = pure ()
+transferStablecoins :: forall env era a m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.PaymentCredential -> [UTxODat era BlacklistNode] -> [UTxODat era DirectorySetNode] -> [UTxODat era a] -> (C.AssetId, C.Quantity) -> C.PaymentCredential -> m ()
+transferStablecoins userCred blacklistNodes directoryList spendingUserOutputs (assetId, q) destinationCred = Utils.inBabbage @era $ do
+  nid <- queryNetworkId
+  progLogicBaseCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
+
+  -- Find sufficient inputs to cover the transfer
+  let userOutputsMap = fromList $ map (\UTxODat{uIn, uOut, uDatum} -> (uIn, (C.inAnyCardanoEra (C.cardanoEra @era) uOut, uDatum))) spendingUserOutputs
+  (totalVal, txins) <- maybe (error "insufficient funds for transfer") pure $ selectMixedInputsCovering (UtxoSet userOutputsMap) [(assetId, q)]
+
+  -- Spend the outputs via programmableLogicBaseScript
+  let programmablePolicyId = case assetId of
+        C.AssetId policyId _ -> policyId
+        C.AdaAssetId -> error "Ada is not programmable"
+
+  transferProgrammableToken txins (transPolicyId programmablePolicyId) directoryList -- Invoking the programmableBase and global scripts
+  addTransferWitness blacklistNodes userCred -- Proof of non-membership of the blacklist
+
+  -- Send outputs to destinationCred
+  destStakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential destinationCred
+  let destinationVal :: C.Value = fromList [(assetId, q)]
+      destinationAddress = C.makeShelleyAddressInEra C.shelleyBasedEra nid progLogicBaseCred (C.StakeAddressByValue destStakeCred)
+  payToAddress destinationAddress destinationVal
+
+  -- Return change to the spendingUserOutputs address
+  let returnVal = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
+                  $ fromList [(assetId, C.selectAsset totalVal assetId - q)]
+      returnAddr = undefined
+      returnOutput = C.TxOut returnAddr returnVal C.TxOutDatumNone C.ReferenceScriptNone
+  addBtx (over L.txOuts (returnOutput :)) -- Add the seized output to the transaction
 
 seizeStablecoins = undefined
 
@@ -77,15 +108,15 @@ addIssueWitness issuerPubKeyHash = Utils.inBabbage @era $ do
   let sh = C.hashScript $ C.PlutusScript C.PlutusScriptV3 mintingScript
   addScriptWithdrawal sh 0 $ buildScriptWitness mintingScript C.NoScriptDatumForStake ()
 
-addTransferWitness :: forall env era m. (MonadReader env m, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.PolicyId -> [(C.TxIn, C.TxOut C.CtxTx era)] -> C.PaymentCredential -> m ()
-addTransferWitness blacklistPolicyId blacklistNodes clientCred = Utils.inBabbage @era $ do
+addTransferWitness :: forall env era m. (MonadReader env m, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => [UTxODat era BlacklistNode] -> C.PaymentCredential -> m ()
+addTransferWitness blacklistNodes clientCred = Utils.inBabbage @era $ do
   nid <- queryNetworkId
   transferScript <- asks (Env.tleTransferScript . Env.transferLogicEnv)
   let transferStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 transferScript
 
-      (blnNodeRef, blnNodeOut) =
-        maximumBy (compare `on` (fmap blnKey . getDatumInline @BlacklistNode . C.inAnyCardanoEra (C.cardanoEra @era) . snd)) $
-          filter (maybe False ((<= clientCred) . fromRight (error "could not unTrans credential") . unTransCredential . blnKey) . getDatumInline @BlacklistNode  . C.inAnyCardanoEra (C.cardanoEra @era) . snd) blacklistNodes
+      UTxODat{uIn = blnNodeRef, uOut = blnNodeOut, uDatum = blnNodeDatum} =
+        maximumBy (compare `on` (blnKey . uDatum)) $
+          filter ((<= transCredential clientCred) . blnKey . uDatum) blacklistNodes
 
       -- Finds the index of the blacklist node reference in the transaction ref
       -- inputs
@@ -95,10 +126,7 @@ addTransferWitness blacklistPolicyId blacklistNodes clientCred = Utils.inBabbage
       -- The redeemer for the transfer script based on whether a blacklist node
       -- exists with the client credential
       transferRedeemer txBody =
-        if fmap
-            (fromRight (error "could not unTrans credential") . unTransCredential . blnKey)
-            (getDatumInline @BlacklistNode $ C.inAnyCardanoEra (C.cardanoEra @era) blnNodeOut)
-           == Just clientCred
+        if blnKey blnNodeDatum == transCredential clientCred
           then error "Credential is blacklisted" -- TODO: handle this and other error cases properly
           else NonmembershipProof $ blacklistNodeReferenceIndex txBody
 

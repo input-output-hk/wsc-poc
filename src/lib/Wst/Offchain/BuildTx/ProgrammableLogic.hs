@@ -17,7 +17,7 @@ where
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Control.Lens (over, (^.))
-import Control.Monad.Reader (runReaderT)
+import Control.Monad.Reader (MonadReader, asks, runReaderT)
 import Convex.BuildTx (MonadBuildTx, addBtx, addReference,
                        addWithdrawalWithTxBody, buildScriptWitness,
                        findIndexReference, findIndexSpending, mintPlutus,
@@ -28,7 +28,7 @@ import Convex.PlutusLedger.V1 (transPolicyId, unTransCredential,
                                unTransPolicyId)
 import Convex.Scripts (fromHashableScriptData)
 import Convex.Utils qualified as Utils
-import Data.Foldable (find, maximumBy)
+import Data.Foldable (find, maximumBy, traverse_)
 import Data.Function (on)
 import Data.Maybe (fromJust)
 import PlutusLedgerApi.V3 (CurrencySymbol (..))
@@ -59,13 +59,16 @@ data IssueNewTokenArgs = IssueNewTokenArgs
   - If the programmable token is not in the directory, then it is registered
   - If the programmable token is in the directory, then it is minted
 -}
-issueProgrammableToken :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.TxIn -> UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> IssueNewTokenArgs -> [UTxODat era DirectorySetNode] -> m C.PolicyId
-issueProgrammableToken directoryInitialTxIn paramsTxOut (an, q) IssueNewTokenArgs{intaMintingLogic, intaTransferLogic, intaIssuerLogic} directoryList = Utils.inBabbage @era $ do
+issueProgrammableToken :: forall env era m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> IssueNewTokenArgs -> [UTxODat era DirectorySetNode] -> m C.PolicyId
+issueProgrammableToken paramsTxOut (an, q) IssueNewTokenArgs{intaMintingLogic, intaTransferLogic, intaIssuerLogic} directoryList = Utils.inBabbage @era $ do
+  directoryInitialTxIn <- asks (Env.dsTxIn . Env.directoryEnv)
+
   let ProgrammableLogicGlobalParams {directoryNodeCS, progLogicCred} = uDatum paramsTxOut
 
   progLogicScriptCredential <- either (const $ error "could not parse protocol params") pure $ unTransCredential progLogicCred
   directoryNodeSymbol <- either (const $ error "could not parse protocol params") pure $ unTransPolicyId directoryNodeCS
 
+  -- TODO: maybe move programmableLogicMintingScript to DirectoryEnv
   let mintingScript = programmableLogicMintingScript progLogicScriptCredential intaMintingLogic directoryNodeSymbol
       issuedPolicyId = C.scriptPolicyId $ C.PlutusScript C.PlutusScriptV3 mintingScript
       issuedSymbol = transPolicyId issuedPolicyId
@@ -97,10 +100,12 @@ issueProgrammableToken directoryInitialTxIn paramsTxOut (an, q) IssueNewTokenArg
    programmable logic payment credential (even in the case of non-programmable
    tokens) otherwise the transaction will fail onchain validation.
 -}
-transferProgrammableToken :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => (C.TxIn, C.PolicyId) -> C.TxIn -> CurrencySymbol -> [(C.TxIn, C.InAnyCardanoEra (C.TxOut C.CtxTx))] -> m ()
-transferProgrammableToken _ _ _ [] = error "directory list not initialised"
-transferProgrammableToken (paramsTxIn, paramsPolId) tokenTxIn programmableTokenSymbol directoryList = Utils.inBabbage @era $ do
+transferProgrammableToken :: forall env era m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => [C.TxIn] -> CurrencySymbol -> [UTxODat era DirectorySetNode] -> m ()
+transferProgrammableToken _ _ [] = error "directory list not initialised"
+transferProgrammableToken tokenTxIns programmableTokenSymbol directoryList = Utils.inBabbage @era $ do
   nid <- queryNetworkId
+  paramsPolId <- asks (Env.protocolParamsPolicyId . Env.directoryEnv)
+  paramsTxIn <- asks (Env.dsTxIn . Env.directoryEnv)
 
   let globalStakeScript = programmableLogicGlobalScript paramsPolId
       globalStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 globalStakeScript
@@ -108,9 +113,9 @@ transferProgrammableToken (paramsTxIn, paramsPolId) tokenTxIn programmableTokenS
 
       -- Finds the directory node with the highest key that is less than or equal
       -- to the programmable token symbol
-      (dirNodeRef, dirNodeOut) =
-        maximumBy (compare `on` (fmap key . getDirectoryNodeInline . snd)) $
-          filter (maybe False ((<= programmableTokenSymbol) . key) . getDirectoryNodeInline . snd) directoryList
+      UTxODat{uIn = dirNodeRef, uDatum = dirNodeDat} =
+        maximumBy (compare `on` (key . uDatum)) $
+          filter ((<= programmableTokenSymbol) . key . uDatum) directoryList
 
       -- Finds the index of the directory node reference in the transaction ref
       -- inputs
@@ -120,7 +125,7 @@ transferProgrammableToken (paramsTxIn, paramsPolId) tokenTxIn programmableTokenS
       -- The redeemer for the global script based on whether a dirctory node
       -- exists with the programmable token symbol
       programmableLogicGlobalRedeemer txBody =
-        if fmap key (getDirectoryNodeInline dirNodeOut) == Just programmableTokenSymbol
+        if key dirNodeDat == programmableTokenSymbol
           -- TODO: extend to allow multiple proofs, onchain allows it
           then TransferAct [TokenExists $ directoryNodeReferenceIndex txBody]
           else TransferAct [TokenDoesNotExist $ directoryNodeReferenceIndex txBody]
@@ -129,7 +134,7 @@ transferProgrammableToken (paramsTxIn, paramsPolId) tokenTxIn programmableTokenS
 
   addReference paramsTxIn -- Protocol Params TxIn
   addReference dirNodeRef -- Directory Node TxIn
-  spendPlutusInlineDatum tokenTxIn baseSpendingScript () -- Redeemer is ignored in programmableLogicBase
+  traverse_ (\tin -> spendPlutusInlineDatum tin baseSpendingScript ()) tokenTxIns
   addWithdrawalWithTxBody -- Add the global script witness to the transaction
     (C.makeStakeAddress nid globalStakeCred)
     (C.Quantity 0)

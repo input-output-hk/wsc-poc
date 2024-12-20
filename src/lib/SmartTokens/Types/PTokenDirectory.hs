@@ -216,16 +216,16 @@ pisInsertedNode = phoistAcyclic $
       let transferLogicCred_ = outputNodeDatumF.transferLogicScript
           issuerLogicCred_ = outputNodeDatumF.issuerLogicScript
           expectedDirectoryNode =
-            pmkDirectorySetNode # insertedKey # coveringNext # pdeserializeCredential transferLogicCred_ # pdeserializeCredential issuerLogicCred_
+            pmkDirectorySetNode # insertedKey # coveringNext # transferLogicCred_ # issuerLogicCred_
 
-      -- TODO (jm): Uncommenting the following line results in an error. This is strange because the check below
+      -- TODO (jm): Uncommenting the following line results in an error. This is spdeserializeCredential trange because the check below
       -- asserts that the 'key' and 'next' fields of 'outputnode' are equal to what we expect, and the other two
       -- fields (transferLogicScript, issuerLogicScript) should also be equal when we construct the 'expectedDirectoryNode'
 
-      -- in outputNode #== expectedDirectoryNode
+      in ptraceInfo (pshow $ pmkBuiltinList [pforgetData expectedDirectoryNode]) $ outputNode #== expectedDirectoryNode
 
-      in pforgetData insertedKey #== pforgetData outputNodeDatumF.key
-          #&& pforgetData coveringNext #== pforgetData ptailNextData
+      -- in pforgetData insertedKey #== pforgetData outputNodeDatumF.key
+      --     #&& pforgetData coveringNext #== pforgetData ptailNextData
 
 pdeserializeCredential :: Term s (PAsData PCredential) -> Term s (PAsData PCredential)
 pdeserializeCredential term =
