@@ -69,6 +69,7 @@ library
     SmartTokens.Types.PTokenDirectory
     Types.Constants
     Wst.Cli
+    Wst.Cli.Command
     Wst.Client
     Wst.Offchain
     Wst.Offchain.BuildTx.Blacklist
@@ -104,6 +105,7 @@ library
     , generics-sop
     , lens
     , mtl
+    , optparse-applicative
     , plutarch
     , plutarch-ledger-api
     , plutarch-onchain-lib
@@ -119,10 +121,10 @@ library
 
   hs-source-dirs:  lib
 
-executable wst-poc
+executable wst-poc-cli
   import:         lang
   main-is:        Main.hs
-  hs-source-dirs: exe/wst-poc
+  hs-source-dirs: exe/wst-poc-cli
   build-depends:
     , base
     , wst-poc
