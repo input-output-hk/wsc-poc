@@ -33,6 +33,7 @@ tests = testGroup "unit tests"
   , testCase "insert directory node" (mockchainSucceeds insertDirectoryNode)
   , testGroup "issue programmable tokens"
       [ testCase "always succeeds validator" (mockchainSucceeds issueAlwaysSucceedsValidator)
+      -- TODO: Add test for the seize/freeze validator
       ]
   ]
 
@@ -59,11 +60,20 @@ insertDirectoryNode = failOnError $ do
 -}
 issueAlwaysSucceedsValidator :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m ()
 issueAlwaysSucceedsValidator = failOnError $ do
+
+  -- Register the stake validator
+  -- Oddly, the tests passes even if we don't do this.
+  -- But I'll leave it in because it seems right.
   registerAlwaysSucceedsStakingCert
+
   txI <- deployDirectorySet
   asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ do
     Endpoints.issueProgrammableTokenTx alwaysSucceedsArgs "dummy asset" 100
       >>= void . sendTx . signTxOperator admin
+    Query.registryNodes @C.ConwayEra
+      >>= void . expectN 2 "registry outputs"
+    Query.programmableLogicOutputs @C.ConwayEra
+      >>= void . expectN 1 "programmable logic outputs"
   pure ()
 
 
@@ -75,6 +85,8 @@ dummyNodeArgs =
     , inaIssuerLogic = C.StakeCredentialByScript "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
     }
 
+{-| Register the 'alwaysSucceedsScript' stake validator
+-}
 registerAlwaysSucceedsStakingCert :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m ()
 registerAlwaysSucceedsStakingCert = failOnError $ do
   pp <- fmap C.unLedgerProtocolParameters queryProtocolParameters

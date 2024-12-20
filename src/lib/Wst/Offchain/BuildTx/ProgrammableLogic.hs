@@ -19,7 +19,7 @@ where
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Control.Lens (over, (^.))
-import Control.Monad.Reader (MonadReader, asks, runReaderT)
+import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx, addBtx, addReference,
                        addWithdrawalWithTxBody, buildScriptWitness,
                        findIndexReference, findIndexSpending, mintPlutus,
@@ -28,7 +28,7 @@ import Convex.CardanoApi.Lenses as L
 import Convex.Class (MonadBlockchain (queryNetworkId))
 import Convex.PlutusLedger.V1 (transPolicyId, unTransCredential,
                                unTransPolicyId)
-import Convex.Scripts (fromHashableScriptData)
+import Convex.Scripts (toHashableScriptData)
 import Convex.Utils qualified as Utils
 import Data.Foldable (find, maximumBy, traverse_)
 import Data.Function (on)
@@ -42,42 +42,38 @@ import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..),
                                           insertDirectoryNode)
-import Wst.Offchain.BuildTx.ProtocolParams (getProtocolParamsGlobalInline)
 import Wst.Offchain.Env (DirectoryEnv (..), TransferLogicEnv (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
-import Wst.Offchain.Query qualified as Query
 import Wst.Offchain.Scripts (alwaysSucceedsScript, programmableLogicBaseScript,
                              programmableLogicGlobalScript,
                              programmableLogicMintingScript)
 
 data IssueNewTokenArgs = IssueNewTokenArgs
-  { intaMintingLogic :: C.StakeCredential,
-    intaTransferLogic :: C.StakeCredential,
-    intaIssuerLogic :: C.StakeCredential
+  { intaMintingLogic  :: C.PlutusScript C.PlutusScriptV3, -- TODO: We could add a parameter for the script 'lang' instead of fixing it to PlutusV3
+    intaTransferLogic :: C.PlutusScript C.PlutusScriptV3,
+    intaIssuerLogic   :: C.PlutusScript C.PlutusScriptV3
   }
 
 {-| 'IssueNewTokenArgs' for the policy that always succeeds (no checks)
 -}
 alwaysSucceedsArgs :: IssueNewTokenArgs
 alwaysSucceedsArgs =
-  let credential = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion alwaysSucceedsScript
-  in IssueNewTokenArgs
-      { intaMintingLogic = credential
-      , intaTransferLogic = credential
-      , intaIssuerLogic = credential
-      }
+  IssueNewTokenArgs
+    { intaMintingLogic = alwaysSucceedsScript
+    , intaTransferLogic = alwaysSucceedsScript
+    , intaIssuerLogic = alwaysSucceedsScript
+    }
 
 {-| 'IssueNewTokenArgs' for the transfer logic
 -}
 fromTransferEnv :: TransferLogicEnv -> IssueNewTokenArgs
 fromTransferEnv TransferLogicEnv{tleMintingScript, tleTransferScript, tleIssuerScript} =
-  let hsh = C.StakeCredentialByScript . C.hashScript . C.PlutusScript C.plutusScriptVersion
-  in IssueNewTokenArgs
-      { intaMintingLogic  = hsh tleMintingScript
-      , intaTransferLogic = hsh tleTransferScript
-      , intaIssuerLogic   = hsh tleIssuerScript
-      }
+  IssueNewTokenArgs
+    { intaMintingLogic  = tleMintingScript
+    , intaTransferLogic = tleTransferScript
+    , intaIssuerLogic   = tleIssuerScript
+    }
 
 {- Issue a programmable token and register it in the directory set if necessary. The caller should ensure that the specific
    minting logic stake script witness is included in the final transaction.
@@ -94,7 +90,7 @@ issueProgrammableToken paramsTxOut (an, q) IssueNewTokenArgs{intaMintingLogic, i
   DirectoryEnv{dsProgrammableLogicBaseScript} <- asks Env.directoryEnv
 
   -- TODO: maybe move programmableLogicMintingScript to DirectoryEnv
-  let mintingScript = programmableLogicMintingScript progLogicScriptCredential intaMintingLogic directoryNodeSymbol
+  let mintingScript = programmableLogicMintingScript progLogicScriptCredential (C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion intaMintingLogic) directoryNodeSymbol
       issuedPolicyId = C.scriptPolicyId $ C.PlutusScript C.PlutusScriptV3 mintingScript
       issuedSymbol = transPolicyId issuedPolicyId
 
@@ -112,16 +108,24 @@ issueProgrammableToken paramsTxOut (an, q) IssueNewTokenArgs{intaMintingLogic, i
       receivingVal = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
         $ fromList [(C.AssetId issuedPolicyId an, q)]
 
+      dat = C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData () -- TODO: What should the datum be?
+
   if key dirNodeData == issuedSymbol
     then
       mintPlutus mintingScript MintPToken an q
     else do
-      let nodeArgs  = InsertNodeArgs{inaNewKey = issuedSymbol, inaTransferLogic = intaTransferLogic, inaIssuerLogic = intaIssuerLogic}
+      let nodeArgs =
+            InsertNodeArgs
+              { inaNewKey = issuedSymbol
+              , inaTransferLogic = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion intaTransferLogic
+              , inaIssuerLogic = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion intaIssuerLogic
+              }
+
       mintPlutus mintingScript RegisterPToken an q
       insertDirectoryNode paramsTxOut udat nodeArgs
 
       -- add programmable logic output
-      prependTxOut $ C.TxOut receivingAddress receivingVal C.TxOutDatumNone C.ReferenceScriptNone
+      prependTxOut $ C.TxOut receivingAddress receivingVal dat C.ReferenceScriptNone
 
   pure issuedPolicyId
 
@@ -261,10 +265,3 @@ checkIssuerAddressIsProgLogicCred _ _ = error "Issuer address is not a programma
 
 isNodeWithProgrammableSymbol :: forall era. CurrencySymbol -> UTxODat era DirectorySetNode -> Bool
 isNodeWithProgrammableSymbol programmableTokenSymbol (uDatum -> dat) = key dat == programmableTokenSymbol
-
-getDirectoryNodeInline :: C.InAnyCardanoEra (C.TxOut C.CtxTx) -> Maybe DirectorySetNode
-getDirectoryNodeInline (C.InAnyCardanoEra C.ConwayEra (C.TxOut _ _ dat _)) =
-  case dat of
-    C.TxOutDatumInline C.BabbageEraOnwardsConway (fromHashableScriptData -> Just d) -> Just d
-    _ -> Nothing
-getDirectoryNodeInline _ = Nothing

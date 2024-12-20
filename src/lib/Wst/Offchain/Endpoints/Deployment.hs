@@ -20,7 +20,6 @@ import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
 import Wst.Offchain.Env (BuildTxError)
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query qualified as Query
-import Wst.Offchain.Scripts qualified as Scripts
 
 {-| Build a transaction that deploys the directory and global params. Returns the
 transaction and the 'TxIn' that was selected for the one-shot NFTs.
@@ -66,11 +65,8 @@ issueProgrammableTokenTx issueTokenArgs assetName quantity = do
   directory <- Query.registryNodes @era
   paramsNode <- head <$> Query.globalParamsNode @era
   (tx, _) <- Env.balanceTxEnv $ do
-    BuildTx.issueProgrammableToken paramsNode (assetName, quantity) issueTokenArgs directory
+    _ <- BuildTx.issueProgrammableToken paramsNode (assetName, quantity) issueTokenArgs directory
 
-    -- FIXME: We need the actual script here, not just the hash
-    let script = C.PlutusScript C.plutusScriptVersion Scripts.alwaysSucceedsScript
-        hsh = C.hashScript script
-        cred = C.StakeCredentialByScript hsh
-    BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness Scripts.alwaysSucceedsScript C.NoScriptDatumForStake ()
+    let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion $ BuildTx.intaMintingLogic issueTokenArgs)
+    BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness (BuildTx.intaMintingLogic issueTokenArgs) C.NoScriptDatumForStake ()
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
