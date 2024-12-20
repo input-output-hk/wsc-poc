@@ -17,6 +17,9 @@ module Wst.Offchain.Scripts (
   blacklistMintingScript,
   blacklistSpendingScript,
 
+  -- * Always suceeds
+  alwaysSucceedsScript,
+
   -- Utils
   scriptPolicyIdV3
   )
@@ -32,6 +35,7 @@ import Plutarch.Builtin (pdata, pforgetData)
 import Plutarch.ByteString (PByteString)
 import Plutarch.Lift (pconstant)
 import Plutarch.Script (serialiseScript)
+import SmartTokens.Contracts.AlwaysYields (palwaysSucceed)
 import SmartTokens.Contracts.ExampleTransferLogic (mkFreezeAndSeizeTransfer,
                                                    mkPermissionedTransfer)
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
@@ -83,7 +87,7 @@ directoryNodeSpendingScript paramsPolId =
 -- TODO: can we change the signature to just take the param policy id?
 programmableLogicMintingScript :: C.PaymentCredential -> C.StakeCredential -> C.PolicyId -> C.PlutusScript C.PlutusScriptV3
 programmableLogicMintingScript progLogicBaseSpndingCred mintingCred nodePolId =
-  let script = tryCompile prodConfig
+  let script = tryCompile tracingConfig
                $ mkProgrammableLogicMinting
                   # pdata (pconstant $ transCredential progLogicBaseSpndingCred)
                   # pdata (pconstant $ transPolicyId nodePolId)
@@ -121,6 +125,12 @@ blacklistSpendingScript :: C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV
 blacklistSpendingScript cred =
   let script = tryCompile prodConfig $ mkPermissionedTransfer # pdata (pconstant $ transPubKeyHash cred)
   in C.PlutusScriptSerialised $ serialiseScript script
+
+{-| 'C.PlutusScript C.PlutusScriptV3' that always succeeds. Can be used for minting, withdrawal, spending, etc.
+-}
+alwaysSucceedsScript :: C.PlutusScript C.PlutusScriptV3
+alwaysSucceedsScript =
+  C.PlutusScriptSerialised $ serialiseScript $ tryCompile prodConfig palwaysSucceed
 
 -- Utilities
 scriptPolicyIdV3 :: C.PlutusScript C.PlutusScriptV3 -> C.PolicyId

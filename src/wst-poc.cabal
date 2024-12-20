@@ -55,6 +55,7 @@ library
   exposed-modules:
     Profile
     SmartTokens.CodeLens
+    SmartTokens.Contracts.AlwaysYields
     SmartTokens.Contracts.ExampleTransferLogic
     SmartTokens.Contracts.Issuance
     SmartTokens.Contracts.ProgrammableLogicBase
@@ -157,11 +158,14 @@ test-suite wst-poc-test
     Wst.Test.UnitTest
 
   build-depends:
-    , base               >=4.14.0
+    , base                   >=4.14.0
     , cardano-api
+    , cardano-ledger-core
     , convex-base
+    , convex-coin-selection
     , convex-mockchain
     , convex-wallet
+    , lens
     , mtl
     , plutus-ledger-api
     , tasty

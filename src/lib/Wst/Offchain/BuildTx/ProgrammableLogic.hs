@@ -8,6 +8,7 @@
 module Wst.Offchain.BuildTx.ProgrammableLogic
   (
     IssueNewTokenArgs (..),
+    alwaysSucceedsArgs,
     fromTransferEnv,
     issueProgrammableToken,
     transferProgrammableToken,
@@ -22,7 +23,7 @@ import Control.Monad.Reader (MonadReader, asks, runReaderT)
 import Convex.BuildTx (MonadBuildTx, addBtx, addReference,
                        addWithdrawalWithTxBody, buildScriptWitness,
                        findIndexReference, findIndexSpending, mintPlutus,
-                       spendPlutusInlineDatum)
+                       prependTxOut, spendPlutusInlineDatum)
 import Convex.CardanoApi.Lenses as L
 import Convex.Class (MonadBlockchain (queryNetworkId))
 import Convex.PlutusLedger.V1 (transPolicyId, unTransCredential,
@@ -32,6 +33,7 @@ import Convex.Utils qualified as Utils
 import Data.Foldable (find, maximumBy, traverse_)
 import Data.Function (on)
 import Data.Maybe (fromJust)
+import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (CurrencySymbol (..))
 import SmartTokens.Contracts.Issuance (SmartTokenMintingAction (MintPToken, RegisterPToken))
 import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedeemer (..),
@@ -41,20 +43,30 @@ import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..),
                                           insertDirectoryNode)
 import Wst.Offchain.BuildTx.ProtocolParams (getProtocolParamsGlobalInline)
-import Wst.Offchain.Env (TransferLogicEnv (..))
+import Wst.Offchain.Env (DirectoryEnv (..), TransferLogicEnv (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Query qualified as Query
-import Wst.Offchain.Scripts (programmableLogicBaseScript,
+import Wst.Offchain.Scripts (alwaysSucceedsScript, programmableLogicBaseScript,
                              programmableLogicGlobalScript,
                              programmableLogicMintingScript)
-
 
 data IssueNewTokenArgs = IssueNewTokenArgs
   { intaMintingLogic :: C.StakeCredential,
     intaTransferLogic :: C.StakeCredential,
     intaIssuerLogic :: C.StakeCredential
   }
+
+{-| 'IssueNewTokenArgs' for the policy that always succeeds (no checks)
+-}
+alwaysSucceedsArgs :: IssueNewTokenArgs
+alwaysSucceedsArgs =
+  let credential = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion alwaysSucceedsScript
+  in IssueNewTokenArgs
+      { intaMintingLogic = credential
+      , intaTransferLogic = credential
+      , intaIssuerLogic = credential
+      }
 
 {-| 'IssueNewTokenArgs' for the transfer logic
 -}
@@ -78,6 +90,8 @@ issueProgrammableToken paramsTxOut (an, q) IssueNewTokenArgs{intaMintingLogic, i
 
   progLogicScriptCredential <- either (const $ error "could not parse protocol params") pure $ unTransCredential progLogicCred
   directoryNodeSymbol <- either (const $ error "could not parse protocol params") pure $ unTransPolicyId directoryNodeCS
+  netId <- queryNetworkId
+  DirectoryEnv{dsProgrammableLogicBaseScript} <- asks Env.directoryEnv
 
   -- TODO: maybe move programmableLogicMintingScript to DirectoryEnv
   let mintingScript = programmableLogicMintingScript progLogicScriptCredential intaMintingLogic directoryNodeSymbol
@@ -88,13 +102,26 @@ issueProgrammableToken paramsTxOut (an, q) IssueNewTokenArgs{intaMintingLogic, i
         maximumBy (compare `on` (key . uDatum)) $
           filter ((<= issuedSymbol) . key . uDatum) directoryList
 
+      receivingAddress =
+        C.makeShelleyAddressInEra
+          C.shelleyBasedEra
+          netId
+          (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion dsProgrammableLogicBaseScript)
+          C.NoStakeAddress -- FIXME: use owner credential
+
+      receivingVal = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
+        $ fromList [(C.AssetId issuedPolicyId an, q)]
+
   if key dirNodeData == issuedSymbol
     then
       mintPlutus mintingScript MintPToken an q
     else do
       let nodeArgs  = InsertNodeArgs{inaNewKey = issuedSymbol, inaTransferLogic = intaTransferLogic, inaIssuerLogic = intaIssuerLogic}
       mintPlutus mintingScript RegisterPToken an q
-        >> insertDirectoryNode paramsTxOut udat nodeArgs
+      insertDirectoryNode paramsTxOut udat nodeArgs
+
+      -- add programmable logic output
+      prependTxOut $ C.TxOut receivingAddress receivingVal C.TxOutDatumNone C.ReferenceScriptNone
 
   pure issuedPolicyId
 

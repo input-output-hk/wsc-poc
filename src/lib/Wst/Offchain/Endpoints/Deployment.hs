@@ -9,7 +9,8 @@ module Wst.Offchain.Endpoints.Deployment(
 import Cardano.Api (Quantity)
 import Cardano.Api.Shelley qualified as C
 import Control.Monad.Except (MonadError)
-import Control.Monad.Reader (MonadReader, asks)
+import Control.Monad.Reader (MonadReader)
+import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Convex.CoinSelection qualified
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs)
@@ -19,6 +20,7 @@ import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
 import Wst.Offchain.Env (BuildTxError)
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query qualified as Query
+import Wst.Offchain.Scripts qualified as Scripts
 
 {-| Build a transaction that deploys the directory and global params. Returns the
 transaction and the 'TxIn' that was selected for the one-shot NFTs.
@@ -50,19 +52,25 @@ issueProgrammableTokenTx :: forall era env m.
   ( MonadReader env m
   , Env.HasOperatorEnv era env
   , Env.HasDirectoryEnv env
-  , Env.HasTransferLogicEnv env
   , MonadBlockchain era m
   , MonadError (BuildTxError era) m
   , C.IsBabbageBasedEra era
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadUtxoQuery m
   )
-  => C.AssetName -- ^ Name of the asset
+  => BuildTx.IssueNewTokenArgs -- ^ credentials of the token
+  -> C.AssetName -- ^ Name of the asset
   -> Quantity -- ^ Amount of tokens to be minted
   -> m (C.Tx era)
-issueProgrammableTokenTx assetName quantity = do
+issueProgrammableTokenTx issueTokenArgs assetName quantity = do
   directory <- Query.registryNodes @era
   paramsNode <- head <$> Query.globalParamsNode @era
-  issueTokenArgs <- asks (BuildTx.fromTransferEnv . Env.transferLogicEnv)
-  (tx, _) <- Env.balanceTxEnv (BuildTx.issueProgrammableToken paramsNode (assetName, quantity) issueTokenArgs directory)
+  (tx, _) <- Env.balanceTxEnv $ do
+    BuildTx.issueProgrammableToken paramsNode (assetName, quantity) issueTokenArgs directory
+
+    -- FIXME: We need the actual script here, not just the hash
+    let script = C.PlutusScript C.plutusScriptVersion Scripts.alwaysSucceedsScript
+        hsh = C.hashScript script
+        cred = C.StakeCredentialByScript hsh
+    BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness Scripts.alwaysSucceedsScript C.NoScriptDatumForStake ()
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)

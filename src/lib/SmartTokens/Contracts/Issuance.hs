@@ -24,8 +24,8 @@ data SmartTokenMintingAction = RegisterPToken | MintPToken
   deriving stock (Show, Eq, Generic)
 
 instance PlutusTx.ToData SmartTokenMintingAction where
-  toBuiltinData RegisterPToken = PlutusTx.toBuiltinData (0 :: Integer)
-  toBuiltinData MintPToken = PlutusTx.toBuiltinData (1 :: Integer)
+  toBuiltinData RegisterPToken = PlutusTx.dataToBuiltinData (PlutusTx.I 0)
+  toBuiltinData MintPToken = PlutusTx.dataToBuiltinData (PlutusTx.I 1)
 
 data PSmartTokenMintingAction (s :: S) = PRegisterPToken | PMintPToken
 
@@ -100,7 +100,7 @@ mkProgrammableLogicMinting :: ClosedTerm (PAsData PCredential :--> PAsData PCurr
 mkProgrammableLogicMinting = plam $ \programmableLogicBase nodeCS mintingLogicCred ctx -> P.do
   ctxF <- pletFields @'["txInfo", "redeemer", "scriptInfo"] ctx
   infoF <- pletFields @'["referenceInputs", "outputs", "mint", "wdrl"] ctxF.txInfo
-  let red = punsafeCoerce @_ @_ @PSmartTokenMintingAction (pto ctxF.redeemer)
+  let red = pfromData (punsafeCoerce @_ @_ @(PAsData PSmartTokenMintingAction) (pto ctxF.redeemer))
   PMintingScript scriptInfo <- pmatch ctxF.scriptInfo
   ownCS <- plet $ pfield @"_0" # scriptInfo
   mintedValue <- plet $ pfromData infoF.mint

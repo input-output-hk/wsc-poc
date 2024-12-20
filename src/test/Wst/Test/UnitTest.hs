@@ -5,23 +5,35 @@ module Wst.Test.UnitTest(
 
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
+import Cardano.Ledger.Core qualified as Ledger
+import Control.Lens ((^.))
 import Control.Monad (void)
-import Convex.Class (MonadBlockchain (sendTx), MonadUtxoQuery)
+import Convex.BuildTx qualified as BuildTx
+import Convex.Class (MonadBlockchain (queryProtocolParameters, sendTx),
+                     MonadMockchain, MonadUtxoQuery)
+import Convex.CoinSelection (ChangeOutputPosition (TrailingChange))
+import Convex.MockChain.CoinSelection (tryBalanceAndSubmit)
 import Convex.MockChain.Utils (mockchainSucceeds)
 import Convex.Utils (failOnError)
+import Convex.Wallet.MockWallet qualified as Wallet
 import Convex.Wallet.Operator (signTxOperator)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase)
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..))
+import Wst.Offchain.BuildTx.ProgrammableLogic (alwaysSucceedsArgs)
 import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query qualified as Query
+import Wst.Offchain.Scripts qualified as Scripts
 import Wst.Test.Env (admin, asAdmin)
 
 tests :: TestTree
 tests = testGroup "unit tests"
   [ testCase "deploy directory and global params" (mockchainSucceeds deployDirectorySet)
   , testCase "insert directory node" (mockchainSucceeds insertDirectoryNode)
+  , testGroup "issue programmable tokens"
+      [ testCase "always succeeds validator" (mockchainSucceeds issueAlwaysSucceedsValidator)
+      ]
   ]
 
 deployDirectorySet :: (MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => m C.TxIn
@@ -43,6 +55,18 @@ insertDirectoryNode = failOnError $ do
     Query.registryNodes @C.ConwayEra
       >>= void . expectN 2 "registry outputs"
 
+{-| Issue some tokens with the "always succeeds" validator
+-}
+issueAlwaysSucceedsValidator :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m ()
+issueAlwaysSucceedsValidator = failOnError $ do
+  registerAlwaysSucceedsStakingCert
+  txI <- deployDirectorySet
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ do
+    Endpoints.issueProgrammableTokenTx alwaysSucceedsArgs "dummy asset" 100
+      >>= void . sendTx . signTxOperator admin
+  pure ()
+
+
 dummyNodeArgs :: InsertNodeArgs
 dummyNodeArgs =
   InsertNodeArgs
@@ -50,6 +74,17 @@ dummyNodeArgs =
     , inaTransferLogic = C.StakeCredentialByScript "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
     , inaIssuerLogic = C.StakeCredentialByScript "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
     }
+
+registerAlwaysSucceedsStakingCert :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m ()
+registerAlwaysSucceedsStakingCert = failOnError $ do
+  pp <- fmap C.unLedgerProtocolParameters queryProtocolParameters
+  let script = C.PlutusScript C.plutusScriptVersion Scripts.alwaysSucceedsScript
+      hsh = C.hashScript script
+      cred = C.StakeCredentialByScript hsh
+  txBody <- BuildTx.execBuildTxT $ do
+    BuildTx.addStakeScriptWitness cred Scripts.alwaysSucceedsScript ()
+    BuildTx.addConwayStakeCredentialRegistrationCertificate cred (pp ^. Ledger.ppKeyDepositL)
+  void (tryBalanceAndSubmit mempty Wallet.w1 txBody TrailingChange [])
 
 expectSingleton :: MonadFail m => String -> [a] -> m a
 expectSingleton msg = \case
