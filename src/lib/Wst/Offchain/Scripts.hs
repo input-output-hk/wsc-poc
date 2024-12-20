@@ -14,6 +14,8 @@ module Wst.Offchain.Scripts (
   -- Transfer logic
   permissionedTransferScript,
   freezeAndSezieTransferScript,
+  blacklistMintingScript,
+  blacklistSpendingScript,
 
   -- Utils
   scriptPolicyIdV3
@@ -36,6 +38,7 @@ import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
 import SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicBase,
                                                     mkProgrammableLogicGlobal)
 import SmartTokens.Contracts.ProtocolParams (alwaysFailScript,
+                                             mkPermissionedMinting,
                                              mkProtocolParametersMinting)
 import SmartTokens.Core.Scripts (tryCompile)
 import SmartTokens.LinkedList.MintDirectory (mkDirectoryNodeMP)
@@ -107,6 +110,16 @@ freezeAndSezieTransferScript blacklistPolicyId =
   -- TODO: maybe mkFreezeAndSeizeTransfer should be called mkFreezeTransfer as
   -- seizing is handled separately
   let script = tryCompile prodConfig $ mkFreezeAndSeizeTransfer # pdata (pconstant $ transPolicyId blacklistPolicyId)
+  in C.PlutusScriptSerialised $ serialiseScript script
+
+blacklistMintingScript :: C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
+blacklistMintingScript cred =
+  let script = tryCompile prodConfig $ mkPermissionedMinting # pdata (pconstant $ transPubKeyHash cred)
+  in C.PlutusScriptSerialised $ serialiseScript script
+
+blacklistSpendingScript :: C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
+blacklistSpendingScript cred =
+  let script = tryCompile prodConfig $ mkPermissionedTransfer # pdata (pconstant $ transPubKeyHash cred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- Utilities

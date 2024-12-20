@@ -45,13 +45,8 @@ import Wst.Offchain.BuildTx.ProgrammableLogic (IssueNewTokenArgs,
 import Wst.Offchain.BuildTx.ProtocolParams (getProtocolParamsGlobalInline)
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat)
-import Wst.Offchain.Scripts (freezeAndSezieTransferScript,
-                             permissionedTransferScript,
-                             programmableLogicBaseScript,
-                             programmableLogicGlobalScript,
-                             programmableLogicMintingScript)
 
-issueStablecoins :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, Env.HasOperatorEnv era env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> IssueNewTokenArgs -> [UTxODat era DirectorySetNode] -> C.PaymentCredential ->  m ()
+issueStablecoins :: forall era env m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, Env.HasOperatorEnv era env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> IssueNewTokenArgs -> [UTxODat era DirectorySetNode] -> C.PaymentCredential ->  m ()
 issueStablecoins paramsTxOut (an, q) inta directoryList destinationCred = Utils.inBabbage @era $ do
   nid <- queryNetworkId
 
@@ -76,17 +71,17 @@ transferStablecoins transferLogicCred blacklistPolicyId blacklistOutputs userOut
 
 seizeStablecoins = undefined
 
-addIssueWitness :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.Hash C.PaymentKey -> m ()
+addIssueWitness :: forall era env m. (MonadReader env m, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.Hash C.PaymentKey -> m ()
 addIssueWitness issuerPubKeyHash = Utils.inBabbage @era $ do
-  let mintingScript = permissionedTransferScript issuerPubKeyHash
-      sh = C.hashScript $ C.PlutusScript C.PlutusScriptV3 mintingScript
+  mintingScript <- asks (Env.tleMintingScript . Env.transferLogicEnv)
+  let sh = C.hashScript $ C.PlutusScript C.PlutusScriptV3 mintingScript
   addScriptWithdrawal sh 0 $ buildScriptWitness mintingScript C.NoScriptDatumForStake ()
 
-addTransferWitness :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.PolicyId -> [(C.TxIn, C.TxOut C.CtxTx era)] -> C.PaymentCredential -> m ()
+addTransferWitness :: forall env era m. (MonadReader env m, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.PolicyId -> [(C.TxIn, C.TxOut C.CtxTx era)] -> C.PaymentCredential -> m ()
 addTransferWitness blacklistPolicyId blacklistNodes clientCred = Utils.inBabbage @era $ do
   nid <- queryNetworkId
-  let transferScript = freezeAndSezieTransferScript blacklistPolicyId
-      transferStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 transferScript
+  transferScript <- asks (Env.tleTransferScript . Env.transferLogicEnv)
+  let transferStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 transferScript
 
       (blnNodeRef, blnNodeOut) =
         maximumBy (compare `on` (fmap blnKey . getDatumInline @BlacklistNode . C.inAnyCardanoEra (C.cardanoEra @era) . snd)) $
@@ -116,10 +111,10 @@ addTransferWitness blacklistPolicyId blacklistNodes clientCred = Utils.inBabbage
     (C.Quantity 0)
     $ C.ScriptWitness C.ScriptWitnessForStakeAddr . transferWitness
 
-addSeizeWitness :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.Hash C.PaymentKey -> m ()
+addSeizeWitness :: forall env era m. (MonadReader env m, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.Hash C.PaymentKey -> m ()
 addSeizeWitness issuerPubKeyHash = Utils.inBabbage @era $ do
-  let seizeScript = permissionedTransferScript issuerPubKeyHash
-      sh = C.hashScript $ C.PlutusScript C.PlutusScriptV3 seizeScript
+  seizeScript <- asks (Env.tleIssuerScript . Env.transferLogicEnv)
+  let sh = C.hashScript $ C.PlutusScript C.PlutusScriptV3 seizeScript
   addScriptWithdrawal sh 0 $ buildScriptWitness seizeScript C.NoScriptDatumForStake ()
 
 
