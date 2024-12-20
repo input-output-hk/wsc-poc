@@ -36,9 +36,6 @@ import Plutarch.Prelude (ClosedTerm, DerivePlutusType (..), Generic, PAsData,
                          pto, type (:-->), (#))
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusCore.Data qualified as PLC
-import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (..))
-import Plutarch.DataRepr (DerivePConstantViaData (..), PDataFields)
-import qualified PlutusTx
 import PlutusLedgerApi.V3 (CurrencySymbol)
 import PlutusTx qualified
 import PlutusTx.Builtins.Internal qualified as BI
@@ -108,7 +105,7 @@ mkDirectoryNodeMP = plam $ \initUTxO ctx -> P.do
     PInsert action -> P.do
       act <- pletFields @'["keyToInsert"] action
       pkToInsert <- plet act.keyToInsert
-      let mintsProgrammableToken = pconstant False
+      let mintsProgrammableToken = pconstant True
           insertChecks =
             pand'List
                 [ mintsProgrammableToken

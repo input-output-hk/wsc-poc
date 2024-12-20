@@ -50,8 +50,8 @@ import Wst.Offchain.Scripts (programmableLogicBaseScript,
   - If the programmable token is not in the directory, then it is registered
   - If the programmable token is in the directory, then it is minted
 -}
-issueProgrammableToken :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.TxIn -> C.TxOut C.CtxTx era -> (C.AssetName, C.Quantity) -> (C.StakeCredential, C.StakeCredential, C.StakeCredential) -> [(C.TxIn, C.TxOut C.CtxTx era)] -> m CurrencySymbol
-issueProgrammableToken directoryInitialTxIn paramsTxOut (an, q) (mintingCred, transferLogic, issuerLogic) directoryList = Utils.inBabbage @era $ do
+issueProgrammableToken :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.TxIn -> (C.TxIn, C.TxOut C.CtxTx era) -> (C.AssetName, C.Quantity) -> (C.StakeCredential, C.StakeCredential, C.StakeCredential) -> [(C.TxIn, C.TxOut C.CtxTx era)] -> m CurrencySymbol
+issueProgrammableToken directoryInitialTxIn (paramsTxIn, paramsTxOut) (an, q) (mintingCred, transferLogic, issuerLogic) directoryList = Utils.inBabbage @era $ do
   ProgrammableLogicGlobalParams {directoryNodeCS, progLogicCred} <- maybe (error "could not parse protocol params") pure $ getProtocolParamsGlobalInline (C.inAnyCardanoEra (C.cardanoEra @era) paramsTxOut)
 
   progLogicScriptCredential <- either (const $ error "could not parse protocol params") pure $ unTransCredential progLogicCred
@@ -70,11 +70,12 @@ issueProgrammableToken directoryInitialTxIn paramsTxOut (an, q) (mintingCred, tr
     then
       mintPlutus mintingScript MintPToken an q
     else do
-      let firstNode = fromJust (error "failed to extract DirectorySetNode from first node") $ Query.fromOutput @era @DirectorySetNode dirNodeRef (C.toCtxUTxOTxOut dirNodeOut)
+      let firstNode  = fromJust (error "failed to extract DirectorySetNode from first node") $ Query.fromOutput @era @DirectorySetNode dirNodeRef (C.toCtxUTxOTxOut dirNodeOut)
+          paramsNode = fromJust (error "failed to extract ProgrammableLogicGlobalParams from params node") $ Query.fromOutput @era @ProgrammableLogicGlobalParams paramsTxIn (C.toCtxUTxOTxOut paramsTxOut)
           nodeArgs  = InsertNodeArgs{inaNewKey = policyId, inaTransferLogic = transferLogic, inaIssuerLogic = issuerLogic}
       mintPlutus mintingScript RegisterPToken an q
         -- TODO: propagate the HasEnv constraint upwards
-        >> runReaderT (insertDirectoryNode firstNode nodeArgs) (Env.mkDirectoryEnv directoryInitialTxIn)
+        >> runReaderT (insertDirectoryNode paramsNode firstNode nodeArgs) (Env.mkDirectoryEnv directoryInitialTxIn)
 
   pure policyId
 

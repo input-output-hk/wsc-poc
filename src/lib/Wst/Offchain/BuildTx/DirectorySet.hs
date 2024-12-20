@@ -16,7 +16,8 @@ import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Control.Lens (over)
 import Control.Monad.Reader (MonadReader, asks)
-import Convex.BuildTx (MonadBuildTx, addBtx, mintPlutus, prependTxOut)
+import Convex.BuildTx (MonadBuildTx, addBtx, addReference, mintPlutus,
+                       prependTxOut, spendPlutusInlineDatum)
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain, queryNetworkId)
 import Convex.PlutusLedger.V1 (transStakeCredential, unTransAssetName)
@@ -27,11 +28,13 @@ import GHC.Exts (IsList (..))
 import Plutarch (Config (NoTracing))
 import Plutarch.Evaluate (unsafeEvalTerm)
 import Plutarch.Prelude (pconstantData)
+import PlutusLedgerApi.V1 qualified as PlutusTx
 import PlutusLedgerApi.V3 (Credential (..), CurrencySymbol (..))
 import PlutusTx.Prelude (toBuiltin)
 import SmartTokens.CodeLens (_printTerm)
 import SmartTokens.LinkedList.MintDirectory (DirectoryNodeAction (..))
 import SmartTokens.Types.Constants (directoryNodeToken)
+import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
@@ -79,7 +82,7 @@ initDirectorySet = Utils.inBabbage @era $ do
       output :: C.TxOut C.CtxTx era
       output = C.TxOut addr val dat C.ReferenceScriptNone
 
-  addBtx (over L.txOuts (output :))
+  prependTxOut output
 
 {-| Data for a  new node to be inserted into the directory
 -}
@@ -90,12 +93,12 @@ data InsertNodeArgs =
     , inaIssuerLogic :: C.StakeCredential
     }
 
-insertDirectoryNode :: forall era env m ctx. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => UTxODat era DirectorySetNode -> InsertNodeArgs -> m ()
-insertDirectoryNode UTxODat{uIn, uOut=firstTxOut, uDatum=firstTxData} InsertNodeArgs{inaNewKey, inaTransferLogic, inaIssuerLogic} = Utils.inBabbage @era $ do
+insertDirectoryNode :: forall era env m ctx. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era DirectorySetNode -> InsertNodeArgs -> m ()
+insertDirectoryNode UTxODat{uIn=paramsRef} UTxODat{uIn, uOut=firstTxOut, uDatum=firstTxData} InsertNodeArgs{inaNewKey, inaTransferLogic, inaIssuerLogic} = Utils.inBabbage @era $ do
   netId <- queryNetworkId
   initialTxIn <- asks (Env.dsTxIn . Env.directoryEnv)
   paramsPolicyId <- asks (Env.protocolParamsPolicyId . Env.directoryEnv)
-
+  directorySpendingScript <- asks (Env.dsDirectorySpendingScript . Env.directoryEnv)
   let
       directoryMintingScript = directoryNodeMintingScript initialTxIn
 
@@ -103,8 +106,12 @@ insertDirectoryNode UTxODat{uIn, uOut=firstTxOut, uDatum=firstTxData} InsertNode
       firstTxVal = case firstTxOut of
         (C.TxOut _ v _ _) -> v
 
+      newTokenName =
+        let CurrencySymbol s = inaNewKey
+        in C.AssetName $ PlutusTx.fromBuiltin s
+
       newVal = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
-          $ fromList [(C.AssetId (scriptPolicyIdV3 directoryMintingScript) (unTransAssetName directoryNodeToken), 1)]
+          $ fromList [(C.AssetId (scriptPolicyIdV3 directoryMintingScript) newTokenName, 1)]
 
       addr =
         C.makeShelleyAddressInEra
@@ -121,11 +128,13 @@ insertDirectoryNode UTxODat{uIn, uOut=firstTxOut, uDatum=firstTxData} InsertNode
             }
       newDat = C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData dsn
 
-      newOutput = C.TxOut addr newVal newDat C.ReferenceScriptNone
+      insertedNode = C.TxOut addr newVal newDat C.ReferenceScriptNone
 
-      firstDat = firstTxData { next = inaNewKey}
+      firstDat = firstTxData { next = inaNewKey }
       firstOutput = C.TxOut addr firstTxVal (C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData firstDat) C.ReferenceScriptNone
 
-  mintPlutus directoryMintingScript (InsertDirectoryNode inaNewKey) (unTransAssetName directoryNodeToken) 1
-  prependTxOut newOutput
+  addReference paramsRef
+  spendPlutusInlineDatum uIn directorySpendingScript ()
+  mintPlutus directoryMintingScript (InsertDirectoryNode inaNewKey) newTokenName 1
+  prependTxOut insertedNode
   prependTxOut firstOutput
