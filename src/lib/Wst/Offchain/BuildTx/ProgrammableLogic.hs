@@ -6,7 +6,9 @@
 
 {-# HLINT ignore "Use second" #-}
 module Wst.Offchain.BuildTx.ProgrammableLogic
-  ( issueProgrammableToken,
+  (
+    IssueNewTokenArgs (..),
+    issueProgrammableToken,
     transferProgrammableToken,
     seizeProgrammableToken,
   )
@@ -39,44 +41,49 @@ import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..),
                                           insertDirectoryNode)
 import Wst.Offchain.BuildTx.ProtocolParams (getProtocolParamsGlobalInline)
 import Wst.Offchain.Env qualified as Env
+import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Query qualified as Query
 import Wst.Offchain.Scripts (programmableLogicBaseScript,
                              programmableLogicGlobalScript,
                              programmableLogicMintingScript)
 
 
+data IssueNewTokenArgs = IssueNewTokenArgs
+  { intaMintingLogic :: C.StakeCredential,
+    intaTransferLogic :: C.StakeCredential,
+    intaIssuerLogic :: C.StakeCredential
+  }
+
 {- Issue a programmable token and register it in the directory set if necessary. The caller should ensure that the specific
    minting logic stake script witness is included in the final transaction.
   - If the programmable token is not in the directory, then it is registered
   - If the programmable token is in the directory, then it is minted
 -}
-issueProgrammableToken :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.TxIn -> C.TxOut C.CtxTx era -> (C.AssetName, C.Quantity) -> (C.StakeCredential, C.StakeCredential, C.StakeCredential) -> [(C.TxIn, C.TxOut C.CtxTx era)] -> m CurrencySymbol
-issueProgrammableToken directoryInitialTxIn paramsTxOut (an, q) (mintingCred, transferLogic, issuerLogic) directoryList = Utils.inBabbage @era $ do
-  ProgrammableLogicGlobalParams {directoryNodeCS, progLogicCred} <- maybe (error "could not parse protocol params") pure $ getProtocolParamsGlobalInline (C.inAnyCardanoEra (C.cardanoEra @era) paramsTxOut)
+issueProgrammableToken :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.TxIn -> UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> IssueNewTokenArgs -> [UTxODat era DirectorySetNode] -> m C.PolicyId
+issueProgrammableToken directoryInitialTxIn paramsTxOut (an, q) IssueNewTokenArgs{intaMintingLogic, intaTransferLogic, intaIssuerLogic} directoryList = Utils.inBabbage @era $ do
+  let ProgrammableLogicGlobalParams {directoryNodeCS, progLogicCred} = uDatum paramsTxOut
 
   progLogicScriptCredential <- either (const $ error "could not parse protocol params") pure $ unTransCredential progLogicCred
   directoryNodeSymbol <- either (const $ error "could not parse protocol params") pure $ unTransPolicyId directoryNodeCS
 
-  let mintingScript = programmableLogicMintingScript progLogicScriptCredential mintingCred directoryNodeSymbol
-      policyId = transPolicyId $ C.scriptPolicyId $ C.PlutusScript C.PlutusScriptV3 mintingScript
+  let mintingScript = programmableLogicMintingScript progLogicScriptCredential intaMintingLogic directoryNodeSymbol
+      issuedPolicyId = C.scriptPolicyId $ C.PlutusScript C.PlutusScriptV3 mintingScript
+      issuedSymbol = transPolicyId issuedPolicyId
 
-      (dirNodeRef, dirNodeOut) =
-        maximumBy (compare `on` (fmap key . getDirectoryNodeInline . C.inAnyCardanoEra (C.cardanoEra @era) . snd)) $
-          filter (maybe False ((<= policyId) . key) . getDirectoryNodeInline . C.inAnyCardanoEra (C.cardanoEra @era) . snd) directoryList
+      udat@UTxODat{uDatum = dirNodeData} =
+        maximumBy (compare `on` (key . uDatum)) $
+          filter ((<= issuedSymbol) . key . uDatum) directoryList
 
-  dirNodeData <- maybe (error "could not parse directory node data") pure $ getDirectoryNodeInline $ C.inAnyCardanoEra (C.cardanoEra @era) dirNodeOut
-
-  if key dirNodeData == policyId
+  if key dirNodeData == issuedSymbol
     then
       mintPlutus mintingScript MintPToken an q
     else do
-      let firstNode = fromJust (error "failed to extract DirectorySetNode from first node") $ Query.fromOutput @era @DirectorySetNode dirNodeRef (C.toCtxUTxOTxOut dirNodeOut)
-          nodeArgs  = InsertNodeArgs{inaNewKey = policyId, inaTransferLogic = transferLogic, inaIssuerLogic = issuerLogic}
+      let nodeArgs  = InsertNodeArgs{inaNewKey = issuedSymbol, inaTransferLogic = intaTransferLogic, inaIssuerLogic = intaIssuerLogic}
       mintPlutus mintingScript RegisterPToken an q
         -- TODO: propagate the HasEnv constraint upwards
-        >> runReaderT (insertDirectoryNode firstNode nodeArgs) (Env.mkDirectoryEnv directoryInitialTxIn)
+        >> runReaderT (insertDirectoryNode udat nodeArgs) (Env.mkDirectoryEnv directoryInitialTxIn)
 
-  pure policyId
+  pure issuedPolicyId
 
 {- User facing transfer of programmable tokens from one address to another.
    The caller should ensure that the specific transfer logic stake script
