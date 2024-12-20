@@ -24,3 +24,9 @@ deployTx = do
               $ Env.balanceTxEnv
               $ BuildTx.mintProtocolParams >> BuildTx.initDirectorySet
   pure (Convex.CoinSelection.signBalancedTxBody [] tx, txi)
+
+{-| Build a transaction that inserts a node into the directory
+-}
+insertNodeTx :: (MonadReader env m, Env.HasOperatorEnv era env, Env.HasDirectoryEnv env, MonadBlockchain era m, MonadError (BuildTxError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => m (C.Tx era)
+insertNodeTx = do
+  pure undefined

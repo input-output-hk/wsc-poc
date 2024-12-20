@@ -15,6 +15,7 @@ where
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Control.Lens (over, (^.))
+import Control.Monad.Reader (runReaderT)
 import Convex.BuildTx (MonadBuildTx, addBtx, addReference,
                        addWithdrawalWithTxBody, buildScriptWitness,
                        findIndexReference, findIndexSpending, mintPlutus,
@@ -36,6 +37,7 @@ import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.Offchain.BuildTx.DirectorySet (insertDirectoryNode)
 import Wst.Offchain.BuildTx.ProtocolParams (getProtocolParamsGlobalInline)
+import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Scripts (programmableLogicBaseScript,
                              programmableLogicGlobalScript,
                              programmableLogicMintingScript)
@@ -46,8 +48,8 @@ import Wst.Offchain.Scripts (programmableLogicBaseScript,
   - If the programmable token is not in the directory, then it is registered
   - If the programmable token is in the directory, then it is minted
 -}
-issueProgrammableToken :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.TxIn -> (C.PolicyId, C.TxOut C.CtxTx era) -> (C.AssetName, C.Quantity) -> (C.StakeCredential, C.StakeCredential, C.StakeCredential) -> [(C.TxIn, C.TxOut C.CtxTx era)] -> m CurrencySymbol
-issueProgrammableToken directoryInitialTxIn (paramsPolicyId, paramsTxOut) (an, q) (mintingCred, transferLogic, issuerLogic) directoryList = Utils.inBabbage @era $ do
+issueProgrammableToken :: forall era m. (C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.TxIn -> C.TxOut C.CtxTx era -> (C.AssetName, C.Quantity) -> (C.StakeCredential, C.StakeCredential, C.StakeCredential) -> [(C.TxIn, C.TxOut C.CtxTx era)] -> m CurrencySymbol
+issueProgrammableToken directoryInitialTxIn paramsTxOut (an, q) (mintingCred, transferLogic, issuerLogic) directoryList = Utils.inBabbage @era $ do
   ProgrammableLogicGlobalParams {directoryNodeCS, progLogicCred} <- maybe (error "could not parse protocol params") pure $ getProtocolParamsGlobalInline (C.inAnyCardanoEra (C.cardanoEra @era) paramsTxOut)
 
   progLogicScriptCredential <- either (const $ error "could not parse protocol params") pure $ unTransCredential progLogicCred
@@ -67,7 +69,7 @@ issueProgrammableToken directoryInitialTxIn (paramsPolicyId, paramsTxOut) (an, q
       mintPlutus mintingScript MintPToken an q
     else
       mintPlutus mintingScript RegisterPToken an q
-        >> insertDirectoryNode paramsPolicyId directoryInitialTxIn (dirNodeRef, dirNodeOut) (policyId, transferLogic, issuerLogic)
+        >> runReaderT (insertDirectoryNode (dirNodeRef, dirNodeOut) (policyId, transferLogic, issuerLogic)) (Env.mkDirectoryEnv directoryInitialTxIn)
 
   pure policyId
 

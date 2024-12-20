@@ -1,7 +1,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-| Look up outputs at script addresses
 -}
-module Wst.Offchain.Endpoints.Query(
+module Wst.Offchain.Query(
   UTxO(..),
   registryNodes,
   globalParamsNode

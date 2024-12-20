@@ -78,9 +78,11 @@ initDirectorySet = Utils.inBabbage @era $ do
 
   addBtx (over L.txOuts (output :))
 
-insertDirectoryNode :: forall era m ctx. (C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => C.PolicyId -> C.TxIn -> (C.TxIn, C.TxOut ctx era) -> (CurrencySymbol, C.StakeCredential, C.StakeCredential) -> m ()
-insertDirectoryNode paramsPolicyId initialTxIn (_, firstTxOut) (newKey, transferLogic, issuerLogic) = Utils.inBabbage @era $ do
+insertDirectoryNode :: forall era env m ctx. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => (C.TxIn, C.TxOut ctx era) -> (CurrencySymbol, C.StakeCredential, C.StakeCredential) -> m ()
+insertDirectoryNode (_, firstTxOut) (newKey, transferLogic, issuerLogic) = Utils.inBabbage @era $ do
   netId <- queryNetworkId
+  initialTxIn <- asks (Env.dsTxIn . Env.directoryEnv)
+  paramsPolicyId <- asks (Env.protocolParamsPolicyId . Env.directoryEnv)
 
   let
       directoryMintingScript = directoryNodeMintingScript initialTxIn
