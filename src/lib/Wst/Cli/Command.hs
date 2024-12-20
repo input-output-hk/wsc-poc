@@ -8,13 +8,14 @@ module Wst.Cli.Command(
 
 import Cardano.Api (TxIn (..), TxIx (..))
 import Control.Monad (when)
+import Convex.Wallet.Operator (OperatorConfigSigning,
+                               parseOperatorConfigSigning)
 import Data.String (IsString (..))
 import Options.Applicative (CommandFields, Mod, Parser, ReadM, argument,
                             command, eitherReader, fullDesc, help, info, long,
                             many, metavar, optional, progDesc, short, str,
                             strOption, subparser, (<|>))
 import Text.Read (readMaybe)
-
 
 parseCommand :: Parser Command
 parseCommand =
@@ -25,7 +26,7 @@ parseCommand =
       ]
 
 data Command =
-  Deploy
+  Deploy OperatorConfigSigning
   | Manage TxIn ManageCommand
   deriving Show
 
@@ -38,7 +39,7 @@ data ManageCommand =
 parseDeploy :: Mod CommandFields Command
 parseDeploy =
   command "deploy" $
-    info (pure Deploy) (fullDesc <> progDesc "Deploy the directory and global params")
+    info (Deploy <$> parseOperatorConfigSigning) (fullDesc <> progDesc "Deploy the directory and global params")
 
 parseManage :: Mod CommandFields Command
 parseManage =
