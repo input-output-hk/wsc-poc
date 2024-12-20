@@ -35,9 +35,11 @@ import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedee
                                                     TokenProof (..))
 import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
-import Wst.Offchain.BuildTx.DirectorySet (insertDirectoryNode)
+import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..),
+                                          insertDirectoryNode)
 import Wst.Offchain.BuildTx.ProtocolParams (getProtocolParamsGlobalInline)
 import Wst.Offchain.Env qualified as Env
+import Wst.Offchain.Query qualified as Query
 import Wst.Offchain.Scripts (programmableLogicBaseScript,
                              programmableLogicGlobalScript,
                              programmableLogicMintingScript)
@@ -67,9 +69,12 @@ issueProgrammableToken directoryInitialTxIn paramsTxOut (an, q) (mintingCred, tr
   if key dirNodeData == policyId
     then
       mintPlutus mintingScript MintPToken an q
-    else
+    else do
+      let firstNode = fromJust (error "failed to extract DirectorySetNode from first node") $ Query.fromOutput @era @DirectorySetNode dirNodeRef (C.toCtxUTxOTxOut dirNodeOut)
+          nodeArgs  = InsertNodeArgs{inaNewKey = policyId, inaTransferLogic = transferLogic, inaIssuerLogic = issuerLogic}
       mintPlutus mintingScript RegisterPToken an q
-        >> runReaderT (insertDirectoryNode (dirNodeRef, dirNodeOut) (policyId, transferLogic, issuerLogic)) (Env.mkDirectoryEnv directoryInitialTxIn)
+        -- TODO: propagate the HasEnv constraint upwards
+        >> runReaderT (insertDirectoryNode firstNode nodeArgs) (Env.mkDirectoryEnv directoryInitialTxIn)
 
   pure policyId
 

@@ -1,10 +1,12 @@
 {-# LANGUAGE DerivingVia       #-}
+{-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications  #-}
 {-# LANGUAGE TypeFamilies      #-}
 
 module Wst.Offchain.BuildTx.DirectorySet (
   initDirectorySet,
+  InsertNodeArgs(..),
   insertDirectoryNode,
   -- * Values
   initialNode
@@ -14,11 +16,11 @@ import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Control.Lens (over)
 import Control.Monad.Reader (MonadReader, asks)
-import Convex.BuildTx (MonadBuildTx, addBtx, mintPlutus)
+import Convex.BuildTx (MonadBuildTx, addBtx, mintPlutus, prependTxOut)
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain, queryNetworkId)
 import Convex.PlutusLedger.V1 (transStakeCredential, unTransAssetName)
-import Convex.Scripts (fromHashableScriptData, toHashableScriptData)
+import Convex.Scripts (toHashableScriptData)
 import Convex.Utils qualified as Utils
 import Data.ByteString.Base16 (decode)
 import GHC.Exts (IsList (..))
@@ -32,6 +34,7 @@ import SmartTokens.LinkedList.MintDirectory (DirectoryNodeAction (..))
 import SmartTokens.Types.Constants (directoryNodeToken)
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.Offchain.Env qualified as Env
+import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Scripts (directoryNodeMintingScript,
                              directoryNodeSpendingScript, scriptPolicyIdV3)
 
@@ -78,8 +81,17 @@ initDirectorySet = Utils.inBabbage @era $ do
 
   addBtx (over L.txOuts (output :))
 
-insertDirectoryNode :: forall era env m ctx. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => (C.TxIn, C.TxOut ctx era) -> (CurrencySymbol, C.StakeCredential, C.StakeCredential) -> m ()
-insertDirectoryNode (_, firstTxOut) (newKey, transferLogic, issuerLogic) = Utils.inBabbage @era $ do
+{-| Data for a  new node to be inserted into the directory
+-}
+data InsertNodeArgs =
+  InsertNodeArgs
+    { inaNewKey :: CurrencySymbol
+    , inaTransferLogic :: C.StakeCredential
+    , inaIssuerLogic :: C.StakeCredential
+    }
+
+insertDirectoryNode :: forall era env m ctx. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => UTxODat era DirectorySetNode -> InsertNodeArgs -> m ()
+insertDirectoryNode UTxODat{uIn, uOut=firstTxOut, uDatum=firstTxData} InsertNodeArgs{inaNewKey, inaTransferLogic, inaIssuerLogic} = Utils.inBabbage @era $ do
   netId <- queryNetworkId
   initialTxIn <- asks (Env.dsTxIn . Env.directoryEnv)
   paramsPolicyId <- asks (Env.protocolParamsPolicyId . Env.directoryEnv)
@@ -88,11 +100,8 @@ insertDirectoryNode (_, firstTxOut) (newKey, transferLogic, issuerLogic) = Utils
       directoryMintingScript = directoryNodeMintingScript initialTxIn
 
       firstTxVal :: C.TxOutValue era
-      (firstTxVal, firstTxData) = case firstTxOut of
-        (C.TxOut _ v (C.TxOutDatumInline _ dat) _) -> case fromHashableScriptData @DirectorySetNode dat of
-          Just d -> (v, d)
-          Nothing -> error "insertDirectoryNode: invalid datum"
-        _ -> error "insertDirectoryNode: invalid output"
+      firstTxVal = case firstTxOut of
+        (C.TxOut _ v _ _) -> v
 
       newVal = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
           $ fromList [(C.AssetId (scriptPolicyIdV3 directoryMintingScript) (unTransAssetName directoryNodeToken), 1)]
@@ -105,22 +114,18 @@ insertDirectoryNode (_, firstTxOut) (newKey, transferLogic, issuerLogic) = Utils
           C.NoStakeAddress
 
       dsn = DirectorySetNode
-            { key = newKey
+            { key = inaNewKey
             , next = next firstTxData
-            , transferLogicScript = transStakeCredential transferLogic
-            , issuerLogicScript = transStakeCredential issuerLogic
+            , transferLogicScript = transStakeCredential inaTransferLogic
+            , issuerLogicScript = transStakeCredential inaIssuerLogic
             }
       newDat = C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData dsn
 
       newOutput = C.TxOut addr newVal newDat C.ReferenceScriptNone
 
-      firstDat = firstTxData { next = newKey}
+      firstDat = firstTxData { next = inaNewKey}
       firstOutput = C.TxOut addr firstTxVal (C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData firstDat) C.ReferenceScriptNone
 
-  mintPlutus directoryMintingScript (InsertDirectoryNode newKey) (unTransAssetName directoryNodeToken) 1
-  addBtx (over L.txOuts (newOutput :))
-  addBtx (over L.txOuts (firstOutput :))
-
--- TODO: is this necessary? It will be for blacklist but not sure about
--- the directory set
-removeDirectoryNode = undefined
+  mintPlutus directoryMintingScript (InsertDirectoryNode inaNewKey) (unTransAssetName directoryNodeToken) 1
+  prependTxOut newOutput
+  prependTxOut firstOutput

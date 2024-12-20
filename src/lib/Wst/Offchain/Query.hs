@@ -2,9 +2,13 @@
 {-| Look up outputs at script addresses
 -}
 module Wst.Offchain.Query(
-  UTxO(..),
+  -- * Queries
   registryNodes,
-  globalParamsNode
+  globalParamsNode,
+
+  -- * UTxO with datum
+  UTxODat(..),
+  fromOutput
 ) where
 
 import Cardano.Api qualified as C
@@ -28,8 +32,8 @@ import Wst.Offchain.Scripts (protocolParamsSpendingScript)
 
 {-| Unspent transaction output with 'TxIn', 'TxOut' and an inline datum
 -}
-data UTxO era a =
-  UTxO
+data UTxODat era a =
+  UTxODat
     { uIn    :: C.TxIn
     , uOut   :: C.TxOut C.CtxUTxO era
     , uDatum :: a
@@ -37,21 +41,21 @@ data UTxO era a =
 
 {-| Find all UTxOs that make up the registry
 -}
-registryNodes :: forall era env m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era) => m [UTxO era DirectorySetNode]
+registryNodes :: forall era env m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era) => m [UTxODat era DirectorySetNode]
 registryNodes =
   asks (C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsDirectorySpendingScript . directoryEnv)
     >>= fmap (extractUTxO @era) . utxosByPaymentCredential
 
 {-| Find the UTxO with the global params
 -}
-globalParamsNode :: forall era m. (MonadUtxoQuery m, C.IsBabbageBasedEra era) => m [UTxO era ProgrammableLogicGlobalParams]
+globalParamsNode :: forall era m. (MonadUtxoQuery m, C.IsBabbageBasedEra era) => m [UTxODat era ProgrammableLogicGlobalParams]
 globalParamsNode = do
   let cred = C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 $ protocolParamsSpendingScript
   fmap (extractUTxO @era) (utxosByPaymentCredential cred)
 
-fromOutput :: (PlutusTx.FromData a, C.IsBabbageBasedEra era) => C.TxIn -> C.TxOut C.CtxUTxO era -> Maybe (UTxO era a)
-fromOutput uIn uOut@(L.preview (L._TxOut . L._3 . L._TxOutDatumInline) >=> fromHashableScriptData -> Just uDatum) = Just UTxO{uIn, uOut, uDatum}
+fromOutput :: forall era a. (PlutusTx.FromData a, C.IsBabbageBasedEra era) => C.TxIn -> C.TxOut C.CtxUTxO era -> Maybe (UTxODat era a)
+fromOutput uIn uOut@(L.preview (L._TxOut . L._3 . L._TxOutDatumInline) >=> fromHashableScriptData -> Just uDatum) = Just UTxODat{uIn, uOut, uDatum}
 fromOutput _ _ = Nothing
 
-extractUTxO :: forall era a b. (PlutusTx.FromData a, C.IsBabbageBasedEra era) => UtxoSet C.CtxUTxO b -> [UTxO era a]
+extractUTxO :: forall era a b. (PlutusTx.FromData a, C.IsBabbageBasedEra era) => UtxoSet C.CtxUTxO b -> [UTxODat era a]
 extractUTxO = mapMaybe (uncurry fromOutput) . Map.toList . C.unUTxO . toApiUtxo @era
