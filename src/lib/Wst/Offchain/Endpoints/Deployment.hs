@@ -2,10 +2,11 @@
 -}
 module Wst.Offchain.Endpoints.Deployment(
   deployTx,
-  insertNodeTx
+  insertNodeTx,
+  issueProgrammableTokenTx
 ) where
 
-import Cardano.Api (Quantity (Quantity))
+import Cardano.Api (Quantity)
 import Cardano.Api.Shelley qualified as C
 import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader, asks)
@@ -58,10 +59,10 @@ issueProgrammableTokenTx :: forall era env m.
   )
   => C.AssetName -- ^ Name of the asset
   -> Quantity -- ^ Amount of tokens to be minted
-  -> m ()
+  -> m (C.Tx era)
 issueProgrammableTokenTx assetName quantity = do
   directory <- Query.registryNodes @era
   paramsNode <- head <$> Query.globalParamsNode @era
   issueTokenArgs <- asks (BuildTx.fromTransferEnv . Env.transferLogicEnv)
   (tx, _) <- Env.balanceTxEnv (BuildTx.issueProgrammableToken paramsNode (assetName, quantity) issueTokenArgs directory)
-  pure ()
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
