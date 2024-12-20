@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE NamedFieldPuns         #-}
+{-# OPTIONS_GHC -Wno-deferred-out-of-scope-variables #-}
 {-| Transaction building environment
 -}
 module Wst.Offchain.Env(
@@ -24,6 +25,11 @@ module Wst.Offchain.Env(
   protocolParamsPolicyId,
   globalParams,
 
+
+  -- * Transfer logic environment
+  TransferLogicEnv(..),
+  HasTransferLogicEnv(..),
+
   -- * Combined environment
   CombinedEnv(..),
   withDirectoryFor
@@ -45,12 +51,15 @@ import Convex.Utxos (BalanceChanges)
 import Convex.Utxos qualified as Utxos
 import Convex.Wallet.Operator (Operator (..), PaymentExtendedKey (..),
                                Verification, operatorPaymentCredential,
-                               operatorReturnOutput)
+                               operatorReturnOutput, verificationKey)
 import Data.Map qualified as Map
 import Data.Maybe (listToMaybe)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
-import Wst.Offchain.Scripts (directoryNodeMintingScript,
+import Wst.Offchain.Scripts (blacklistMintingScript, blacklistSpendingScript,
+                             directoryNodeMintingScript,
                              directoryNodeSpendingScript,
+                             freezeAndSezieTransferScript,
+                             permissionedTransferScript,
                              programmableLogicBaseScript,
                              programmableLogicGlobalScript,
                              protocolParamsMintingScript, scriptPolicyIdV3)
@@ -111,7 +120,7 @@ class HasDirectoryEnv e where
 instance HasDirectoryEnv DirectoryEnv where
   directoryEnv = id
 
-{-| Scripts relatd to managing the token policy directory.
+{-| Scripts related to managing the token policy directory.
 All of the scripts and their hashes are determined by the 'TxIn'.
 -}
 data DirectoryEnv =
@@ -162,6 +171,39 @@ globalParams scripts =
     , progLogicCred   = transCredential (programmableLogicBaseCredential scripts) -- its the script hash of the programmable base spending script
     }
 
+{-| Scripts related to managing the specific transfer logic
+-}
+
+data TransferLogicEnv =
+  TransferLogicEnv
+    { tleBlacklistPolicy :: C.PolicyId
+    , tleBlacklistMintingScript :: PlutusScript PlutusScriptV3
+    , tleBlacklistSpendingScript :: PlutusScript PlutusScriptV3
+    , tleMintingScript :: PlutusScript PlutusScriptV3
+    , tleTransferScript :: PlutusScript PlutusScriptV3
+    , tleIssuerScript :: PlutusScript PlutusScriptV3
+    }
+
+class HasTransferLogicEnv e where
+  transferLogicEnv :: e -> TransferLogicEnv
+
+instance HasTransferLogicEnv TransferLogicEnv where
+  transferLogicEnv = id
+
+mkTransferLogicEnv :: C.Hash C.PaymentKey -> TransferLogicEnv
+mkTransferLogicEnv cred =
+  let blacklistMinting = blacklistMintingScript cred
+      blacklistPolicy = scriptPolicyIdV3 blacklistMinting
+  in
+  TransferLogicEnv
+    { tleBlacklistPolicy = blacklistPolicy
+    , tleBlacklistMintingScript = blacklistMinting
+    , tleBlacklistSpendingScript = blacklistSpendingScript cred
+    , tleMintingScript =  permissionedTransferScript cred
+    , tleTransferScript = freezeAndSezieTransferScript blacklistPolicy
+    , tleIssuerScript = permissionedTransferScript cred
+    }
+
 data CombinedEnv era =
   CombinedEnv
     { ceOperator :: OperatorEnv era
@@ -173,6 +215,9 @@ instance HasOperatorEnv era (CombinedEnv era) where
 
 instance HasDirectoryEnv (CombinedEnv era) where
   directoryEnv = ceDirectory
+
+instance HasTransferLogicEnv (CombinedEnv era) where
+  transferLogicEnv = mkTransferLogicEnv . C.verificationKeyHash . verificationKey . oPaymentKey . bteOperator . ceOperator
 
 {-| Add a 'DirectoryEnv' to the environment
 -}
