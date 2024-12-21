@@ -4,37 +4,26 @@ module Main (main) where
 import Cardano.Binary qualified as CBOR
 import Data.Aeson (KeyValue ((.=)), object)
 import Data.Aeson.Encode.Pretty (encodePretty)
-import Data.Bifunctor (
-  first,
- )
+import Data.Bifunctor (first)
 import Data.ByteString.Base16 qualified as Base16
 import Data.ByteString.Lazy qualified as LBS
-import Data.Text (
-  Text,
-  pack,
- )
+import Data.Text (Text, pack)
 import Data.Text.Encoding qualified as Text
-import Plutarch (
-  Config (..),
-  TracingMode (..),
-  LogLevel (..),
-  compile,
- )
-import Plutarch.Evaluate (
-  evalScript,
-  applyArguments
- )
+import Plutarch (Config (..), LogLevel (..), TracingMode (..), compile)
+import Plutarch.Evaluate (applyArguments, evalScript)
 import Plutarch.Prelude
 import Plutarch.Script (Script, serialiseScript)
-import PlutusLedgerApi.V2 (
-  Data,
-  ExBudget,
- )
-import SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicBase, mkProgrammableLogicGlobal)
+import PlutusLedgerApi.V2 (Data, ExBudget)
+import SmartTokens.Contracts.ExampleTransferLogic (mkFreezeAndSeizeTransfer,
+                                                   mkPermissionedTransfer)
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
-import SmartTokens.Contracts.ProtocolParams (mkProtocolParametersMinting, alwaysFailScript, mkPermissionedMinting)
-import SmartTokens.Contracts.ExampleTransferLogic (mkPermissionedTransfer, mkFreezeAndSeizeTransfer)
+import SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicBase,
+                                                    mkProgrammableLogicGlobal)
+import SmartTokens.Contracts.ProtocolParams (alwaysFailScript,
+                                             mkPermissionedMinting,
+                                             mkProtocolParametersMinting)
 import SmartTokens.LinkedList.MintDirectory (mkDirectoryNodeMP)
+import SmartTokens.LinkedList.SpendBlacklist (pmkBlacklistSpending)
 import SmartTokens.LinkedList.SpendDirectory (pmkDirectorySpending)
 
 encodeSerialiseCBOR :: Script -> Text
@@ -78,3 +67,4 @@ main = do
   writePlutusScriptTraceBind "Freeze and Seize Transfer" "./compiled/freezeAndSeizeTransfer.json" mkFreezeAndSeizeTransfer
   writePlutusScriptTraceBind "Directory Node Minting Policy" "./compiled/directoryNodeMintingPolicy.json" mkDirectoryNodeMP
   writePlutusScriptTraceBind "Directory Spending" "./compiled/directorySpending.json" pmkDirectorySpending
+  writePlutusScriptTraceBind "Blacklist Spending" "./compiled/blacklistSpending.json" pmkBlacklistSpending
