@@ -24,36 +24,26 @@ module SmartTokens.Types.PTokenDirectory (
   BlacklistNode(..),
 ) where
 
+import Data.Text qualified as T
 import Generics.SOP qualified as SOP
-import Plutarch ( Config(NoTracing), Config(NoTracing) )
-import Plutarch.Builtin
-    ( pasByteStr,
-      pasConstr,
-      pasList,
-      pforgetData,
-      plistData,
-      pforgetData,
-      plistData )
+import GHC.Stack (HasCallStack)
+import Plutarch (Config (NoTracing))
+import Plutarch.Builtin (pasByteStr, pasConstr, pasList, pforgetData, plistData)
 import Plutarch.Core.PlutusDataList (DerivePConstantViaDataList (..),
                                      PlutusTypeDataList, ProductIsData (..))
 import Plutarch.Core.Utils (pcond, pheadSingleton, pmkBuiltinList)
 import Plutarch.DataRepr (PDataFields)
+import Plutarch.DataRepr.Internal (DerivePConstantViaData (..))
 import Plutarch.DataRepr.Internal.Field (HRec (..), Labeled (Labeled))
 import Plutarch.Evaluate (unsafeEvalTerm)
+import Plutarch.Internal qualified as PI
+import Plutarch.Internal.Other (printScript)
 import Plutarch.LedgerApi.V3 (PCredential, PCurrencySymbol)
 import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (PLifted))
 import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
-import PlutusLedgerApi.V3
-    ( Credential, CurrencySymbol, BuiltinByteString )
-import PlutusTx
-    ( Data(B, Constr), ToData, FromData, UnsafeFromData ) 
-import Plutarch.DataRepr.Internal
-    ( DerivePConstantViaData(..) )
-import GHC.Stack (HasCallStack)
-import Plutarch.Internal.Other (printScript)
-import qualified Data.Text as T
-import qualified Plutarch.Internal as PI
+import PlutusLedgerApi.V3 (BuiltinByteString, Credential, CurrencySymbol)
+import PlutusTx (Data (B, Constr), FromData, ToData, UnsafeFromData)
 
 data BlacklistNode =
   BlacklistNode {
@@ -137,30 +127,6 @@ deriving via
   instance
     (PConstantDecl DirectorySetNode)
 
--- Optimization:
--- Use the following manual instances instead of the deriving via above if so that we can define key and next fields of type ByteString
--- We should discuss whether we want to prefer newtypes or primitive types for datum / redeemer fields going forward.
--- import Data.ByteString
--- import PlutusTx.Builtins qualified as Builtins
--- import PlutusTx.Builtins.Internal qualified as BI
--- import PlutusTx.Prelude (BuiltinByteString, fromBuiltin, toBuiltin)
--- instance PlutusTx.ToData DirectorySetNode where
---   toBuiltinData DirectorySetNode{key, next, transferLogicScript, issuerLogicScript} =
---     BI.mkList $ BI.mkCons (BI.mkB $ toBuiltin key) $ BI.mkCons (BI.mkB $ toBuiltin next) $ BI.mkCons (PlutusTx.toBuiltinData transferLogicScript) $ BI.mkCons (PlutusTx.toBuiltinData issuerLogicScript) $ BI.mkNilData BI.unitval
-
--- instance PlutusTx.FromData DirectorySetNode where
---   fromBuiltinData builtinData =
---     let fields = BI.snd $ BI.unsafeDataAsConstr builtinData
---         key = BI.head fields
---         fields1 = BI.tail fields
---         next = BI.head fields1
---         fields2 = BI.tail fields1
---         transferLogicScript = PlutusTx.unsafeFromBuiltinData $ BI.head fields2
---         fields3 = BI.tail fields2
---         issuerLogicScript = PlutusTx.unsafeFromBuiltinData $ BI.head fields3
---      in Just $ DirectorySetNode (fromBuiltin $ BI.unsafeDataAsB key) (fromBuiltin $ BI.unsafeDataAsB next) transferLogicScript issuerLogicScript
-
-
 newtype PDirectorySetNode (s :: S)
   = PDirectorySetNode
       ( Term
@@ -188,8 +154,12 @@ isHeadNode = plam $ \node ->
 
 isTailNode :: ClosedTerm (PAsData PDirectorySetNode :--> PBool)
 isTailNode = plam $ \node ->
-  pfield @"next" # node #== pemptyCSData
+  pfield @"next" # node #== ptailNextData
 
+-- nullTransferLogicCred = pconstant (Constr 0 [PlutusTx.B ""])
+-- nullIssuerLogicCred = pconstant (Constr 0 [PlutusTx.B ""])
+-- >>> _printTerm NoTracing (unsafeEvalTerm NoTracing (plistData #$ pcons # pforgetData pemptyBSData #$ pcons # pforgetData ptailNextData #$ pcons # nullTransferLogicCred #$ pcons # nullIssuerLogicCred # pnil))
+-- "program\n  1.0.0\n  (List\n     [ B #\n     , B #ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\n     , Constr 0 [B #]\n     , Constr 0 [B #] ])"
 pisEmptyNode :: ClosedTerm (PAsData PDirectorySetNode :--> PBool)
 pisEmptyNode = plam $ \node ->
   let nullTransferLogicCred = pconstant (Constr 0 [PlutusTx.B ""])
@@ -203,6 +173,8 @@ pemptyBSData = unsafeEvalTerm NoTracing (punsafeCoerce (pconstant $ PlutusTx.B "
 pemptyCSData :: ClosedTerm (PAsData PCurrencySymbol)
 pemptyCSData = unsafeEvalTerm NoTracing (punsafeCoerce (pconstant $ PlutusTx.B ""))
 
+-- >>> _printTerm NoTracing (ptailNextData)
+-- "program 1.0.0 (B #ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)"
 ptailNextData  :: ClosedTerm (PAsData PCurrencySymbol)
 ptailNextData = unsafeEvalTerm NoTracing (punsafeCoerce $ pdata (phexByteStr "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"))
 
@@ -216,12 +188,6 @@ pisInsertedOnNode = phoistAcyclic $
   plam $ \insertedKey coveringKey transferLogicCred issuerLogicCred outputNode ->
     let expectedDirectoryNode = pmkDirectorySetNode # coveringKey # insertedKey # transferLogicCred # issuerLogicCred
      in outputNode #== expectedDirectoryNode
-
--- pisInsertedNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PCredential :--> PAsData PCredential :--> PAsData PDirectorySetNode :--> PBool)
--- pisInsertedNode = phoistAcyclic $
---   plam $ \insertedKey coveringNext transferLogicCred issuerLogicCred outputNode ->
---     let expectedDirectoryNode = pmkDirectorySetNode # insertedKey # coveringNext # transferLogicCred # issuerLogicCred
---      in outputNode #== expectedDirectoryNode
 
 pisInsertedNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PDirectorySetNode :--> PBool)
 pisInsertedNode = phoistAcyclic $

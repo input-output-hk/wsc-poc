@@ -54,7 +54,7 @@ mkDirectoryNodeMP = plam $ \initUTxO ctx -> P.do
     PInsert action -> P.do
       act <- pletFields @'["keyToInsert"] action
       pkToInsert <- plet act.keyToInsert
-      let mintsProgrammableToken = pconstant False
+      let mintsProgrammableToken = pconstant True
           insertChecks =
             pand'List
                 [ mintsProgrammableToken
