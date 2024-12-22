@@ -38,18 +38,17 @@ tests = testGroup "unit tests"
   ]
 
 deployDirectorySet :: (MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => m C.TxIn
-deployDirectorySet = failOnError $ asAdmin @C.ConwayEra $ do
+deployDirectorySet = failOnError $ Env.withEnv $ asAdmin @C.ConwayEra $ do
   (tx, txI) <- Endpoints.deployTx
   void $ sendTx $ signTxOperator admin tx
   Env.withDirectoryFor txI $ do
     Query.registryNodes @C.ConwayEra
       >>= void . expectSingleton "registry output"
-    Query.globalParamsNode @C.ConwayEra
-      >>= void . expectSingleton "global params output"
+    void $ Query.globalParamsNode @C.ConwayEra
   pure txI
 
 insertDirectoryNode :: (MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => m ()
-insertDirectoryNode = failOnError $ do
+insertDirectoryNode = failOnError $ Env.withEnv $ do
   txI <- deployDirectorySet
   asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ do
     Endpoints.insertNodeTx dummyNodeArgs >>= void . sendTx . signTxOperator admin
@@ -59,7 +58,7 @@ insertDirectoryNode = failOnError $ do
 {-| Issue some tokens with the "always succeeds" validator
 -}
 issueAlwaysSucceedsValidator :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m ()
-issueAlwaysSucceedsValidator = failOnError $ do
+issueAlwaysSucceedsValidator = failOnError $ Env.withEnv $ do
 
   -- Register the stake validator
   -- Oddly, the tests passes even if we don't do this.

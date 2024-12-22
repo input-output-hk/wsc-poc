@@ -68,9 +68,10 @@ library
     SmartTokens.Types.ProtocolParams
     SmartTokens.Types.PTokenDirectory
     Types.Constants
+    Wst.App
+    Wst.AppError
     Wst.Cli
     Wst.Cli.Command
-    Wst.Cli.RuntimeEnv
     Wst.Client
     Wst.Offchain
     Wst.Offchain.BuildTx.Blacklist
@@ -101,6 +102,7 @@ library
     , cardano-ledger-api
     , containers
     , convex-base
+    , convex-blockfrost
     , convex-coin-selection
     , convex-mockchain
     , convex-node-client

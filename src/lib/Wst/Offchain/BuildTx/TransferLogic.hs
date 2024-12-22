@@ -114,7 +114,7 @@ seizeStablecoins seizingTxo issuerTxo directoryList destinationCred = Utils.inBa
 
 addIssueWitness :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => m ()
 addIssueWitness = Utils.inBabbage @era $ do
-  opPkh <- asks (C.verificationKeyHash . verificationKey . oPaymentKey . Env.bteOperator . Env.operatorEnv)
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   mintingScript <- asks (Env.tleMintingScript . Env.transferLogicEnv)
   let sh = C.hashScript $ C.PlutusScript C.PlutusScriptV3 mintingScript
   addRequiredSignature opPkh
@@ -153,7 +153,7 @@ addTransferWitness blacklistNodes clientCred = Utils.inBabbage @era $ do
 
 addSeizeWitness :: forall env era m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => m ()
 addSeizeWitness = Utils.inBabbage @era $ do
-  opPkh <- asks (C.verificationKeyHash . verificationKey . oPaymentKey . Env.bteOperator . Env.operatorEnv)
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   seizeScript <- asks (Env.tleIssuerScript . Env.transferLogicEnv)
   let sh = C.hashScript $ C.PlutusScript C.PlutusScriptV3 seizeScript
   addRequiredSignature opPkh

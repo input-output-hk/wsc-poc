@@ -15,16 +15,20 @@ module Wst.Offchain.Query(
 import Cardano.Api qualified as C
 import Control.Lens qualified as L
 import Control.Monad ((>=>))
+import Control.Monad.Except (MonadError, throwError)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadUtxoQuery, utxosByPaymentCredential)
 import Convex.Scripts (fromHashableScriptData)
 import Convex.Utxos (UtxoSet, toApiUtxo)
+import Data.Aeson (FromJSON, ToJSON)
 import Data.Map qualified as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (listToMaybe, mapMaybe)
+import GHC.Generics (Generic)
 import PlutusTx qualified
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
+import Wst.AppError (AppError (GlobalParamsNodeNotFound))
 import Wst.Offchain.Env (DirectoryEnv (dsDirectorySpendingScript, dsProgrammableLogicBaseScript),
                          HasDirectoryEnv (directoryEnv))
 import Wst.Offchain.Scripts (protocolParamsSpendingScript)
@@ -39,6 +43,8 @@ data UTxODat era a =
     , uOut   :: C.TxOut C.CtxUTxO era
     , uDatum :: a
     }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)
 
 {-| Find all UTxOs that make up the registry
 -}
@@ -49,10 +55,11 @@ registryNodes =
 
 {-| Find the UTxO with the global params
 -}
-globalParamsNode :: forall era m. (MonadUtxoQuery m, C.IsBabbageBasedEra era) => m [UTxODat era ProgrammableLogicGlobalParams]
+globalParamsNode :: forall era m. (MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadError (AppError era) m) => m (UTxODat era ProgrammableLogicGlobalParams)
 globalParamsNode = do
   let cred = C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 $ protocolParamsSpendingScript
-  fmap (extractUTxO @era) (utxosByPaymentCredential cred)
+  utxosByPaymentCredential cred
+    >>= maybe (throwError GlobalParamsNodeNotFound) pure . listToMaybe . extractUTxO @era
 
 {-| Outputs that are locked by the programmable logic base script.
 -}

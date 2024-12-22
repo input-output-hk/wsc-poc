@@ -5,14 +5,14 @@ module Wst.Test.Env(
   asAdmin
 ) where
 
-import Cardano.Api qualified as C
-import Control.Monad.Reader (ReaderT, runReaderT)
+import Cardano.Api.Shelley qualified as C
+import Control.Monad.Reader (MonadReader, ReaderT)
 import Convex.Class (MonadUtxoQuery)
 import Convex.Wallet qualified as Wallet
 import Convex.Wallet.MockWallet (w1)
 import Convex.Wallet.Operator (Operator (..), PaymentExtendedKey (..), Signing)
 import Convex.Wallet.Operator qualified as Operator
-import Wst.Offchain.Env (OperatorEnv)
+import Data.Functor.Identity (Identity)
 import Wst.Offchain.Env qualified as Env
 
 {-| Key used for actions of the stableoin issuer / operator.
@@ -26,7 +26,14 @@ admin =
 
 {-| Run an action using the "admin" key. Deploying the system, minting stablecoins, etc.
 -}
-asAdmin :: forall era m a. (MonadUtxoQuery m, C.IsBabbageBasedEra era) => ReaderT (OperatorEnv era) m a -> m a
+asAdmin :: forall era o d r m a.
+  ( MonadUtxoQuery m
+  , C.IsBabbageBasedEra era
+  , MonadReader (Env.CombinedEnv o d r era) m
+  )
+  => ReaderT (Env.CombinedEnv Identity d r era) m a -> m a
 asAdmin action = do
-  env <- Env.loadEnv (Operator.verificationKey $ Operator.oPaymentKey admin) (Operator.oStakeKey admin)
-  runReaderT action env
+  env <- Env.loadOperatorEnv
+          (C.verificationKeyHash . Operator.verificationKey . oPaymentKey $ admin)
+          (maybe C.NoStakeAddress (C.StakeAddressByValue . C.StakeCredentialByKey . C.verificationKeyHash) $ Operator.oStakeKey admin)
+  Env.withOperator env action

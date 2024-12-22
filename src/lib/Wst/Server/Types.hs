@@ -8,34 +8,51 @@
  -}
 module Wst.Server.Types (
   API,
+  APIInEra,
+  QueryAPI,
+  BuildTxAPI,
+  IssueProgrammableTokenArgs(..),
+  TextEnvelopeJSON(..),
 ) where
 
-import Servant.API (Capture, Description, Get, JSON, NoContent, Post, ReqBody,
-                    type (:>), (:<|>) (..))
+import Cardano.Api (AssetName, Quantity)
+import Cardano.Api qualified as C
+import Data.Aeson (FromJSON (..), ToJSON (..))
+import Data.Proxy (Proxy (..))
+import GHC.Generics (Generic)
+import Servant.API (Description, Get, JSON, NoContent, Post, ReqBody, type (:>),
+                    (:<|>) (..))
+import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
+import Wst.Offchain.Query (UTxODat (..))
 
-type API =
+type APIInEra = API C.ConwayEra
+
+newtype TextEnvelopeJSON a = TextEnvelopeJSON{ unTextEnvelopeJSON :: a }
+
+instance C.HasTextEnvelope a => ToJSON (TextEnvelopeJSON a) where
+  toJSON = toJSON . C.serialiseToTextEnvelope Nothing . unTextEnvelopeJSON
+
+instance C.HasTextEnvelope a => FromJSON (TextEnvelopeJSON a) where
+  parseJSON val = parseJSON val >>= either (fail . show) (pure . TextEnvelopeJSON) . C.deserialiseFromTextEnvelope (C.proxyToAsType Proxy)
+
+type API era =
   "healthcheck" :> Description "Is the server alive?" :> Get '[JSON] NoContent
-  :<|> "init-merkle-tree" :> Description "Initialize a new Merkle tree." :> ReqBody '[JSON] String :> Post '[JSON] String
-  -- creates empty directory
-  -- initialize the programmable token params, dir node minting policy
-  -- init head of linked list
+  :<|> "query" :> QueryAPI era
+  :<|> "tx" :> BuildTxAPI era
 
-  :<|> "update-merkle-tree" :> Description "Update the Merkle tree." :> ReqBody '[JSON] String :> Post '[JSON] String -- This might need to be broken down further
-  -- dir 1
-  -- the programmable script to execute
-  -- add program (registers staking scripts as well)
-  -- modify program
-  -- remove program (maybe not needed)
+type QueryAPI era =
+  "global-params" :> Description "The UTxO with the global parameters" :> Get '[JSON] (UTxODat era ProgrammableLogicGlobalParams)
 
-  -- dir 2 (specific to the program)
-  -- add blacklist
-  -- remove blacklist
+{-| Arguments for the programmable-token endpoint. The asset name can be something like "USDW" for the regulated stablecoin.
+-}
+data IssueProgrammableTokenArgs =
+  IssueProgrammableTokenArgs
+    { itaOperatorAddress :: C.Address C.ShelleyAddr
+    , itaAssetName :: AssetName
+    , itaQuantity  :: Quantity
+    }
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (ToJSON, FromJSON)
 
-  -- should be user-transfer (invoking spending program)
-  :<|> "transfer-to-user" :> Description "Transfer tokens to a user." :> ReqBody '[JSON] String :> Post '[JSON] String
-
-  -- should be issuer-transfe (invoking issuer program)
-  :<|> "transfer-to-issuer" :> Description "Transfer tokens to an issuer." :> ReqBody '[JSON] String :> Post '[JSON] String
-  :<|> "address" :> Description "Query the balance of an address." :> Capture "address" String :> Get '[JSON] String
-  :<|> "all-sanctioned-addresses" :> Description "Query all sanctioned addresses." :> Get '[JSON] String
-
+type BuildTxAPI era =
+  "programmable-token" :> "issue" :> Description "Create some programamble tokens" :> ReqBody '[JSON] IssueProgrammableTokenArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))

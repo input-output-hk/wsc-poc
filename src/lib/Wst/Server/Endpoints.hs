@@ -1,37 +1,31 @@
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeOperators    #-}
 
 {- | This module contains the endpoints of the server.
 -}
 module Wst.Server.Endpoints (
   healthcheck,
-  initMerkleTree,
-  updateMerkleTree,
-  transferToUser,
-  transferToIssuer,
-  queryAddress,
-  queryAllSanctionedAddresses
+  -- * Query endpoints
+  queryGlobalParams,
+
+  -- * Build tx endpoints
+  issueProgrammableTokens
 ) where
+
+import Cardano.Api qualified as C
+import Control.Monad.Except (MonadError)
+import Convex.Class (MonadUtxoQuery)
 import Servant (Handler)
 import Servant.API (NoContent (..))
+import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
+import Wst.AppError (AppError)
+import Wst.Offchain.Query (UTxODat)
+import Wst.Offchain.Query qualified as Query
+import Wst.Server.Types (IssueProgrammableTokenArgs, TextEnvelopeJSON)
 
 healthcheck :: Handler NoContent
 healthcheck = pure NoContent
 
-initMerkleTree :: String -> Handler String
-initMerkleTree _arg = pure "initMerkleTree"
+queryGlobalParams :: forall era m. (MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadError (AppError era) m) => m (UTxODat era ProgrammableLogicGlobalParams)
+queryGlobalParams = Query.globalParamsNode
 
-updateMerkleTree :: String -> Handler String
-updateMerkleTree _arg = pure "updateMerkleTree"
-
-transferToUser :: String -> Handler String
-transferToUser _arg = pure "transferToUser"
-
-transferToIssuer :: String -> Handler String
-transferToIssuer _arg = pure "transferToIssuer"
-
-queryAddress :: String -> Handler String
-queryAddress name = pure name
-
-queryAllSanctionedAddresses :: Handler String
-queryAllSanctionedAddresses = pure "allSanctionedAddresses"
+issueProgrammableTokens :: forall era m. IssueProgrammableTokenArgs -> m (TextEnvelopeJSON (C.Tx era))
+issueProgrammableTokens = undefined
