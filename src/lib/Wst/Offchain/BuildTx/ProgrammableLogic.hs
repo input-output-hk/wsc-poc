@@ -86,8 +86,8 @@ issueProgrammableToken paramsTxOut (an, q) IssueNewTokenArgs{intaMintingLogic, i
 
   progLogicScriptCredential <- either (const $ error "could not parse protocol params") pure $ unTransCredential progLogicCred
   directoryNodeSymbol <- either (const $ error "could not parse protocol params") pure $ unTransPolicyId directoryNodeCS
-  netId <- queryNetworkId
-  DirectoryEnv{dsProgrammableLogicBaseScript} <- asks Env.directoryEnv
+  --
+  -- DirectoryEnv{dsProgrammableLogicBaseScript} <- asks Env.directoryEnv
 
   -- TODO: maybe move programmableLogicMintingScript to DirectoryEnv
   let mintingScript = programmableLogicMintingScript progLogicScriptCredential (C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion intaMintingLogic) directoryNodeSymbol
@@ -98,17 +98,17 @@ issueProgrammableToken paramsTxOut (an, q) IssueNewTokenArgs{intaMintingLogic, i
         maximumBy (compare `on` (key . uDatum)) $
           filter ((<= issuedSymbol) . key . uDatum) directoryList
 
-      receivingAddress =
-        C.makeShelleyAddressInEra
-          C.shelleyBasedEra
-          netId
-          (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion dsProgrammableLogicBaseScript)
-          C.NoStakeAddress -- FIXME: use owner credential
+      -- receivingAddress =
+      --   C.makeShelleyAddressInEra
+      --     C.shelleyBasedEra
+      --     netId
+      --     (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion dsProgrammableLogicBaseScript)
+      --     C.NoStakeAddress -- FIXME: use owner credential
 
-      receivingVal = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
-        $ fromList [(C.AssetId issuedPolicyId an, q)]
+      -- receivingVal = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
+      --   $ fromList [(C.AssetId issuedPolicyId an, q)]
 
-      dat = C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData () -- TODO: What should the datum be?
+      -- dat = C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData () -- TODO: What should the datum be?
 
   if key dirNodeData == issuedSymbol
     then
@@ -125,7 +125,7 @@ issueProgrammableToken paramsTxOut (an, q) IssueNewTokenArgs{intaMintingLogic, i
       insertDirectoryNode paramsTxOut udat nodeArgs
 
       -- add programmable logic output
-      prependTxOut $ C.TxOut receivingAddress receivingVal dat C.ReferenceScriptNone
+      -- prependTxOut $ C.TxOut receivingAddress receivingVal dat C.ReferenceScriptNone
 
   pure issuedPolicyId
 

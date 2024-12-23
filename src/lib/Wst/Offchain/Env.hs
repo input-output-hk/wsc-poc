@@ -3,6 +3,7 @@
 {-# LANGUAGE NamedFieldPuns         #-}
 {-# LANGUAGE TemplateHaskell        #-}
 {-# OPTIONS_GHC -Wno-deferred-out-of-scope-variables #-}
+
 {-| Transaction building environment
 -}
 module Wst.Offchain.Env(
@@ -61,7 +62,7 @@ import Cardano.Api.Shelley qualified as C
 import Control.Lens (makeLensesFor)
 import Control.Lens qualified as L
 import Control.Monad.Except (MonadError, throwError)
-import Control.Monad.Reader (MonadReader, ReaderT, asks, runReaderT)
+import Control.Monad.Reader (MonadReader, ReaderT, ask, asks, runReaderT)
 import Convex.BuildTx (BuildTxT)
 import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain, MonadUtxoQuery (..),
@@ -200,8 +201,7 @@ globalParams scripts =
 
 data TransferLogicEnv =
   TransferLogicEnv
-    { tleBlacklistPolicy :: C.PolicyId
-    , tleBlacklistMintingScript :: PlutusScript PlutusScriptV3
+    { tleBlacklistMintingScript :: PlutusScript PlutusScriptV3
     , tleBlacklistSpendingScript :: PlutusScript PlutusScriptV3
     , tleMintingScript :: PlutusScript PlutusScriptV3
     , tleTransferScript :: PlutusScript PlutusScriptV3
@@ -220,8 +220,7 @@ mkTransferLogicEnv cred =
       blacklistPolicy = scriptPolicyIdV3 blacklistMinting
   in
   TransferLogicEnv
-    { tleBlacklistPolicy = blacklistPolicy
-    , tleBlacklistMintingScript = blacklistMinting
+    { tleBlacklistMintingScript = blacklistMinting
     , tleBlacklistSpendingScript = blacklistSpendingScript cred
     , tleMintingScript =  permissionedTransferScript cred
     , tleTransferScript = freezeAndSezieTransferScript blacklistPolicy

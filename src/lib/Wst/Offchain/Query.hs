@@ -3,6 +3,7 @@
 -}
 module Wst.Offchain.Query(
   -- * Queries
+  blacklistNodes,
   registryNodes,
   globalParamsNode,
   programmableLogicOutputs,
@@ -24,13 +25,16 @@ import Convex.Utxos (UtxoSet, toApiUtxo)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Map qualified as Map
 import Data.Maybe (listToMaybe, mapMaybe)
+import Debug.Trace (trace)
 import GHC.Generics (Generic)
 import PlutusTx qualified
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
-import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
+import SmartTokens.Types.PTokenDirectory (BlacklistNode, DirectorySetNode (..))
 import Wst.AppError (AppError (GlobalParamsNodeNotFound))
 import Wst.Offchain.Env (DirectoryEnv (dsDirectorySpendingScript, dsProgrammableLogicBaseScript),
-                         HasDirectoryEnv (directoryEnv))
+                         HasDirectoryEnv (directoryEnv),
+                         HasTransferLogicEnv (transferLogicEnv),
+                         TransferLogicEnv (tleBlacklistSpendingScript))
 import Wst.Offchain.Scripts (protocolParamsSpendingScript)
 
 -- TODO: We should probably filter the UTxOs to check that they have the correct NFTs
@@ -53,6 +57,13 @@ registryNodes =
   asks (C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsDirectorySpendingScript . directoryEnv)
     >>= fmap (extractUTxO @era) . utxosByPaymentCredential
 
+{-| Find all UTxOs that make up the blacklist
+-}
+blacklistNodes :: forall era env m. (MonadReader env m, HasTransferLogicEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era) => m [UTxODat era BlacklistNode]
+blacklistNodes =
+  asks (C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . tleBlacklistSpendingScript . transferLogicEnv)
+    >>= fmap (extractUTxO @era) . utxosByPaymentCredential
+
 {-| Find the UTxO with the global params
 -}
 globalParamsNode :: forall era m. (MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadError (AppError era) m) => m (UTxODat era ProgrammableLogicGlobalParams)
@@ -66,7 +77,14 @@ globalParamsNode = do
 programmableLogicOutputs :: forall era env m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era) => m [UTxODat era ()]
 programmableLogicOutputs = do
   asks (C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsProgrammableLogicBaseScript . directoryEnv)
-    >>= fmap (extractUTxO @era) . utxosByPaymentCredential
+    >>= fmap (extractUtxoNoDatum @era) . utxosByPaymentCredential
+
+fromOutputNoDatum :: forall era. (C.IsBabbageBasedEra era) => C.TxIn -> C.TxOut C.CtxUTxO era -> Maybe (UTxODat era ())
+fromOutputNoDatum uIn uOut@(L.preview (L._TxOut . L._3 . L._TxOutDatumInline) >=> fromHashableScriptData -> Just ()) = Just UTxODat{uIn, uOut, uDatum = ()}
+fromOutputNoDatum uIn uOut = Just $ UTxODat{uIn, uOut, uDatum = ()}
+
+extractUtxoNoDatum :: forall era b. (C.IsBabbageBasedEra era) => UtxoSet C.CtxUTxO b -> [UTxODat era ()]
+extractUtxoNoDatum = mapMaybe (uncurry fromOutputNoDatum) . Map.toList . C.unUTxO . toApiUtxo @era
 
 fromOutput :: forall era a. (PlutusTx.FromData a, C.IsBabbageBasedEra era) => C.TxIn -> C.TxOut C.CtxUTxO era -> Maybe (UTxODat era a)
 fromOutput uIn uOut@(L.preview (L._TxOut . L._3 . L._TxOutDatumInline) >=> fromHashableScriptData -> Just uDatum) = Just UTxODat{uIn, uOut, uDatum}

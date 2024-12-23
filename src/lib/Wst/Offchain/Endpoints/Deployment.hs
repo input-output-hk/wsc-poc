@@ -2,23 +2,33 @@
 -}
 module Wst.Offchain.Endpoints.Deployment(
   deployTx,
+  deployBlacklistTx,
   insertNodeTx,
-  issueProgrammableTokenTx
+  issueProgrammableTokenTx,
+  issueSmartTokensTx,
+  transferSmartTokensTx,
+  insertBlacklistNodeTx,
 ) where
 
 import Cardano.Api (Quantity)
 import Cardano.Api.Shelley qualified as C
+import Control.Monad (when)
 import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Convex.CoinSelection qualified
+import Data.Foldable (maximumBy)
+import Data.Function (on)
+import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.AppError (AppError)
-import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs)
+import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (inaNewKey))
 import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
 import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
 import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
+import Wst.Offchain.BuildTx.TransferLogic qualified as BuildTx
 import Wst.Offchain.Env qualified as Env
+import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Query qualified as Query
 
 {-| Build a transaction that deploys the directory and global params. Returns the
@@ -38,8 +48,12 @@ deployTx = do
 insertNodeTx :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasDirectoryEnv env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m) => InsertNodeArgs -> m (C.Tx era)
 insertNodeTx args = do
   -- 1. Find the head node
+  directoryList <- Query.registryNodes @era
   -- FIXME: Error handling. And how can we actually identify the head node if the query returns more than one?
-  headNode <- head <$> Query.registryNodes @era
+  let headNode@UTxODat{uDatum = dirNodeDat} =
+        maximumBy (compare `on` (key . uDatum)) $
+          filter ((<= inaNewKey args) . key . uDatum) directoryList
+  when (key dirNodeDat == inaNewKey args) $ error "Node already exists"
 
   -- 2. Find the global parameter node
   paramsNode <- Query.globalParamsNode @era
@@ -70,4 +84,68 @@ issueProgrammableTokenTx issueTokenArgs assetName quantity = do
 
     let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion $ BuildTx.intaMintingLogic issueTokenArgs)
     BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness (BuildTx.intaMintingLogic issueTokenArgs) C.NoScriptDatumForStake ()
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
+deployBlacklistTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => m (C.Tx era)
+deployBlacklistTx = do
+  opEnv <- asks Env.operatorEnv
+  (tx, _) <- Env.withEnv $ Env.withOperator opEnv
+              $ Env.balanceTxEnv
+              $ BuildTx.initBlacklist
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
+insertBlacklistNodeTx :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m) => C.PaymentCredential -> m (C.Tx era)
+insertBlacklistNodeTx cred = do
+  blacklist <- Query.blacklistNodes @era
+  (tx, _) <- Env.balanceTxEnv (BuildTx.insertBlacklistNode cred blacklist)
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
+{-| Build a transaction that issues a progammable token
+-}
+issueSmartTokensTx :: forall era env m.
+  ( MonadReader env m
+  , Env.HasOperatorEnv era env
+  , Env.HasDirectoryEnv env
+  , Env.HasTransferLogicEnv env
+  , MonadBlockchain era m
+  , MonadError (AppError era) m
+  , C.IsBabbageBasedEra era
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , MonadUtxoQuery m
+  )
+  => C.AssetName -- ^ Name of the asset
+  -> Quantity -- ^ Amount of tokens to be minted
+  -> C.PaymentCredential -- ^ Destination credential
+  -> m (C.Tx era)
+issueSmartTokensTx assetName quantity destinationCred = do
+  directory <- Query.registryNodes @era
+  paramsNode <- Query.globalParamsNode @era
+  (tx, _) <- Env.balanceTxEnv $ do
+    BuildTx.issueSmartTokens paramsNode (assetName, quantity) directory destinationCred
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
+{-| Build a transaction that issues a progammable token
+-}
+transferSmartTokensTx :: forall era env m.
+  ( MonadReader env m
+  , Env.HasOperatorEnv era env
+  , Env.HasDirectoryEnv env
+  , Env.HasTransferLogicEnv env
+  , MonadBlockchain era m
+  , MonadError (AppError era) m
+  , C.IsBabbageBasedEra era
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , MonadUtxoQuery m
+  )
+  => C.PaymentCredential -- ^ Source/User credential
+  -> C.AssetId -- ^ Name of the asset
+  -> Quantity -- ^ Amount of tokens to be minted
+  -> C.PaymentCredential -- ^ Destination credential
+  -> m (C.Tx era)
+transferSmartTokensTx srcCred assetName quantity destCred = do
+  directory <- Query.registryNodes @era
+  blacklist <- Query.blacklistNodes @era
+  userOutputsAtProgrammable <- undefined
+  (tx, _) <- Env.balanceTxEnv $ do
+    BuildTx.transferSmartTokens srcCred blacklist directory userOutputsAtProgrammable (assetName, quantity) destCred
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)

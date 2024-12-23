@@ -1,11 +1,14 @@
-{-# LANGUAGE NamedFieldPuns   #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies     #-}
+{-# LANGUAGE NamedFieldPuns    #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications  #-}
+{-# LANGUAGE TypeFamilies      #-}
 
 module Wst.Offchain.BuildTx.TransferLogic
-  ( transferStablecoins,
-    issueStablecoins,
-    seizeStablecoins,
+  ( transferSmartTokens,
+    issueSmartTokens,
+    seizeSmartTokens,
+    initBlacklist,
+    insertBlacklistNode,
   )
 where
 
@@ -15,11 +18,13 @@ import Control.Lens (over)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx, addBtx, addReference, addRequiredSignature,
                        addScriptWithdrawal, addWithdrawalWithTxBody,
-                       buildScriptWitness, findIndexReference, payToAddress)
+                       buildScriptWitness, findIndexReference, mintPlutus,
+                       payToAddress, prependTxOut, spendPlutusInlineDatum)
 import Convex.CardanoApi.Lenses as L
 import Convex.Class (MonadBlockchain (queryNetworkId))
 import Convex.PlutusLedger.V1 (transCredential, transPolicyId,
                                unTransStakeCredential)
+import Convex.Scripts qualified as C
 import Convex.Utils qualified as Utils
 import Convex.Utxos (UtxoSet (UtxoSet))
 import Convex.Wallet (selectMixedInputsCovering)
@@ -27,25 +32,114 @@ import Convex.Wallet.Operator (Operator (..), verificationKey)
 import Data.Foldable (maximumBy)
 import Data.Function (on)
 import Data.Monoid (Last (..))
+import Debug.Trace (trace)
 import GHC.Exts (IsList (..))
+import PlutusLedgerApi.Data.V3 (Credential (..), PubKeyHash (PubKeyHash),
+                                ScriptHash (..))
+import PlutusLedgerApi.V3 qualified as PlutusTx
+import SmartTokens.CodeLens (_printTerm)
 import SmartTokens.Contracts.ExampleTransferLogic (BlacklistProof (..))
 import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (BlacklistNode (..),
                                           DirectorySetNode (..))
-import Wst.Offchain.BuildTx.ProgrammableLogic (IssueNewTokenArgs,
+import Wst.Offchain.BuildTx.ProgrammableLogic (IssueNewTokenArgs (..),
                                                issueProgrammableToken,
                                                seizeProgrammableToken,
                                                transferProgrammableToken)
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
+import Wst.Offchain.Scripts (scriptPolicyIdV3)
 
-issueStablecoins :: forall era env m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> IssueNewTokenArgs -> [UTxODat era DirectorySetNode] -> C.PaymentCredential -> m ()
-issueStablecoins paramsTxOut (an, q) inta directoryList destinationCred = Utils.inBabbage @era $ do
+intaFromEnv :: forall env m. (MonadReader env m, Env.HasTransferLogicEnv env)=> m IssueNewTokenArgs
+intaFromEnv = do
+  Env.TransferLogicEnv{Env.tleIssuerScript, Env.tleMintingScript, Env.tleTransferScript} <- asks Env.transferLogicEnv
+  pure $ IssueNewTokenArgs
+    { intaTransferLogic= tleTransferScript
+    , intaMintingLogic= tleMintingScript
+    , intaIssuerLogic= tleIssuerScript
+    }
+
+
+blacklistInitialNode :: BlacklistNode
+blacklistInitialNode = BlacklistNode {blnNext=PubKeyCredential "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff", blnKey= PubKeyCredential ""}
+
+initBlacklist :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => m ()
+initBlacklist = Utils.inBabbage @era $ do
+  nid <- queryNetworkId
+
+  -- create blacklist head node data
+  let blacklistInitialNodeDatum = C.TxOutDatumInline C.babbageBasedEra $ C.toHashableScriptData blacklistInitialNode
+
+  -- mint blacklist policy token
+  mintingScript <- asks (Env.tleBlacklistMintingScript . Env.transferLogicEnv)
+  let assetName = C.AssetName ""
+      quantity = 1
+
+  mintPlutus mintingScript () assetName quantity
+
+  -- send blacklist output to blacklist spending script
+  spendingScript <- asks (Env.tleBlacklistSpendingScript . Env.transferLogicEnv)
+  let policyId = scriptPolicyIdV3 mintingScript
+      spendingHash = C.hashScript $ C.PlutusScript C.PlutusScriptV3 spendingScript
+      addr = C.makeShelleyAddressInEra C.shelleyBasedEra nid (C.PaymentCredentialByScript spendingHash) C.NoStakeAddress
+      val = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra $ fromList [(C.AssetId policyId assetName, quantity)]
+      txout = C.TxOut addr val blacklistInitialNodeDatum C.ReferenceScriptNone
+
+  prependTxOut txout
+
+  -- add operator signature
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
+  addRequiredSignature opPkh
+
+insertBlacklistNode :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
+insertBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
+  -- mint new blacklist token
+  mintingScript <- asks (Env.tleBlacklistMintingScript . Env.transferLogicEnv)
+  let newAssetName = C.AssetName $  case transCredential cred of
+                        PubKeyCredential (PubKeyHash s) -> PlutusTx.fromBuiltin s
+                        ScriptCredential (ScriptHash s) -> PlutusTx.fromBuiltin s
+      quantity = 1
+  mintPlutus mintingScript () newAssetName quantity
+
+  let
+      -- find the node to insert on
+      UTxODat {uIn = prevNodeRef,uOut = (C.TxOut prevAddr prevVal _ _),  uDatum = prevNode} =
+        maximumBy (compare `on` (blnKey . uDatum)) $
+          filter ((<= transCredential cred) . blnKey . uDatum) blacklistNodes
+
+      -- create new blacklist node data
+      newNode = BlacklistNode {blnNext=blnNext prevNode, blnKey= transCredential cred}
+      newNodeDatum = C.TxOutDatumInline C.babbageBasedEra $ C.toHashableScriptData newNode
+      newNodeVal = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra $ fromList [(C.AssetId (scriptPolicyIdV3 mintingScript) newAssetName, quantity)]
+      newNodeOutput = C.TxOut prevAddr newNodeVal newNodeDatum C.ReferenceScriptNone
+
+      -- update the previous node to point to the new node
+      newPrevNode = prevNode {blnNext=transCredential cred}
+      newPrevNodeDatum = C.TxOutDatumInline C.babbageBasedEra $ C.toHashableScriptData newPrevNode
+      newPrevNodeOutput = C.TxOut prevAddr prevVal newPrevNodeDatum C.ReferenceScriptNone
+
+  -- spend previous node
+  spendingScript <- asks (Env.tleBlacklistSpendingScript . Env.transferLogicEnv)
+  spendPlutusInlineDatum prevNodeRef spendingScript ()
+  -- set previous node output
+  prependTxOut newPrevNodeOutput
+  -- set new node output
+  prependTxOut newNodeOutput
+
+  -- add operator signature
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
+  addRequiredSignature opPkh
+
+-- TODO
+_removeBlacklistNode = undefined
+
+issueSmartTokens :: forall era env m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> [UTxODat era DirectorySetNode] -> C.PaymentCredential -> m ()
+issueSmartTokens paramsTxOut (an, q) directoryList destinationCred = Utils.inBabbage @era $ do
   nid <- queryNetworkId
 
   directoryEnv <- asks Env.directoryEnv
   let progLogicBaseCred = Env.programmableLogicBaseCredential directoryEnv
-
+  inta <- intaFromEnv
   issuedPolicyId <- issueProgrammableToken paramsTxOut (an, q) inta directoryList
   -- TODO: check if there is a better way to achieve: C.PaymentCredential -> C.StakeCredential
   stakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential destinationCred
@@ -55,8 +149,8 @@ issueStablecoins paramsTxOut (an, q) inta directoryList destinationCred = Utils.
   addIssueWitness
   payToAddress addr value
 
-transferStablecoins :: forall env era a m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.PaymentCredential -> [UTxODat era BlacklistNode] -> [UTxODat era DirectorySetNode] -> [UTxODat era a] -> (C.AssetId, C.Quantity) -> C.PaymentCredential -> m ()
-transferStablecoins userCred blacklistNodes directoryList spendingUserOutputs (assetId, q) destinationCred = Utils.inBabbage @era $ do
+transferSmartTokens :: forall env era a m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.PaymentCredential -> [UTxODat era BlacklistNode] -> [UTxODat era DirectorySetNode] -> [UTxODat era a] -> (C.AssetId, C.Quantity) -> C.PaymentCredential -> m ()
+transferSmartTokens userCred blacklistNodes directoryList spendingUserOutputs (assetId, q) destinationCred = Utils.inBabbage @era $ do
   nid <- queryNetworkId
   progLogicBaseCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
 
@@ -85,10 +179,10 @@ transferStablecoins userCred blacklistNodes directoryList spendingUserOutputs (a
             fromList [(assetId, C.selectAsset totalVal assetId - q)]
       returnAddr = undefined
       returnOutput = C.TxOut returnAddr returnVal C.TxOutDatumNone C.ReferenceScriptNone
-  addBtx (over L.txOuts (returnOutput :)) -- Add the seized output to the transaction
+  prependTxOut returnOutput -- Add the seized output to the transaction
 
-seizeStablecoins :: forall env era a m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era a -> UTxODat era a -> [UTxODat era DirectorySetNode] -> C.PaymentCredential -> m ()
-seizeStablecoins seizingTxo issuerTxo directoryList destinationCred = Utils.inBabbage @era $ do
+seizeSmartTokens :: forall env era a m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era a -> UTxODat era a -> [UTxODat era DirectorySetNode] -> C.PaymentCredential -> m ()
+seizeSmartTokens seizingTxo issuerTxo directoryList destinationCred = Utils.inBabbage @era $ do
   -- Add issuer and programmableLogic witnesses
   let Last maybeProgAsset = case uOut seizingTxo of
         (C.TxOut _a v _d _r) ->

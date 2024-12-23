@@ -84,6 +84,7 @@ initDirectorySet = Utils.inBabbage @era $ do
 
   prependTxOut output
 
+
 {-| Data for a  new node to be inserted into the directory
 -}
 data InsertNodeArgs =
@@ -99,8 +100,8 @@ insertDirectoryNode UTxODat{uIn=paramsRef} UTxODat{uIn, uOut=firstTxOut, uDatum=
   initialTxIn <- asks (Env.dsTxIn . Env.directoryEnv)
   paramsPolicyId <- asks (Env.protocolParamsPolicyId . Env.directoryEnv)
   directorySpendingScript <- asks (Env.dsDirectorySpendingScript . Env.directoryEnv)
+  directoryMintingScript <- asks (Env.dsDirectoryMintingScript . Env.directoryEnv)
   let
-      directoryMintingScript = directoryNodeMintingScript initialTxIn
 
       firstTxVal :: C.TxOutValue era
       firstTxVal = case firstTxOut of
