@@ -8,6 +8,8 @@ module Wst.Offchain.Endpoints.Deployment(
   issueSmartTokensTx,
   transferSmartTokensTx,
   insertBlacklistNodeTx,
+  blacklistCredentialTx,
+  seizeCredentialAssetsTx,
 ) where
 
 import Cardano.Api (Quantity)
@@ -39,7 +41,7 @@ deployTx = do
   (txi, _) <- Env.selectOperatorOutput
   opEnv <- asks Env.operatorEnv
   (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectoryFor txi
-              $ Env.balanceTxEnv
+              $ Env.balanceTxEnv_
               $ BuildTx.mintProtocolParams >> BuildTx.initDirectorySet
   pure (Convex.CoinSelection.signBalancedTxBody [] tx, txi)
 
@@ -57,7 +59,7 @@ insertNodeTx args = do
 
   -- 2. Find the global parameter node
   paramsNode <- Query.globalParamsNode @era
-  (tx, _) <- Env.balanceTxEnv (BuildTx.insertDirectoryNode paramsNode headNode args)
+  (tx, _) <- Env.balanceTxEnv_ (BuildTx.insertDirectoryNode paramsNode headNode args)
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 {-| Build a transaction that issues a progammable token
@@ -79,7 +81,7 @@ issueProgrammableTokenTx :: forall era env m.
 issueProgrammableTokenTx issueTokenArgs assetName quantity = do
   directory <- Query.registryNodes @era
   paramsNode <- Query.globalParamsNode @era
-  (tx, _) <- Env.balanceTxEnv $ do
+  (tx, _) <- Env.balanceTxEnv_ $ do
     _ <- BuildTx.issueProgrammableToken paramsNode (assetName, quantity) issueTokenArgs directory
 
     let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion $ BuildTx.intaMintingLogic issueTokenArgs)
@@ -90,14 +92,13 @@ deployBlacklistTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockc
 deployBlacklistTx = do
   opEnv <- asks Env.operatorEnv
   (tx, _) <- Env.withEnv $ Env.withOperator opEnv
-              $ Env.balanceTxEnv
-              $ BuildTx.initBlacklist
+              $ Env.balanceTxEnv_ BuildTx.initBlacklist
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 insertBlacklistNodeTx :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m) => C.PaymentCredential -> m (C.Tx era)
 insertBlacklistNodeTx cred = do
   blacklist <- Query.blacklistNodes @era
-  (tx, _) <- Env.balanceTxEnv (BuildTx.insertBlacklistNode cred blacklist)
+  (tx, _)  <- Env.balanceTxEnv_ (BuildTx.insertBlacklistNode cred blacklist)
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 {-| Build a transaction that issues a progammable token
@@ -116,13 +117,13 @@ issueSmartTokensTx :: forall era env m.
   => C.AssetName -- ^ Name of the asset
   -> Quantity -- ^ Amount of tokens to be minted
   -> C.PaymentCredential -- ^ Destination credential
-  -> m (C.Tx era)
+  -> m (C.Tx era, C.AssetId)
 issueSmartTokensTx assetName quantity destinationCred = do
   directory <- Query.registryNodes @era
   paramsNode <- Query.globalParamsNode @era
-  (tx, _) <- Env.balanceTxEnv $ do
+  ((tx, _), aid) <- Env.balanceTxEnv $ do
     BuildTx.issueSmartTokens paramsNode (assetName, quantity) directory destinationCred
-  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx, aid)
 
 {-| Build a transaction that issues a progammable token
 -}
@@ -138,14 +139,52 @@ transferSmartTokensTx :: forall era env m.
   , MonadUtxoQuery m
   )
   => C.PaymentCredential -- ^ Source/User credential
-  -> C.AssetId -- ^ Name of the asset
+  -> C.AssetId -- ^ AssetId to transfer
   -> Quantity -- ^ Amount of tokens to be minted
   -> C.PaymentCredential -- ^ Destination credential
   -> m (C.Tx era)
-transferSmartTokensTx srcCred assetName quantity destCred = do
+transferSmartTokensTx srcCred assetId quantity destCred = do
   directory <- Query.registryNodes @era
   blacklist <- Query.blacklistNodes @era
-  userOutputsAtProgrammable <- undefined
-  (tx, _) <- Env.balanceTxEnv $ do
-    BuildTx.transferSmartTokens srcCred blacklist directory userOutputsAtProgrammable (assetName, quantity) destCred
+  userOutputsAtProgrammable <- Query.userProgrammableOutputs srcCred
+  paramsTxIn <- Query.globalParamsNode @era
+  (tx, _) <- Env.balanceTxEnv_ $ do
+    BuildTx.transferSmartTokens paramsTxIn srcCred blacklist directory userOutputsAtProgrammable (assetId, quantity) destCred
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
+blacklistCredentialTx :: forall era env m.
+  ( MonadReader env m
+  , Env.HasOperatorEnv era env
+  , Env.HasTransferLogicEnv env
+  , MonadBlockchain era m
+  , MonadError (AppError era) m
+  , C.IsBabbageBasedEra era
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , MonadUtxoQuery m
+  )
+  => C.PaymentCredential -- ^ Source/User credential
+  -> m (C.Tx era)
+blacklistCredentialTx sanctionedCred = do
+  blacklist <- Query.blacklistNodes @era
+  (tx, _) <- Env.balanceTxEnv_ $ do
+    BuildTx.insertBlacklistNode sanctionedCred blacklist
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
+seizeCredentialAssetsTx :: forall era env m.
+  ( MonadReader env m
+  , Env.HasOperatorEnv era env
+  , Env.HasTransferLogicEnv env
+  , MonadBlockchain era m
+  , MonadError (AppError era) m
+  , C.IsBabbageBasedEra era
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , MonadUtxoQuery m
+  )
+  => C.PaymentCredential -- ^ Source/User credential
+  -> m (C.Tx era)
+seizeCredentialAssetsTx sanctionedCred = do
+  pure undefined
+  -- blacklist <- Query.blacklistNodes @era
+  -- (tx, _) <- Env.balanceTxEnv_ $ do
+  --   BuildTx.insertBlacklistNode sanctionedCred blacklist
+  -- pure (Convex.CoinSelection.signBalancedTxBody [] tx)

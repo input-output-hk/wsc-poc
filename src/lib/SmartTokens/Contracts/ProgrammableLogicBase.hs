@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedRecordDot   #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE QualifiedDo           #-}
 {-# LANGUAGE UndecidableInstances  #-}
 
@@ -41,12 +42,14 @@ import Plutarch.Prelude (ClosedTerm, DerivePlutusType (..), Generic, PAsData,
                          S, Term, pcon, pconstant, pdata, pelem, perror, pfield,
                          pfix, pfromData, pfstBuiltin, phoistAcyclic, pif, plam,
                          plet, pletFields, pmap, pmatch, pnot, psndBuiltin, pto,
-                         ptraceInfo, type (:-->), (#$), (#), (#||))
+                         ptraceInfo, type (:-->), (#$), (#), (#||), ptraceInfoError, ptraceDebugError)
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V1.Value (Value)
 import PlutusTx qualified
 import SmartTokens.Types.ProtocolParams (PProgrammableLogicGlobalParams)
 import SmartTokens.Types.PTokenDirectory (PDirectorySetNode)
+import Plutarch.Show (pshow)
+import Plutarch.Prelude (PShow, plength)
 
 -- | Strip Ada from a ledger value
 -- Importantly this function assumes that the Value is provided by the ledger (i.e. via the ScriptContext)
@@ -67,7 +70,9 @@ data TokenProof
   = TokenExists Integer
   | TokenDoesNotExist Integer
   deriving stock (Show, Eq, Generic)
-  deriving anyclass (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
+
+PlutusTx.makeIsDataIndexed ''TokenProof
+  [('TokenExists, 0), ('TokenDoesNotExist, 1)]
 
 deriving via
   (DerivePConstantViaData TokenProof PTokenProof)
@@ -87,7 +92,7 @@ data PTokenProof (s :: S)
           )
       )
   deriving stock (Generic)
-  deriving anyclass (PlutusType, PIsData, PEq)
+  deriving anyclass (PlutusType, PIsData, PEq, PShow)
 
 instance DerivePlutusType PTokenProof where
   type DPTStrat _ = PlutusTypeData
@@ -109,7 +114,7 @@ pvalueFromCred = phoistAcyclic $ plam $ \cred sigs scripts inputs ->
         self
           # pletFields @'["address", "value"] (pfield @"resolved" # txIn) (\txInF ->
               plet txInF.address $ \addr ->
-                pif (pfield @"credential" # addr #== cred)
+                pif ((pfield @"credential" # addr) #== cred)
                     (
                       pmatch (pfield @"stakingCredential" # addr) $ \case
                         PDJust ((pfield @"_0" #) -> stakingCred) ->
@@ -309,7 +314,10 @@ data ProgrammableLogicGlobalRedeemer
         plgrDirectoryNodeIdx :: Integer
       }
   deriving (Show, Eq, Generic)
-  deriving anyclass (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
+
+PlutusTx.makeIsDataIndexed ''ProgrammableLogicGlobalRedeemer
+  [('TransferAct, 0), ('SeizeAct, 1)]
+
 
 deriving via
   (DerivePConstantViaData ProgrammableLogicGlobalRedeemer PProgrammableLogicGlobalRedeemer)
@@ -346,6 +354,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
   referenceInputs <- plet $ pfromData infoF.referenceInputs
   -- Extract protocol parameter UTxO
   ptraceInfo "Extracting protocol parameter UTxO"
+
   let paramUTxO =
         pfield @"resolved" #$
           pmustFind @PBuiltinList
@@ -377,7 +386,6 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                 # infoF.signatories
                 # invokedScripts
                 # infoF.inputs
-      ptraceInfo "PTransferAct checkTransferLogicAndGetProgrammableValue"
       totalProgTokenValue_ <-
         plet $ pcheckTransferLogicAndGetProgrammableValue
                 # protocolParamsF.directoryNodeCS
@@ -385,7 +393,8 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                 # pfromData proofs
                 # invokedScripts
                 # totalProgTokenValue
-      ptraceInfo "PTransferAct validateConditions"
+
+      -- ptraceInfo "PTransferAct validateConditions"
       pvalidateConditions
           [ pisRewarding ctxF.scriptInfo
           , pcheckTransferLogic

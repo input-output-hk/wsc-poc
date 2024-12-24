@@ -101,7 +101,7 @@ programmableLogicBaseScript globalCred =
 
 programmableLogicGlobalScript :: C.PolicyId -> C.PlutusScript C.PlutusScriptV3 -- Parameterized by the CS holding protocol params datum
 programmableLogicGlobalScript paramsPolId =
-  let script = tryCompile prodConfig $ mkProgrammableLogicGlobal # pdata (pconstant $ transPolicyId paramsPolId)
+  let script = tryCompile tracingConfig $ mkProgrammableLogicGlobal # pdata (pconstant $ transPolicyId paramsPolId)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 permissionedTransferScript :: C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3

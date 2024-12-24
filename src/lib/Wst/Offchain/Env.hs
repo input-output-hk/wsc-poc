@@ -16,6 +16,7 @@ module Wst.Offchain.Env(
   -- ** Using the operator environment
   selectOperatorOutput,
   balanceTxEnv,
+  balanceTxEnv_,
 
   -- * Directory environment
   HasDirectoryEnv(..),
@@ -129,8 +130,8 @@ selectOperatorOutput = asks (listToMaybe . Map.toList . C.unUTxO . bteOperatorUt
 
 {-| Balance a transaction using the operator's funds and return output
 -}
-balanceTxEnv :: forall era env a m. (MonadBlockchain era m, MonadReader env m, HasOperatorEnv era env, MonadError (AppError era) m, C.IsBabbageBasedEra era) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
-balanceTxEnv btx = do
+balanceTxEnv_ :: forall era env a m. (MonadBlockchain era m, MonadReader env m, HasOperatorEnv era env, MonadError (AppError era) m, C.IsBabbageBasedEra era) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
+balanceTxEnv_ btx = do
   OperatorEnv{bteOperatorUtxos, bteOperator} <- asks operatorEnv
   params <- queryProtocolParameters
   txBuilder <- BuildTx.execBuildTxT $ btx >> BuildTx.setMinAdaDepositAll params
@@ -138,6 +139,20 @@ balanceTxEnv btx = do
   -- (needs to be done in sc-tools)
   output <- returnOutputFor (C.PaymentCredentialByKey $ fst bteOperator)
   mapError BalancingError (CoinSelection.balanceTx mempty output (Utxos.fromApiUtxo bteOperatorUtxos) txBuilder CoinSelection.TrailingChange)
+
+{-| Balance a transaction using the operator's funds and return output
+-}
+balanceTxEnv :: forall era env a m. (MonadBlockchain era m, MonadReader env m, HasOperatorEnv era env, MonadError (AppError era) m, C.IsBabbageBasedEra era) => BuildTxT era m a -> m ((C.BalancedTxBody era, BalanceChanges), a)
+balanceTxEnv btx = do
+  OperatorEnv{bteOperatorUtxos, bteOperator} <- asks operatorEnv
+  params <- queryProtocolParameters
+  (r, txBuilder) <- BuildTx.runBuildTxT $ btx <* BuildTx.setMinAdaDepositAll params
+  -- TODO: change returnOutputFor to consider the stake address reference
+  -- (needs to be done in sc-tools)
+  output <- returnOutputFor (C.PaymentCredentialByKey $ fst bteOperator)
+  (balBody, balChanges) <- mapError BalancingError (CoinSelection.balanceTx mempty output (Utxos.fromApiUtxo bteOperatorUtxos) txBuilder CoinSelection.TrailingChange)
+  pure ((balBody, balChanges), r)
+
 
 class HasDirectoryEnv e where
   directoryEnv :: e -> DirectoryEnv
@@ -164,7 +179,7 @@ mkDirectoryEnv dsTxIn =
       dsProtocolParamsMintingScript   = protocolParamsMintingScript dsTxIn
       dsDirectorySpendingScript       = directoryNodeSpendingScript (protocolParamsPolicyId result)
       dsProgrammableLogicBaseScript   = programmableLogicBaseScript (programmableLogicStakeCredential result) -- Parameterized by the stake cred of the global script
-      dsProgrammableLogicGlobalScript = programmableLogicGlobalScript (directoryNodePolicyId result) -- Parameterized by the CS holding protocol params datum
+      dsProgrammableLogicGlobalScript = programmableLogicGlobalScript (protocolParamsPolicyId result) -- Parameterized by the CS holding protocol params datum
       result = DirectoryEnv
                 { dsTxIn
                 , dsDirectoryMintingScript

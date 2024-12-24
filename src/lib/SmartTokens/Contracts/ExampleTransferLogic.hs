@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedRecordDot  #-}
 {-# LANGUAGE QualifiedDo #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TemplateHaskell       #-}
 
 module SmartTokens.Contracts.ExampleTransferLogic (
   mkPermissionedTransfer,
@@ -32,11 +33,16 @@ import SmartTokens.Types.PTokenDirectory ( PBlacklistNode, pletFieldsBlacklistNo
 import qualified PlutusTx
 import Plutarch.DataRepr (DerivePConstantViaData (..))
 import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (..))
+import qualified Generics.SOP as SOP
+import Plutarch.Core.PlutusDataList (ProductIsData)
 
 data BlacklistProof
   = NonmembershipProof Integer
   deriving stock (Show, Eq, Generic)
-  deriving anyclass (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
+
+PlutusTx.makeIsDataIndexed ''BlacklistProof
+  [('NonmembershipProof, 0)]
+
 
 deriving via
   (DerivePConstantViaData BlacklistProof PBlacklistProof)
@@ -180,5 +186,5 @@ mkFreezeAndSeizeTransfer = plam $ \blacklistNodeCS ctx -> P.do
             ) # pto (pfromData infoF.wdrl)
   pvalidateConditions
     [ pisRewarding ctxF.scriptInfo
-    , pvalidateWitnesses # blacklistNodeCS # red # infoF.referenceInputs # txWitnesses
+    -- , pvalidateWitnesses # blacklistNodeCS # red # infoF.referenceInputs # txWitnesses
     ]

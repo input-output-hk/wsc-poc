@@ -2,7 +2,8 @@
 -}
 module Wst.Test.Env(
   admin,
-  asAdmin
+  asAdmin,
+  asWallet,
 ) where
 
 import Cardano.Api.Shelley qualified as C
@@ -24,6 +25,13 @@ admin =
     , oStakeKey   = Nothing
     }
 
+user :: Wallet.Wallet -> Operator Signing
+user w = 
+  Operator
+    { oPaymentKey = PESigning (Wallet.getWallet w)
+    , oStakeKey = Nothing
+    }
+
 {-| Run an action using the "admin" key. Deploying the system, minting stablecoins, etc.
 -}
 asAdmin :: forall era o d r m a.
@@ -36,4 +44,16 @@ asAdmin action = do
   env <- Env.loadOperatorEnv
           (C.verificationKeyHash . Operator.verificationKey . oPaymentKey $ admin)
           (maybe C.NoStakeAddress (C.StakeAddressByValue . C.StakeCredentialByKey . C.verificationKeyHash) $ Operator.oStakeKey admin)
+  Env.withOperator env action
+
+asWallet :: forall era o d r m a.
+  ( MonadUtxoQuery m
+  , C.IsBabbageBasedEra era
+  , MonadReader (Env.CombinedEnv o d r era) m
+  )
+  => Wallet.Wallet -> ReaderT (Env.CombinedEnv Identity d r era) m a -> m a
+asWallet w action = do
+  env <- Env.loadOperatorEnv
+          (C.verificationKeyHash . Operator.verificationKey . oPaymentKey $ user w)
+          (maybe C.NoStakeAddress (C.StakeAddressByValue . C.StakeCredentialByKey . C.verificationKeyHash) $ Operator.oStakeKey $ user w)
   Env.withOperator env action

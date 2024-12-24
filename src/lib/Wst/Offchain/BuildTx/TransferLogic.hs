@@ -14,13 +14,11 @@ where
 
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
-import Control.Lens (over)
 import Control.Monad.Reader (MonadReader, asks)
-import Convex.BuildTx (MonadBuildTx, addBtx, addReference, addRequiredSignature,
+import Convex.BuildTx (MonadBuildTx, addReference, addRequiredSignature,
                        addScriptWithdrawal, addWithdrawalWithTxBody,
                        buildScriptWitness, findIndexReference, mintPlutus,
                        payToAddress, prependTxOut, spendPlutusInlineDatum)
-import Convex.CardanoApi.Lenses as L
 import Convex.Class (MonadBlockchain (queryNetworkId))
 import Convex.PlutusLedger.V1 (transCredential, transPolicyId,
                                unTransStakeCredential)
@@ -28,16 +26,13 @@ import Convex.Scripts qualified as C
 import Convex.Utils qualified as Utils
 import Convex.Utxos (UtxoSet (UtxoSet))
 import Convex.Wallet (selectMixedInputsCovering)
-import Convex.Wallet.Operator (Operator (..), verificationKey)
 import Data.Foldable (maximumBy)
 import Data.Function (on)
 import Data.Monoid (Last (..))
-import Debug.Trace (trace)
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.Data.V3 (Credential (..), PubKeyHash (PubKeyHash),
                                 ScriptHash (..))
 import PlutusLedgerApi.V3 qualified as PlutusTx
-import SmartTokens.CodeLens (_printTerm)
 import SmartTokens.Contracts.ExampleTransferLogic (BlacklistProof (..))
 import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (BlacklistNode (..),
@@ -60,8 +55,18 @@ intaFromEnv = do
     }
 
 
+{-
+>>> _printTerm $ unsafeEvalTerm NoTracing (pconstant blacklistInitialNode)
+"program\n  1.0.0\n  (List [B #, B #ffffffffffffffffffffffffffffffffffffffffffffffffffffffff])"
+
+-}
 blacklistInitialNode :: BlacklistNode
-blacklistInitialNode = BlacklistNode {blnNext=PubKeyCredential "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff", blnKey= PubKeyCredential ""}
+blacklistInitialNode =
+  BlacklistNode
+    -- FIXME: fix this hacky bstr
+    { blnNext= case PubKeyCredential  "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff" of
+                  PubKeyCredential (PubKeyHash bstr) -> bstr
+    , blnKey= ""}
 
 initBlacklist :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => m ()
 initBlacklist = Utils.inBabbage @era $ do
@@ -102,19 +107,20 @@ insertBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
   mintPlutus mintingScript () newAssetName quantity
 
   let
+
       -- find the node to insert on
       UTxODat {uIn = prevNodeRef,uOut = (C.TxOut prevAddr prevVal _ _),  uDatum = prevNode} =
         maximumBy (compare `on` (blnKey . uDatum)) $
-          filter ((<= transCredential cred) . blnKey . uDatum) blacklistNodes
+          filter ((<= unwrapCredential (transCredential cred)) . blnKey . uDatum) blacklistNodes
 
       -- create new blacklist node data
-      newNode = BlacklistNode {blnNext=blnNext prevNode, blnKey= transCredential cred}
+      newNode = BlacklistNode {blnNext=blnNext prevNode, blnKey= unwrapCredential (transCredential cred)}
       newNodeDatum = C.TxOutDatumInline C.babbageBasedEra $ C.toHashableScriptData newNode
       newNodeVal = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra $ fromList [(C.AssetId (scriptPolicyIdV3 mintingScript) newAssetName, quantity)]
       newNodeOutput = C.TxOut prevAddr newNodeVal newNodeDatum C.ReferenceScriptNone
 
       -- update the previous node to point to the new node
-      newPrevNode = prevNode {blnNext=transCredential cred}
+      newPrevNode = prevNode {blnNext=unwrapCredential (transCredential cred)}
       newPrevNodeDatum = C.TxOutDatumInline C.babbageBasedEra $ C.toHashableScriptData newPrevNode
       newPrevNodeOutput = C.TxOut prevAddr prevVal newPrevNodeDatum C.ReferenceScriptNone
 
@@ -133,7 +139,7 @@ insertBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
 -- TODO
 _removeBlacklistNode = undefined
 
-issueSmartTokens :: forall era env m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> [UTxODat era DirectorySetNode] -> C.PaymentCredential -> m ()
+issueSmartTokens :: forall era env m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> [UTxODat era DirectorySetNode] -> C.PaymentCredential -> m C.AssetId
 issueSmartTokens paramsTxOut (an, q) directoryList destinationCred = Utils.inBabbage @era $ do
   nid <- queryNetworkId
 
@@ -148,9 +154,10 @@ issueSmartTokens paramsTxOut (an, q) directoryList destinationCred = Utils.inBab
 
   addIssueWitness
   payToAddress addr value
+  pure $ C.AssetId issuedPolicyId an
 
-transferSmartTokens :: forall env era a m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.PaymentCredential -> [UTxODat era BlacklistNode] -> [UTxODat era DirectorySetNode] -> [UTxODat era a] -> (C.AssetId, C.Quantity) -> C.PaymentCredential -> m ()
-transferSmartTokens userCred blacklistNodes directoryList spendingUserOutputs (assetId, q) destinationCred = Utils.inBabbage @era $ do
+transferSmartTokens :: forall env era a m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env) => UTxODat era ProgrammableLogicGlobalParams -> C.PaymentCredential -> [UTxODat era BlacklistNode] -> [UTxODat era DirectorySetNode] -> [UTxODat era a] -> (C.AssetId, C.Quantity) -> C.PaymentCredential -> m ()
+transferSmartTokens paramsTxIn userCred blacklistNodes directoryList spendingUserOutputs (assetId, q) destinationCred = Utils.inBabbage @era $ do
   nid <- queryNetworkId
   progLogicBaseCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
 
@@ -163,7 +170,7 @@ transferSmartTokens userCred blacklistNodes directoryList spendingUserOutputs (a
         C.AssetId policyId _ -> policyId
         C.AdaAssetId -> error "Ada is not programmable"
 
-  transferProgrammableToken txins (transPolicyId programmablePolicyId) directoryList -- Invoking the programmableBase and global scripts
+  transferProgrammableToken paramsTxIn txins (transPolicyId programmablePolicyId) directoryList -- Invoking the programmableBase and global scripts
   addTransferWitness blacklistNodes userCred -- Proof of non-membership of the blacklist
 
   -- Send outputs to destinationCred
@@ -173,11 +180,12 @@ transferSmartTokens userCred blacklistNodes directoryList spendingUserOutputs (a
   payToAddress destinationAddress destinationVal
 
   -- Return change to the spendingUserOutputs address
+  srcStakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential userCred
   let returnVal =
         C.TxOutValueShelleyBased C.shelleyBasedEra $
           C.toLedgerValue @era C.maryBasedEra $
             fromList [(assetId, C.selectAsset totalVal assetId - q)]
-      returnAddr = undefined
+      returnAddr = C.makeShelleyAddressInEra C.shelleyBasedEra nid progLogicBaseCred (C.StakeAddressByValue srcStakeCred)
       returnOutput = C.TxOut returnAddr returnVal C.TxOutDatumNone C.ReferenceScriptNone
   prependTxOut returnOutput -- Add the seized output to the transaction
 
@@ -214,15 +222,17 @@ addIssueWitness = Utils.inBabbage @era $ do
   addRequiredSignature opPkh
   addScriptWithdrawal sh 0 $ buildScriptWitness mintingScript C.NoScriptDatumForStake ()
 
-addTransferWitness :: forall env era m. (MonadReader env m, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => [UTxODat era BlacklistNode] -> C.PaymentCredential -> m ()
+addTransferWitness :: forall env era m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => [UTxODat era BlacklistNode] -> C.PaymentCredential -> m ()
 addTransferWitness blacklistNodes clientCred = Utils.inBabbage @era $ do
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv) -- In this case 'operator' is the user
   nid <- queryNetworkId
   transferScript <- asks (Env.tleTransferScript . Env.transferLogicEnv)
-  let transferStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 transferScript
+  let
+      transferStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 transferScript
 
       UTxODat {uIn = blnNodeRef, uDatum = blnNodeDatum} =
         maximumBy (compare `on` (blnKey . uDatum)) $
-          filter ((<= transCredential clientCred) . blnKey . uDatum) blacklistNodes
+          filter ((<= unwrapCredential (transCredential clientCred)) . blnKey . uDatum) blacklistNodes
 
       -- Finds the index of the blacklist node reference in the transaction ref
       -- inputs
@@ -232,13 +242,14 @@ addTransferWitness blacklistNodes clientCred = Utils.inBabbage @era $ do
       -- The redeemer for the transfer script based on whether a blacklist node
       -- exists with the client credential
       transferRedeemer txBody =
-        if blnKey blnNodeDatum == transCredential clientCred
+        if blnKey blnNodeDatum == unwrapCredential (transCredential clientCred)
           then error "Credential is blacklisted" -- TODO: handle this and other error cases properly
           else NonmembershipProof $ blacklistNodeReferenceIndex txBody
 
       -- TODO: extend this to handle multiple proofs (i.e. transfers) per tx, onchain allows it
       transferWitness txBody = buildScriptWitness transferScript C.NoScriptDatumForStake [transferRedeemer txBody]
 
+  addRequiredSignature opPkh
   addReference blnNodeRef -- Add the blacklist node reference to the transaction
   addWithdrawalWithTxBody -- Add the global script witness to the transaction
     (C.makeStakeAddress nid transferStakeCred)
@@ -252,3 +263,8 @@ addSeizeWitness = Utils.inBabbage @era $ do
   let sh = C.hashScript $ C.PlutusScript C.PlutusScriptV3 seizeScript
   addRequiredSignature opPkh
   addScriptWithdrawal sh 0 $ buildScriptWitness seizeScript C.NoScriptDatumForStake ()
+
+unwrapCredential :: Credential -> PlutusTx.BuiltinByteString
+unwrapCredential = \case
+  PubKeyCredential (PubKeyHash s) -> s
+  ScriptCredential (ScriptHash s) -> s

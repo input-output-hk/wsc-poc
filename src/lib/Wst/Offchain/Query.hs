@@ -7,6 +7,7 @@ module Wst.Offchain.Query(
   registryNodes,
   globalParamsNode,
   programmableLogicOutputs,
+  userProgrammableOutputs,
 
   -- * UTxO with datum
   UTxODat(..),
@@ -19,13 +20,14 @@ import Control.Monad ((>=>))
 import Control.Monad.Except (MonadError, throwError)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.CardanoApi.Lenses qualified as L
-import Convex.Class (MonadUtxoQuery, utxosByPaymentCredential)
+import Convex.Class (MonadBlockchain (queryNetworkId), MonadUtxoQuery,
+                     utxosByPaymentCredential)
+import Convex.PlutusLedger.V1 (transCredential, unTransStakeCredential)
 import Convex.Scripts (fromHashableScriptData)
 import Convex.Utxos (UtxoSet, toApiUtxo)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Map qualified as Map
 import Data.Maybe (listToMaybe, mapMaybe)
-import Debug.Trace (trace)
 import GHC.Generics (Generic)
 import PlutusTx qualified
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
@@ -63,6 +65,17 @@ blacklistNodes :: forall era env m. (MonadReader env m, HasTransferLogicEnv env,
 blacklistNodes =
   asks (C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . tleBlacklistSpendingScript . transferLogicEnv)
     >>= fmap (extractUTxO @era) . utxosByPaymentCredential
+
+userProgrammableOutputs :: forall era env m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadBlockchain era m) => C.PaymentCredential -> m [UTxODat era ()]
+userProgrammableOutputs userCred = do
+  nid <- queryNetworkId
+  baseCred <- asks (C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsProgrammableLogicBaseScript . directoryEnv)
+
+  userStakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential userCred
+  let expectedAddress = C.makeShelleyAddressInEra C.shelleyBasedEra nid baseCred (C.StakeAddressByValue userStakeCred)
+      isUserUtxo UTxODat{uOut=(C.TxOut addr _ _ _)} = addr == expectedAddress
+
+  filter isUserUtxo <$> programmableLogicOutputs
 
 {-| Find the UTxO with the global params
 -}

@@ -141,16 +141,16 @@ issueProgrammableToken paramsTxOut (an, q) IssueNewTokenArgs{intaMintingLogic, i
    programmable logic payment credential (even in the case of non-programmable
    tokens) otherwise the transaction will fail onchain validation.
 -}
-transferProgrammableToken :: forall env era m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => [C.TxIn] -> CurrencySymbol -> [UTxODat era DirectorySetNode] -> m ()
-transferProgrammableToken _ _ [] = error "directory list not initialised"
-transferProgrammableToken tokenTxIns programmableTokenSymbol directoryList = Utils.inBabbage @era $ do
+transferProgrammableToken :: forall env era m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams ->  [C.TxIn] -> CurrencySymbol -> [UTxODat era DirectorySetNode] -> m ()
+transferProgrammableToken _ _ _ [] = error "directory list not initialised"
+transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol directoryList = Utils.inBabbage @era $ do
   nid <- queryNetworkId
-  paramsPolId <- asks (Env.protocolParamsPolicyId . Env.directoryEnv)
-  paramsTxIn <- asks (Env.dsTxIn . Env.directoryEnv)
 
-  let globalStakeScript = programmableLogicGlobalScript paramsPolId
-      globalStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 globalStakeScript
-      baseSpendingScript = programmableLogicBaseScript globalStakeCred
+  baseSpendingScript <- asks (Env.dsProgrammableLogicBaseScript . Env.directoryEnv)
+  globalStakeScript <- asks (Env.dsProgrammableLogicGlobalScript . Env.directoryEnv)
+
+
+  let globalStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 globalStakeScript
 
       -- Finds the directory node with the highest key that is less than or equal
       -- to the programmable token symbol
@@ -173,7 +173,7 @@ transferProgrammableToken tokenTxIns programmableTokenSymbol directoryList = Uti
 
       programmableGlobalWitness txBody = buildScriptWitness globalStakeScript C.NoScriptDatumForStake (programmableLogicGlobalRedeemer txBody)
 
-  addReference paramsTxIn -- Protocol Params TxIn
+  addReference (uIn paramsTxIn) -- Protocol Params TxIn
   addReference dirNodeRef -- Directory Node TxIn
   traverse_ (\tin -> spendPlutusInlineDatum tin baseSpendingScript ()) tokenTxIns
   addWithdrawalWithTxBody -- Add the global script witness to the transaction

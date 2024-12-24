@@ -7,6 +7,7 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE QualifiedDo           #-}
 {-# LANGUAGE UndecidableInstances  #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module SmartTokens.Types.PTokenDirectory (
   DirectorySetNode (..),
@@ -46,20 +47,69 @@ import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V3 (BuiltinByteString, Credential, CurrencySymbol)
 import PlutusTx (Data (B, Constr), FromData, ToData, UnsafeFromData)
 import SmartTokens.CodeLens (_printTerm)
+import PlutusLedgerApi.Data.V3 (Credential(PubKeyCredential))
+import Plutarch.Extra.Record (mkRecordConstr, (.&), (.=))
+import qualified Data.Tuple as BI
+import PlutusTx.IsData.Class (ToData(toBuiltinData))
+import qualified PlutusTx.Builtins as BI
+import PlutusLedgerApi.V1 (FromData(fromBuiltinData), PubKeyHash (..))
+import PlutusTx.Builtins.HasOpaque (stringToBuiltinByteString)
+
+{- 
+>>> _printTerm $ unsafeEvalTerm NoTracing (pconstant blacklistInitialNode)
+"program\n  1.0.0\n  (List [B #, B #ffffffffffffffffffffffffffffffffffffffffffffffffffffffff])"
+-}
+blacklistInitialNode :: BlacklistNode
+blacklistInitialNode = 
+  BlacklistNode 
+    -- FIXME: fix this hacky bstr
+    { blnNext= case PubKeyCredential  "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff" of
+                  PubKeyCredential (PubKeyHash bstr) -> bstr
+    , blnKey= ""}
 
 data BlacklistNode =
   BlacklistNode {
-    blnKey :: Credential,
-    blnNext :: Credential
+    blnKey :: BuiltinByteString,
+    blnNext :: BuiltinByteString
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (SOP.Generic)
   deriving
     (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData) via (ProductIsData BlacklistNode)
 
+-- instance PlutusTx.ToData BlacklistNode where
+--   toBuiltinData BlacklistNode{blnKey, blnNext} =
+--     let blnKeyBstr = head $ snd $ BI.unsafeDataAsConstr (toBuiltinData blnKey)
+--         blnNextBstr = head $ snd $ BI.unsafeDataAsConstr (toBuiltinData blnNext)
+--      in BI.mkList [blnKeyBstr,  blnNextBstr]
+-- 
+-- instance PlutusTx.FromData BlacklistNode where
+--   fromBuiltinData builtinData =
+--     let fields = BI.unsafeDataAsList builtinData
+--         key = head fields
+--         fields1 = tail fields
+--         next = head fields1
+--      in Just $ undefined -- Don't know how to determine whether credential is pub key or script
+  
+
 deriving via (DerivePConstantViaData BlacklistNode PBlacklistNode)
   instance (PConstantDecl BlacklistNode)
 
+{- 
+>>> _printTerm $ unsafeEvalTerm NoTracing (mkRecordConstr PBlacklistNode (#blnKey .= pconstant "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff" .& #blnNext .=  pconstant ""))
+No instance for `IsString (PAsDataLifted PByteString)'
+  arising from the literal `"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
+In the first argument of `pconstant', namely
+  `"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
+In the second argument of `(.=)', namely
+  `pconstant
+     "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
+In the first argument of `(.&)', namely
+  `#blnKey
+     .=
+       pconstant
+         "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
+-}
 newtype PBlacklistNode (s :: S)
   = PBlacklistNode
       ( Term
