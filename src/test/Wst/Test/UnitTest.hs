@@ -29,17 +29,23 @@ import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query qualified as Query
 import Wst.Offchain.Scripts qualified as Scripts
-import Wst.Test.Env (admin, asAdmin, asWallet)
+import Wst.Test.Env (admin, asAdmin, asWallet, user)
 
 tests :: TestTree
 tests = testGroup "unit tests"
   [ testCase "deploy directory and global params" (mockchainSucceeds deployDirectorySet)
   , testCase "insert directory node" (mockchainSucceeds insertDirectoryNode)
   , testGroup "issue programmable tokens"
+      -- FIXME: Fails because the minted value is not sent to the operator
+      -- address. If we want to keep this test we need to modify the Endpoint.issueProgrammableTokenTx 
+      -- tx builder to pay the minted value to progLogicBaseScript with operator stake credential
       [ testCase "always succeeds validator" (mockchainSucceeds issueAlwaysSucceedsValidator)
       , testCase "smart token issuance" (mockchainSucceeds issueSmartTokensScenario)
       , testCase "smart token transfer" (mockchainSucceeds transferSmartTokens)
       , testCase "blacklist credential" (mockchainSucceeds (void blacklistCredential))
+      -- FIXME: Currently just throws, should implement better error handling
+      , testCase "blacklisted transfer" (mockchainSucceeds blacklistTransfer)
+      , testCase "seize user output" (mockchainSucceeds seizeUserOutput)
       ]
   ]
 
@@ -79,7 +85,6 @@ issueAlwaysSucceedsValidator = failOnError $ Env.withEnv $ do
       >>= void . expectN 2 "registry outputs"
     Query.programmableLogicOutputs @C.ConwayEra
       >>= void . expectN 1 "programmable logic outputs"
-  pure ()
 
 issueSmartTokensScenario :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m C.AssetId
 issueSmartTokensScenario = deployDirectorySet >>= issueTransferLogicProgrammableToken
@@ -89,12 +94,12 @@ issueSmartTokensScenario = deployDirectorySet >>= issueTransferLogicProgrammable
 issueTransferLogicProgrammableToken :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => C.TxIn -> m C.AssetId
 issueTransferLogicProgrammableToken txI = failOnError $ Env.withEnv $ do
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ Env.withTransferFromOperator $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
     -- register programmable global stake script
     void $ registerTransferScripts opPkh
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ Env.withTransferFromOperator $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
 
     (balTx, aid) <- Endpoints.issueSmartTokensTx "dummy asset" 100 (C.PaymentCredentialByKey opPkh)
@@ -113,7 +118,7 @@ transferSmartTokens = failOnError $ Env.withEnv $ do
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
   txI <- deployDirectorySet
 
-  asAdmin @C.ConwayEra $ do
+  asAdmin @C.ConwayEra $ Env.withTransferFromOperator $ do
     Endpoints.deployBlacklistTx
       >>= void . sendTx . signTxOperator admin
     Query.blacklistNodes @C.ConwayEra
@@ -121,7 +126,7 @@ transferSmartTokens = failOnError $ Env.withEnv $ do
 
   aid <- issueTransferLogicProgrammableToken txI
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ Env.withTransferFromOperator $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
 
     Endpoints.transferSmartTokensTx (C.PaymentCredentialByKey opPkh) aid 80 (C.PaymentCredentialByKey userPkh)
@@ -141,13 +146,13 @@ blacklistCredential = failOnError $ Env.withEnv $ do
 
   txIn <- deployDirectorySet
 
-  asAdmin @C.ConwayEra $ do
+  asAdmin @C.ConwayEra $ Env.withTransferFromOperator $ do
     Endpoints.deployBlacklistTx
       >>= void . sendTx . signTxOperator admin
     Query.blacklistNodes @C.ConwayEra
       >>= void . expectSingleton "blacklist output"
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
     Endpoints.blacklistCredentialTx paymentCred
       >>= void . sendTx . signTxOperator admin
 
@@ -155,6 +160,64 @@ blacklistCredential = failOnError $ Env.withEnv $ do
       >>= void . expectN 2 "blacklist output"
 
   pure paymentCred
+
+blacklistTransfer :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m ()
+blacklistTransfer = failOnError $ Env.withEnv $ do
+  userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
+  let userPaymentCred = C.PaymentCredentialByKey userPkh
+
+  txIn <- deployDirectorySet
+  aid <- issueTransferLogicProgrammableToken txIn
+
+  asAdmin @C.ConwayEra $ Env.withTransferFromOperator $ do
+    Endpoints.deployBlacklistTx
+      >>= void . sendTx . signTxOperator admin
+
+  opPkh <- asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
+    opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
+    Endpoints.transferSmartTokensTx (C.PaymentCredentialByKey opPkh) aid 50 (C.PaymentCredentialByKey userPkh)
+      >>= void . sendTx . signTxOperator admin
+    pure opPkh
+
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
+    Endpoints.blacklistCredentialTx userPaymentCred
+      >>= void . sendTx . signTxOperator admin
+
+  asWallet Wallet.w2 $ Env.withDirectoryFor txIn $ Env.withTransferFor opPkh $ do
+    Endpoints.transferSmartTokensTx (C.PaymentCredentialByKey userPkh) aid 30 (C.PaymentCredentialByKey opPkh)
+      >>= void . sendTx . signTxOperator (user Wallet.w2)
+
+seizeUserOutput :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m ()
+seizeUserOutput = failOnError $ Env.withEnv $ do
+  userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
+  let userPaymentCred = C.PaymentCredentialByKey userPkh
+
+  txIn <- deployDirectorySet
+  aid <- issueTransferLogicProgrammableToken txIn
+
+  asAdmin @C.ConwayEra $ Env.withTransferFromOperator $ do
+    Endpoints.deployBlacklistTx
+      >>= void . sendTx . signTxOperator admin
+
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
+    opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
+    Endpoints.transferSmartTokensTx (C.PaymentCredentialByKey opPkh) aid 50 (C.PaymentCredentialByKey userPkh)
+      >>= void . sendTx . signTxOperator admin
+    Query.programmableLogicOutputs @C.ConwayEra
+      >>= void . expectN 2 "programmable logic outputs"
+    Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh)
+      >>= void . expectN 1 "user programmable outputs"
+
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
+    opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
+    Endpoints.seizeCredentialAssetsTx userPaymentCred
+      >>= void . sendTx . signTxOperator admin
+    Query.programmableLogicOutputs @C.ConwayEra
+      >>= void . expectN 3 "programmable logic outputs"
+    Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh)
+      >>= void . expectN 1 "user programmable outputs"
+    Query.userProgrammableOutputs (C.PaymentCredentialByKey opPkh)
+      >>= void . expectN 2 "user programmable outputs"
 
 
 dummyNodeArgs :: InsertNodeArgs
@@ -222,3 +285,8 @@ expectN :: MonadFail m => Int -> String -> [a] -> m ()
 expectN n msg lst
   | length lst == n = pure ()
   | otherwise       = fail $ "Expected " ++ show n ++ " " ++ msg ++ " but found " ++ show (length lst)
+
+_expectLeft :: (MonadFail m, Show b) => String -> Either a b -> m ()
+_expectLeft msg = \case
+  Left _ -> pure ()
+  (Right r) -> fail $ "Expected " ++ msg ++ " but found Right " ++ show r

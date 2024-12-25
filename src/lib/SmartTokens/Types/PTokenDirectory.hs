@@ -25,47 +25,22 @@ module SmartTokens.Types.PTokenDirectory (
   BlacklistNode(..),
 ) where
 
-import Data.Text qualified as T
 import Generics.SOP qualified as SOP
-import GHC.Stack (HasCallStack)
 import Plutarch (Config (NoTracing))
 import Plutarch.Builtin (pasByteStr, pasConstr, pasList, pforgetData, plistData)
 import Plutarch.Core.PlutusDataList (DerivePConstantViaDataList (..),
                                      PlutusTypeDataList, ProductIsData (..))
 import Plutarch.Core.Utils (pcond, pheadSingleton, pmkBuiltinList)
 import Plutarch.DataRepr (PDataFields)
-import Plutarch.DataRepr.Internal (DerivePConstantViaData (..), PDataRecord,
-                                   PLabeledType ((:=)), PlutusTypeData)
+import Plutarch.DataRepr.Internal (DerivePConstantViaData (..))
 import Plutarch.DataRepr.Internal.Field (HRec (..), Labeled (Labeled))
 import Plutarch.Evaluate (unsafeEvalTerm)
-import Plutarch.Internal qualified as PI
-import Plutarch.Internal.Other (printScript)
 import Plutarch.LedgerApi.V3 (PCredential, PCurrencySymbol)
 import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (PLifted))
 import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V3 (BuiltinByteString, Credential, CurrencySymbol)
 import PlutusTx (Data (B, Constr), FromData, ToData, UnsafeFromData)
-import SmartTokens.CodeLens (_printTerm)
-import PlutusLedgerApi.Data.V3 (Credential(PubKeyCredential))
-import Plutarch.Extra.Record (mkRecordConstr, (.&), (.=))
-import qualified Data.Tuple as BI
-import PlutusTx.IsData.Class (ToData(toBuiltinData))
-import qualified PlutusTx.Builtins as BI
-import PlutusLedgerApi.V1 (FromData(fromBuiltinData), PubKeyHash (..))
-import PlutusTx.Builtins.HasOpaque (stringToBuiltinByteString)
-
-{- 
->>> _printTerm $ unsafeEvalTerm NoTracing (pconstant blacklistInitialNode)
-"program\n  1.0.0\n  (List [B #, B #ffffffffffffffffffffffffffffffffffffffffffffffffffffffff])"
--}
-blacklistInitialNode :: BlacklistNode
-blacklistInitialNode = 
-  BlacklistNode 
-    -- FIXME: fix this hacky bstr
-    { blnNext= case PubKeyCredential  "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff" of
-                  PubKeyCredential (PubKeyHash bstr) -> bstr
-    , blnKey= ""}
 
 data BlacklistNode =
   BlacklistNode {

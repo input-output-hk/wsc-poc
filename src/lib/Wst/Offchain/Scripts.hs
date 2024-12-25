@@ -13,7 +13,7 @@ module Wst.Offchain.Scripts (
 
   -- Transfer logic
   permissionedTransferScript,
-  freezeAndSezieTransferScript,
+  freezeTransferScript,
   blacklistMintingScript,
   blacklistSpendingScript,
 
@@ -74,7 +74,7 @@ protocolParamsSpendingScript =
 -- symbol uniqueness across instances
 directoryNodeMintingScript :: C.TxIn -> C.PlutusScript C.PlutusScriptV3
 directoryNodeMintingScript txIn =
-  let script = tryCompile tracingConfig $ mkDirectoryNodeMP # pdata (pconstant $ transTxOutRef txIn)
+  let script = tryCompile prodConfig $ mkDirectoryNodeMP # pdata (pconstant $ transTxOutRef txIn)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- | The spending script for the directory node tokens, parameterized by the
@@ -87,7 +87,7 @@ directoryNodeSpendingScript paramsPolId =
 -- TODO: can we change the signature to just take the param policy id?
 programmableLogicMintingScript :: C.PaymentCredential -> C.StakeCredential -> C.PolicyId -> C.PlutusScript C.PlutusScriptV3
 programmableLogicMintingScript progLogicBaseSpndingCred mintingCred nodePolId =
-  let script = tryCompile tracingConfig
+  let script = tryCompile prodConfig
                $ mkProgrammableLogicMinting
                   # pdata (pconstant $ transCredential progLogicBaseSpndingCred)
                   # pdata (pconstant $ transPolicyId nodePolId)
@@ -101,7 +101,7 @@ programmableLogicBaseScript globalCred =
 
 programmableLogicGlobalScript :: C.PolicyId -> C.PlutusScript C.PlutusScriptV3 -- Parameterized by the CS holding protocol params datum
 programmableLogicGlobalScript paramsPolId =
-  let script = tryCompile tracingConfig $ mkProgrammableLogicGlobal # pdata (pconstant $ transPolicyId paramsPolId)
+  let script = tryCompile prodConfig $ mkProgrammableLogicGlobal # pdata (pconstant $ transPolicyId paramsPolId)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 permissionedTransferScript :: C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
@@ -109,10 +109,8 @@ permissionedTransferScript cred =
   let script = tryCompile prodConfig $ mkPermissionedTransfer # pdata (pconstant $ transPubKeyHash cred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
-freezeAndSezieTransferScript :: C.PolicyId -> C.PlutusScript C.PlutusScriptV3
-freezeAndSezieTransferScript blacklistPolicyId =
-  -- TODO: maybe mkFreezeAndSeizeTransfer should be called mkFreezeTransfer as
-  -- seizing is handled separately
+freezeTransferScript :: C.PolicyId -> C.PlutusScript C.PlutusScriptV3
+freezeTransferScript blacklistPolicyId =
   let script = tryCompile prodConfig $ mkFreezeAndSeizeTransfer # pdata (pconstant $ transPolicyId blacklistPolicyId)
   in C.PlutusScriptSerialised $ serialiseScript script
 

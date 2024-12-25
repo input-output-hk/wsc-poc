@@ -32,6 +32,11 @@ module Wst.Offchain.Env(
   -- * Transfer logic environment
   TransferLogicEnv(..),
   HasTransferLogicEnv(..),
+  mkTransferLogicEnv,
+  addTransferEnv,
+  withTransfer,
+  withTransferFor,
+  withTransferFromOperator,
 
   -- * Runtime data
   RuntimeEnv(..),
@@ -84,8 +89,7 @@ import System.Environment qualified
 import Wst.AppError (AppError (..))
 import Wst.Offchain.Scripts (blacklistMintingScript, blacklistSpendingScript,
                              directoryNodeMintingScript,
-                             directoryNodeSpendingScript,
-                             freezeAndSezieTransferScript,
+                             directoryNodeSpendingScript, freezeTransferScript,
                              permissionedTransferScript,
                              programmableLogicBaseScript,
                              programmableLogicGlobalScript,
@@ -238,7 +242,7 @@ mkTransferLogicEnv cred =
     { tleBlacklistMintingScript = blacklistMinting
     , tleBlacklistSpendingScript = blacklistSpendingScript cred
     , tleMintingScript =  permissionedTransferScript cred
-    , tleTransferScript = freezeAndSezieTransferScript blacklistPolicy
+    , tleTransferScript = freezeTransferScript blacklistPolicy
     , tleIssuerScript = permissionedTransferScript cred
     }
 
@@ -270,10 +274,11 @@ class HasRuntimeEnv e where
 instance HasRuntimeEnv RuntimeEnv where
   runtimeEnv = id
 
-data CombinedEnv operatorF directoryF runtimeF era =
+data CombinedEnv operatorF directoryF transferF runtimeF era =
   CombinedEnv
     { ceOperator  :: operatorF (OperatorEnv era)
     , ceDirectory :: directoryF DirectoryEnv
+    , ceTransfer  :: transferF TransferLogicEnv
     , ceRuntime :: runtimeF RuntimeEnv
     }
 
@@ -283,73 +288,95 @@ makeLensesFor
 
 {-| 'CombinedEnv' with no values
 -}
-empty :: forall era. CombinedEnv Proxy Proxy Proxy era
+empty :: forall era. CombinedEnv Proxy Proxy Proxy Proxy era
 empty =
   CombinedEnv
     { ceOperator = Proxy
     , ceDirectory = Proxy
+    , ceTransfer = Proxy
     , ceRuntime = Proxy
     }
 
-instance HasOperatorEnv era (CombinedEnv Identity d r era) where
+instance HasOperatorEnv era (CombinedEnv Identity d t r era) where
   operatorEnv = runIdentity . ceOperator
 
-instance HasDirectoryEnv (CombinedEnv o Identity r era) where
+instance HasDirectoryEnv (CombinedEnv o Identity t r era) where
   directoryEnv = runIdentity . ceDirectory
 
-instance HasTransferLogicEnv (CombinedEnv Identity d r era) where
-  transferLogicEnv = mkTransferLogicEnv . fst . bteOperator . operatorEnv
+instance HasTransferLogicEnv (CombinedEnv o d Identity r era) where
+  transferLogicEnv = runIdentity . ceTransfer
 
-instance HasRuntimeEnv (CombinedEnv o d Identity era) where
+instance HasRuntimeEnv (CombinedEnv o d t Identity era) where
   runtimeEnv = runIdentity . ceRuntime
 
 _Identity :: L.Iso' (Identity a) a
 _Identity = L.iso runIdentity Identity
 
-instance HasLogger (CombinedEnv o d Identity era) where
+instance HasLogger (CombinedEnv o d t Identity era) where
   loggerL = runtime . _Identity . loggerL
 
 {-| Add a 'DirectoryEnv' for the 'C.TxIn' in to the environment
 -}
-addDirectoryEnvFor :: C.TxIn -> CombinedEnv o d r era -> CombinedEnv o Identity r era
+addDirectoryEnvFor :: C.TxIn -> CombinedEnv o d t r era -> CombinedEnv o Identity t r era
 addDirectoryEnvFor txi = addDirectoryEnv (mkDirectoryEnv txi)
 
 {-| Add a 'DirectoryEnv' for the 'C.TxIn' in to the environment
 -}
-addDirectoryEnv :: DirectoryEnv -> CombinedEnv o d r era -> CombinedEnv o Identity r era
+addDirectoryEnv :: DirectoryEnv -> CombinedEnv o d t r era -> CombinedEnv o Identity t r era
 addDirectoryEnv de env =
   env{ceDirectory = Identity de }
 
-withDirectory :: MonadReader (CombinedEnv o d r era) m => DirectoryEnv -> ReaderT (CombinedEnv o Identity r era) m a -> m a
+withDirectory :: MonadReader (CombinedEnv o d t r era) m => DirectoryEnv -> ReaderT (CombinedEnv o Identity t r era) m a -> m a
 withDirectory dir action = do
   asks (addDirectoryEnv dir)
     >>= runReaderT action
 
-withDirectoryFor :: MonadReader (CombinedEnv o d r era) m => C.TxIn -> ReaderT (CombinedEnv o Identity r era) m a -> m a
+withDirectoryFor :: MonadReader (CombinedEnv o d t r era) m => C.TxIn -> ReaderT (CombinedEnv o Identity t r era) m a -> m a
 withDirectoryFor txi = withDirectory (mkDirectoryEnv txi)
+
+{-| Add a 'TransferLogicEnv' for the 'C.Hash C.PaymentKey' corresponding to the
+   admin hash
+ -}
+addTransferEnv :: TransferLogicEnv -> CombinedEnv o d t r era -> CombinedEnv o d Identity r era
+addTransferEnv de env =
+  env{ceTransfer = Identity de }
+
+withTransfer :: MonadReader (CombinedEnv o d t r era) m => TransferLogicEnv -> ReaderT (CombinedEnv o d Identity r era) m a -> m a
+withTransfer dir action = do
+  asks (addTransferEnv dir)
+    >>= runReaderT action
+
+withTransferFor :: MonadReader (CombinedEnv o d t r era) m => C.Hash C.PaymentKey -> ReaderT (CombinedEnv o d Identity r era) m a -> m a
+withTransferFor = withTransfer . mkTransferLogicEnv
+
+withTransferFromOperator :: MonadReader (CombinedEnv Identity d t r era) m => ReaderT (CombinedEnv Identity d Identity r era) m a -> m a
+withTransferFromOperator action = do
+  env <- ask
+  let opPkh = fst . bteOperator . operatorEnv $ env
+  runReaderT action (addTransferEnv (mkTransferLogicEnv opPkh) env)
 
 {-| Add a 'DirectoryEnv' for the 'C.TxIn' in to the environment and run the
 action with the modified environment
 -}
-withEnv :: forall era m a. ReaderT (CombinedEnv Proxy Proxy Proxy era) m a -> m a
+withEnv :: forall era m a. ReaderT (CombinedEnv Proxy Proxy Proxy Proxy era) m a -> m a
 withEnv = flip runReaderT empty
 
 {-| Add a 'RuntimeEnv' to the environment
 -}
-addRuntimeEnv :: RuntimeEnv -> CombinedEnv o d r era -> CombinedEnv o d Identity era
+addRuntimeEnv :: RuntimeEnv -> CombinedEnv o d t r era -> CombinedEnv o d t Identity era
 addRuntimeEnv env e =
   e{ceRuntime = Identity env }
 
-withRuntime :: MonadReader (CombinedEnv o d r era) m => RuntimeEnv -> ReaderT (CombinedEnv o d Identity era) m a -> m a
+withRuntime :: MonadReader (CombinedEnv o d t r era) m => RuntimeEnv -> ReaderT (CombinedEnv o d t Identity era) m a -> m a
 withRuntime runtime action =
   asks (addRuntimeEnv runtime)
     >>= runReaderT action
 
 {-| Add an 'OperatorEnv' to the environment
 -}
-addOperatorEnv :: OperatorEnv era -> CombinedEnv o d r era2 -> CombinedEnv Identity d r era
+addOperatorEnv :: OperatorEnv era -> CombinedEnv o d t r era2 -> CombinedEnv Identity d t r era
 addOperatorEnv op e =
   e{ceOperator = Identity op }
 
-withOperator :: MonadReader (CombinedEnv o d r era1) m => OperatorEnv era -> ReaderT (CombinedEnv Identity d r era) m a -> m a
+withOperator :: MonadReader (CombinedEnv o d t r era1) m => OperatorEnv era -> ReaderT (CombinedEnv Identity d t r era) m a -> m a
 withOperator op action = asks (addOperatorEnv op) >>= runReaderT action

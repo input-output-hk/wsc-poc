@@ -42,14 +42,12 @@ import Plutarch.Prelude (ClosedTerm, DerivePlutusType (..), Generic, PAsData,
                          S, Term, pcon, pconstant, pdata, pelem, perror, pfield,
                          pfix, pfromData, pfstBuiltin, phoistAcyclic, pif, plam,
                          plet, pletFields, pmap, pmatch, pnot, psndBuiltin, pto,
-                         ptraceInfo, type (:-->), (#$), (#), (#||), ptraceInfoError, ptraceDebugError)
+                         ptraceInfo, type (:-->), (#$), (#), (#||), PShow)
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V1.Value (Value)
 import PlutusTx qualified
 import SmartTokens.Types.ProtocolParams (PProgrammableLogicGlobalParams)
 import SmartTokens.Types.PTokenDirectory (PDirectorySetNode)
-import Plutarch.Show (pshow)
-import Plutarch.Prelude (PShow, plength)
 
 -- | Strip Ada from a ledger value
 -- Importantly this function assumes that the Value is provided by the ledger (i.e. via the ScriptContext)
@@ -369,7 +367,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
   progLogicCred <- plet protocolParamsF.progLogicCred
 
   ptraceInfo "Extracting invoked scripts"
-  let invokedScripts =
+  invokedScripts <- plet $ 
         pmap @PBuiltinList
           # plam (\wdrlPair ->
                     let cred = pfstBuiltin # wdrlPair
@@ -379,7 +377,6 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
 
   pmatch red $ \case
     PTransferAct ((pfield @"proofs" #) -> proofs) -> P.do
-      ptraceInfo "PTransferAct valueFromCred"
       totalProgTokenValue <-
         plet $ pvalueFromCred
                 # progLogicCred
@@ -394,7 +391,6 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                 # invokedScripts
                 # totalProgTokenValue
 
-      -- ptraceInfo "PTransferAct validateConditions"
       pvalidateConditions
           [ pisRewarding ctxF.scriptInfo
           , pcheckTransferLogic
@@ -417,13 +413,13 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
           directoryNodeUTxO = pelemAtFast @PBuiltinList # referenceInputs # pfromData seizeActF.directoryNodeIdx
       seizeDirectoryNode <- pletFields @'["value", "datum"] (pfield @"resolved" # directoryNodeUTxO)
       POutputDatum ((pfield @"outputDatum" #) -> seizeDat') <- pmatch seizeDirectoryNode.datum
-      directoryNodeDatumF <- pletFields @'["key", "next", "transferLogicScript", "issuerLogicScript"] (punsafeCoerce @_ @_ @PDirectorySetNode (pto seizeDat'))
+      directoryNodeDatumF <- pletFields @'["key", "next", "transferLogicScript", "issuerLogicScript"] (punsafeCoerce @_ @_ @(PAsData PDirectorySetNode) (pto seizeDat'))
 
       seizeInputF <- pletFields @'["address", "value", "datum"] seizeInput
       seizeInputAddress <- plet seizeInputF.address
 
       seizeInputValue <- plet $ pfromData seizeInputF.value
-      seizeOutputValue <- plet $ pfilterCSFromValue # seizeInputValue # directoryNodeDatumF.key
+      expectedSeizeOutputValue <- plet $ pfilterCSFromValue # seizeInputValue # directoryNodeDatumF.key
 
       let expectedSeizeOutput =
             pdata $
@@ -432,7 +428,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                 ( #address
                     .= seizeInputF.address
                     .& #value
-                    .= pdata seizeOutputValue
+                    .= pdata expectedSeizeOutputValue
                     .& #datum
                     .= seizeInputF.datum
                     .& #referenceScript
@@ -452,7 +448,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
           -- back to the mkProgrammableLogicBase script without modifying it (thus preventing any others from spending
           -- that UTxO in that block). Or using it to repeatedly spend a programmable token UTxO that does have the programmable token back back to
           -- the mkProgrammableLogicBase script without removing the programmable token associated with the `issuerLogicCredential`.
-          , pnot # (pdata seizeInputValue #== pdata seizeOutputValue)
+          , pnot # (pdata seizeInputValue #== pdata expectedSeizeOutputValue)
           ]
 
 

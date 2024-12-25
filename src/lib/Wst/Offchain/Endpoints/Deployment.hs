@@ -17,6 +17,7 @@ import Cardano.Api.Shelley qualified as C
 import Control.Monad (when)
 import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader, asks)
+import Convex.BuildTx (payToAddress)
 import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Convex.CoinSelection qualified
@@ -82,7 +83,7 @@ issueProgrammableTokenTx issueTokenArgs assetName quantity = do
   directory <- Query.registryNodes @era
   paramsNode <- Query.globalParamsNode @era
   (tx, _) <- Env.balanceTxEnv_ $ do
-    _ <- BuildTx.issueProgrammableToken paramsNode (assetName, quantity) issueTokenArgs directory
+    polId <- BuildTx.issueProgrammableToken paramsNode (assetName, quantity) issueTokenArgs directory
 
     let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion $ BuildTx.intaMintingLogic issueTokenArgs)
     BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness (BuildTx.intaMintingLogic issueTokenArgs) C.NoScriptDatumForStake ()
@@ -91,7 +92,7 @@ issueProgrammableTokenTx issueTokenArgs assetName quantity = do
 deployBlacklistTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => m (C.Tx era)
 deployBlacklistTx = do
   opEnv <- asks Env.operatorEnv
-  (tx, _) <- Env.withEnv $ Env.withOperator opEnv
+  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withTransferFromOperator
               $ Env.balanceTxEnv_ BuildTx.initBlacklist
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
@@ -174,6 +175,7 @@ seizeCredentialAssetsTx :: forall era env m.
   ( MonadReader env m
   , Env.HasOperatorEnv era env
   , Env.HasTransferLogicEnv env
+  , Env.HasDirectoryEnv env
   , MonadBlockchain era m
   , MonadError (AppError era) m
   , C.IsBabbageBasedEra era
@@ -183,8 +185,10 @@ seizeCredentialAssetsTx :: forall era env m.
   => C.PaymentCredential -- ^ Source/User credential
   -> m (C.Tx era)
 seizeCredentialAssetsTx sanctionedCred = do
-  pure undefined
-  -- blacklist <- Query.blacklistNodes @era
-  -- (tx, _) <- Env.balanceTxEnv_ $ do
-  --   BuildTx.insertBlacklistNode sanctionedCred blacklist
-  -- pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
+  directory <- Query.registryNodes @era
+  seizeTxo <- head <$> Query.userProgrammableOutputs sanctionedCred
+  paramsTxIn <- Query.globalParamsNode @era
+  (tx, _) <- Env.balanceTxEnv_ $ do
+    BuildTx.seizeSmartTokens paramsTxIn seizeTxo (C.PaymentCredentialByKey opPkh) directory
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
