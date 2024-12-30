@@ -30,6 +30,7 @@ import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
 import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
 import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
 import Wst.Offchain.BuildTx.TransferLogic qualified as BuildTx
+import Wst.Offchain.BuildTx.TransferLogic qualified as TL
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Query qualified as Query
@@ -84,7 +85,8 @@ issueProgrammableTokenTx issueTokenArgs assetName quantity = do
   paramsNode <- Query.globalParamsNode @era
   (tx, _) <- Env.balanceTxEnv_ $ do
     polId <- BuildTx.issueProgrammableToken paramsNode (assetName, quantity) issueTokenArgs directory
-
+    Env.operatorPaymentCredential
+      >>= BuildTx.paySmartTokensToDestination (assetName, quantity) polId
     let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion $ BuildTx.intaMintingLogic issueTokenArgs)
     BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness (BuildTx.intaMintingLogic issueTokenArgs) C.NoScriptDatumForStake ()
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)

@@ -9,6 +9,7 @@ module Wst.Offchain.BuildTx.TransferLogic
     seizeSmartTokens,
     initBlacklist,
     insertBlacklistNode,
+    paySmartTokensToDestination
   )
 where
 
@@ -139,21 +140,30 @@ insertBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   addRequiredSignature opPkh
 
-issueSmartTokens :: forall era env m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> [UTxODat era DirectorySetNode] -> C.PaymentCredential -> m C.AssetId
-issueSmartTokens paramsTxOut (an, q) directoryList destinationCred = Utils.inBabbage @era $ do
+{-| Add a smart token output that locks the given value,
+addressed to the payment credential
+-}
+paySmartTokensToDestination :: forall era env m. (MonadBuildTx era m, MonadReader env m, Env.HasDirectoryEnv env, MonadBlockchain era m, C.IsBabbageBasedEra era) => (C.AssetName, C.Quantity) -> C.PolicyId -> C.PaymentCredential -> m ()
+paySmartTokensToDestination (an, q) issuedPolicyId destinationCred = Utils.inBabbage @era $ do
   nid <- queryNetworkId
-
-  directoryEnv <- asks Env.directoryEnv
-  let progLogicBaseCred = Env.programmableLogicBaseCredential directoryEnv
-  inta <- intaFromEnv
-  issuedPolicyId <- issueProgrammableToken paramsTxOut (an, q) inta directoryList
   -- TODO: check if there is a better way to achieve: C.PaymentCredential -> C.StakeCredential
   stakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential destinationCred
+  directoryEnv <- asks Env.directoryEnv
+  let progLogicBaseCred = Env.programmableLogicBaseCredential directoryEnv
   let value = fromList [(C.AssetId issuedPolicyId an, q)]
       addr = C.makeShelleyAddressInEra C.shelleyBasedEra nid progLogicBaseCred (C.StakeAddressByValue stakeCred)
 
-  addIssueWitness
   payToAddress addr value
+
+issueSmartTokens :: forall era env m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> [UTxODat era DirectorySetNode] -> C.PaymentCredential -> m C.AssetId
+issueSmartTokens paramsTxOut (an, q) directoryList destinationCred = Utils.inBabbage @era $ do
+  inta <- intaFromEnv
+  issuedPolicyId <- issueProgrammableToken paramsTxOut (an, q) inta directoryList
+
+
+  addIssueWitness
+  --  payToAddress addr value
+  paySmartTokensToDestination (an, q) issuedPolicyId destinationCred
   pure $ C.AssetId issuedPolicyId an
 
 transferSmartTokens :: forall env era a m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env, MonadError (AppError era) m) => UTxODat era ProgrammableLogicGlobalParams -> C.PaymentCredential -> [UTxODat era BlacklistNode] -> [UTxODat era DirectorySetNode] -> [UTxODat era a] -> (C.AssetId, C.Quantity) -> C.PaymentCredential -> m ()

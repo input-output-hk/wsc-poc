@@ -38,9 +38,6 @@ tests = testGroup "unit tests"
   [ testCase "deploy directory and global params" (mockchainSucceeds deployDirectorySet)
   , testCase "insert directory node" (mockchainSucceeds insertDirectoryNode)
   , testGroup "issue programmable tokens"
-      -- FIXME: Fails because the minted value is not sent to the operator
-      -- address. If we want to keep this test we need to modify the Endpoint.issueProgrammableTokenTx
-      -- tx builder to pay the minted value to progLogicBaseScript with operator stake credential
       [ testCase "always succeeds validator" (mockchainSucceeds issueAlwaysSucceedsValidator)
       , testCase "smart token issuance" (mockchainSucceeds issueSmartTokensScenario)
       , testCase "smart token transfer" (mockchainSucceeds transferSmartTokens)
@@ -240,7 +237,6 @@ registerAlwaysSucceedsStakingCert = failOnError $ do
   txBody <- BuildTx.execBuildTxT $ do
     BuildTx.addStakeScriptWitness cred Scripts.alwaysSucceedsScript ()
     BuildTx.addConwayStakeCredentialRegistrationCertificate cred (pp ^. Ledger.ppKeyDepositL)
-    addStakeCredentialCertificate cred
   void (tryBalanceAndSubmit mempty Wallet.w1 txBody TrailingChange [])
 
 registerTransferScripts :: (MonadFail m, MonadReader env m, Env.HasDirectoryEnv env, Env.HasTransferLogicEnv env, MonadMockchain C.ConwayEra m) => C.Hash C.PaymentKey -> m C.TxId

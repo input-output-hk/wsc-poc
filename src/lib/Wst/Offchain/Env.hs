@@ -12,6 +12,7 @@ module Wst.Offchain.Env(
   OperatorEnv(..),
   loadOperatorEnv,
   loadOperatorEnvFromAddress,
+  operatorPaymentCredential,
 
   -- ** Using the operator environment
   selectOperatorOutput,
@@ -110,6 +111,11 @@ data OperatorEnv era =
     { bteOperator      :: (C.Hash C.PaymentKey, C.StakeAddressReference) -- ^ Payment and stake credential, used for generating return outputs
     , bteOperatorUtxos :: UTxO era -- ^ UTxOs owned by the operator, available for spending
     }
+
+{-| Get the operator's payment credential from the 'env'
+-}
+operatorPaymentCredential :: (MonadReader env m, HasOperatorEnv era env) => m C.PaymentCredential
+operatorPaymentCredential = asks (C.PaymentCredentialByKey . fst . bteOperator . operatorEnv)
 
 {-| Populate the 'OperatorEnv' with UTxOs locked by the payment credential
 -}
@@ -233,6 +239,9 @@ class HasTransferLogicEnv e where
 instance HasTransferLogicEnv TransferLogicEnv where
   transferLogicEnv = id
 
+{-| The 'TransferLogicEnv' with scripts that allow the given payment credential
+to manage the blacklist and issue / burn tokens
+-}
 mkTransferLogicEnv :: C.Hash C.PaymentKey -> TransferLogicEnv
 mkTransferLogicEnv cred =
   let blacklistMinting = blacklistMintingScript cred
