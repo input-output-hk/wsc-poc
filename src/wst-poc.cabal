@@ -73,8 +73,6 @@ library
     Wst.Cli
     Wst.Cli.Command
     Wst.Client
-    Wst.Offchain
-    Wst.Offchain.BuildTx.Blacklist
     Wst.Offchain.BuildTx.DirectorySet
     Wst.Offchain.BuildTx.LinkedList
     Wst.Offchain.BuildTx.ProgrammableLogic
@@ -84,7 +82,6 @@ library
     Wst.Offchain.Env
     Wst.Offchain.Query
     Wst.Offchain.Scripts
-    Wst.Onchain
     Wst.Server
     Wst.Server.Endpoints
     Wst.Server.Types
@@ -97,16 +94,11 @@ library
     , Blammo
     , blockfrost-api
     , blockfrost-client-core
-    , bytestring
     , cardano-api
-    , cardano-ledger-api
-    , cardano-ledger-shelley
     , containers
     , convex-base
     , convex-blockfrost
     , convex-coin-selection
-    , convex-mockchain
-    , convex-node-client
     , convex-optics
     , convex-wallet
     , generics-sop

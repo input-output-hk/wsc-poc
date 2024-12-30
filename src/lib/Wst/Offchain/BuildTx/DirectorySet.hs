@@ -14,11 +14,9 @@ module Wst.Offchain.BuildTx.DirectorySet (
 
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
-import Control.Lens (over)
 import Control.Monad.Reader (MonadReader, asks)
-import Convex.BuildTx (MonadBuildTx, addBtx, addReference, mintPlutus,
-                       prependTxOut, spendPlutusInlineDatum)
-import Convex.CardanoApi.Lenses qualified as L
+import Convex.BuildTx (MonadBuildTx, addReference, mintPlutus, prependTxOut,
+                       spendPlutusInlineDatum)
 import Convex.Class (MonadBlockchain, queryNetworkId)
 import Convex.PlutusLedger.V1 (transStakeCredential, unTransAssetName)
 import Convex.Scripts (toHashableScriptData)
@@ -94,10 +92,9 @@ data InsertNodeArgs =
     , inaIssuerLogic :: C.StakeCredential
     }
 
-insertDirectoryNode :: forall era env m ctx. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era DirectorySetNode -> InsertNodeArgs -> m ()
+insertDirectoryNode :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era DirectorySetNode -> InsertNodeArgs -> m ()
 insertDirectoryNode UTxODat{uIn=paramsRef} UTxODat{uIn, uOut=firstTxOut, uDatum=firstTxData} InsertNodeArgs{inaNewKey, inaTransferLogic, inaIssuerLogic} = Utils.inBabbage @era $ do
   netId <- queryNetworkId
-  initialTxIn <- asks (Env.dsTxIn . Env.directoryEnv)
   paramsPolicyId <- asks (Env.protocolParamsPolicyId . Env.directoryEnv)
   directorySpendingScript <- asks (Env.dsDirectorySpendingScript . Env.directoryEnv)
   directoryMintingScript <- asks (Env.dsDirectoryMintingScript . Env.directoryEnv)

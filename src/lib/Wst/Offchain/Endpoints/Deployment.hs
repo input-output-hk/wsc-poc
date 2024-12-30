@@ -17,7 +17,6 @@ import Cardano.Api.Shelley qualified as C
 import Control.Monad (when)
 import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader, asks)
-import Convex.BuildTx (payToAddress)
 import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Convex.CoinSelection qualified
@@ -30,7 +29,6 @@ import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
 import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
 import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
 import Wst.Offchain.BuildTx.TransferLogic qualified as BuildTx
-import Wst.Offchain.BuildTx.TransferLogic qualified as TL
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Query qualified as Query

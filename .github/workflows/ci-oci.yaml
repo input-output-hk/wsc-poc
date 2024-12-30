@@ -8,7 +8,7 @@ on:
   push:
 
 concurrency:
-  group: ${{ github.ref }}
+  group: "ci-oci-${{ github.ref }}"
   cancel-in-progress: true
 
 jobs:

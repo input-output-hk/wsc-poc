@@ -35,9 +35,8 @@ import Plutarch.Prelude (ClosedTerm, Generic, PAsData, PBool, PBuiltinList,
                          PMaybe (PJust), PPair (..), PPartialOrd ((#<)), PType,
                          PUnit, S, Term, TermCont, pall, pany, pcon, pconstant,
                          pdata, pelimList, pfield, pfilter, pfromData, pguardC,
-                         phoistAcyclic, plam, plength, plengthBS, plet,
-                         pletFields, pmap, pmatch, pto, tcont, type (:-->),
-                         (#$), (#&&), (#))
+                         phoistAcyclic, plam, plengthBS, plet, pletFields, pmap,
+                         pmatch, pto, tcont, type (:-->), (#$), (#&&), (#))
 import Plutarch.Unsafe (punsafeCoerce)
 import SmartTokens.Types.PTokenDirectory (PDirectorySetNode, pisEmptyNode,
                                           pisInsertedNode, pisInsertedOnNode)

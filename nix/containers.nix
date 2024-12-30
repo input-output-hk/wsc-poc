@@ -7,7 +7,7 @@
   # $ nix build .#containers.x86_64-linux.wst
   #
   wst = lib.iogx.mkContainerFromCabalExe {
-    exe = inputs.self.packages.wst-poc;
+    exe = inputs.self.packages.wst-poc-cli;
     name = "wst-poc";
     description = "WST Proof of Concept";
     packages = [ ];
