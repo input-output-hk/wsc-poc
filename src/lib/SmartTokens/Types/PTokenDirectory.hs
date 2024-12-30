@@ -1,13 +1,13 @@
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 {-# LANGUAGE ImpredicativeTypes    #-}
+{-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE OverloadedLabels      #-}
 {-# LANGUAGE OverloadedRecordDot   #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE QualifiedDo           #-}
 {-# LANGUAGE UndecidableInstances  #-}
-{-# LANGUAGE NamedFieldPuns #-}
 
 module SmartTokens.Types.PTokenDirectory (
   DirectorySetNode (..),
@@ -42,6 +42,21 @@ import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V3 (BuiltinByteString, Credential, CurrencySymbol)
 import PlutusTx (Data (B, Constr), FromData, ToData, UnsafeFromData)
 
+-- $setup
+--
+-- >>> import GHC.Stack (HasCallStack)
+-- >>> import Plutarch.Internal.Other (printScript)
+-- >>> import qualified Data.Text as T
+-- >>> import qualified Plutarch.Internal as PI
+-- >>> let printTerm :: HasCallStack => Config -> ClosedTerm a -> String ; printTerm config term = printScript $ either (error . T.unpack) id $ PI.compile config term
+--
+-- Setup for doctest / HLS. Everything in this block is available for each test. Function
+-- definitions are a bit annoying but we probably should introduce printTerm somewhere anyway and
+-- then just import.
+--
+-- Note: Dont put comments over the setup line!
+--
+
 data BlacklistNode =
   BlacklistNode {
     blnKey :: BuiltinByteString,
@@ -57,7 +72,7 @@ data BlacklistNode =
 --     let blnKeyBstr = head $ snd $ BI.unsafeDataAsConstr (toBuiltinData blnKey)
 --         blnNextBstr = head $ snd $ BI.unsafeDataAsConstr (toBuiltinData blnNext)
 --      in BI.mkList [blnKeyBstr,  blnNextBstr]
--- 
+--
 -- instance PlutusTx.FromData BlacklistNode where
 --   fromBuiltinData builtinData =
 --     let fields = BI.unsafeDataAsList builtinData
@@ -65,12 +80,12 @@ data BlacklistNode =
 --         fields1 = tail fields
 --         next = head fields1
 --      in Just $ undefined -- Don't know how to determine whether credential is pub key or script
-  
+
 
 deriving via (DerivePConstantViaData BlacklistNode PBlacklistNode)
   instance (PConstantDecl BlacklistNode)
 
-{- 
+{-
 >>> _printTerm $ unsafeEvalTerm NoTracing (mkRecordConstr PBlacklistNode (#blnKey .= pconstant "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff" .& #blnNext .=  pconstant ""))
 No instance for `IsString (PAsDataLifted PByteString)'
   arising from the literal `"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
@@ -104,6 +119,17 @@ instance DerivePlutusType PBlacklistNode where
 instance PUnsafeLiftDecl PBlacklistNode where
   type PLifted PBlacklistNode = BlacklistNode
 
+-- _printTerm (communicated by Philip) just print some term as string. The term we want to print is
+-- @
+-- _term :: forall {s :: S}. Term s PBlacklistNode
+-- _term = unsafeEvalTerm NoTracing (pconstant $ BlackListNode { key = "a", next = "b" })
+-- @
+-- Below, we inline the term and have it in a code lens. You can even run the code lens via Haskell
+-- language server. The lens will then replace the string starting with "program ..." with exactly
+-- the same string.
+--
+-- >>> printTerm NoTracing (pconstantData $ BlacklistNode { blnKey = "a hi", blnNext = "a" })
+-- "program 1.0.0 (List [B #61206869, B #61])"
 
 type PBlacklistNodeHRec (s :: S) =
   HRec
@@ -112,7 +138,7 @@ type PBlacklistNodeHRec (s :: S) =
      ]
 
 -- | Helper function to extract fields from a 'PBlacklistNode' term.
--- >>> _printTerm $ unsafeEvalTerm NoTracing (pletFieldsBlacklistNode (unsafeEvalTerm NoTracing (pconstantData $ BlacklistNode { blnKey = "deadbeee", blnNext = "deadbeef" })) $ \fields -> fields.key)
+-- >>> printTerm NoTracing $ unsafeEvalTerm NoTracing (pletFieldsBlacklistNode (unsafeEvalTerm NoTracing (pconstantData $ BlacklistNode { blnKey = "deadbeee", blnNext = "deadbeef" })) $ \fields -> fields.key)
 -- "programs 1.0.0 (B #6465616462656565)"
 pletFieldsBlacklistNode :: forall {s :: S} {r :: PType}. Term s (PAsData PBlacklistNode) -> (PBlacklistNodeHRec s -> Term s r) -> Term s r
 pletFieldsBlacklistNode term = runTermCont $ do
