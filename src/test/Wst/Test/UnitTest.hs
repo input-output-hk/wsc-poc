@@ -17,12 +17,14 @@ import Convex.Class (MonadBlockchain (queryProtocolParameters, sendTx),
                      MonadMockchain, MonadUtxoQuery)
 import Convex.CoinSelection (ChangeOutputPosition (TrailingChange))
 import Convex.MockChain.CoinSelection (tryBalanceAndSubmit)
-import Convex.MockChain.Utils (mockchainSucceeds)
+import Convex.MockChain.Utils (mockchainFails, mockchainSucceeds)
 import Convex.Utils (failOnError)
 import Convex.Wallet.MockWallet qualified as Wallet
 import Convex.Wallet.Operator (signTxOperator)
+import Data.List (isPrefixOf)
+import GHC.Exception (SomeException, throw)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase)
+import Test.Tasty.HUnit (Assertion, testCase)
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..))
 import Wst.Offchain.BuildTx.ProgrammableLogic (alwaysSucceedsArgs)
 import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
@@ -37,14 +39,13 @@ tests = testGroup "unit tests"
   , testCase "insert directory node" (mockchainSucceeds insertDirectoryNode)
   , testGroup "issue programmable tokens"
       -- FIXME: Fails because the minted value is not sent to the operator
-      -- address. If we want to keep this test we need to modify the Endpoint.issueProgrammableTokenTx 
+      -- address. If we want to keep this test we need to modify the Endpoint.issueProgrammableTokenTx
       -- tx builder to pay the minted value to progLogicBaseScript with operator stake credential
       [ testCase "always succeeds validator" (mockchainSucceeds issueAlwaysSucceedsValidator)
       , testCase "smart token issuance" (mockchainSucceeds issueSmartTokensScenario)
       , testCase "smart token transfer" (mockchainSucceeds transferSmartTokens)
       , testCase "blacklist credential" (mockchainSucceeds (void blacklistCredential))
-      -- FIXME: Currently just throws, should implement better error handling
-      , testCase "blacklisted transfer" (mockchainSucceeds blacklistTransfer)
+      , testCase "blacklisted transfer" (mockchainFails blacklistTransfer assertBlacklistedAddressException)
       , testCase "seize user output" (mockchainSucceeds seizeUserOutput)
       ]
   ]
@@ -239,6 +240,7 @@ registerAlwaysSucceedsStakingCert = failOnError $ do
   txBody <- BuildTx.execBuildTxT $ do
     BuildTx.addStakeScriptWitness cred Scripts.alwaysSucceedsScript ()
     BuildTx.addConwayStakeCredentialRegistrationCertificate cred (pp ^. Ledger.ppKeyDepositL)
+    addStakeCredentialCertificate cred
   void (tryBalanceAndSubmit mempty Wallet.w1 txBody TrailingChange [])
 
 registerTransferScripts :: (MonadFail m, MonadReader env m, Env.HasDirectoryEnv env, Env.HasTransferLogicEnv env, MonadMockchain C.ConwayEra m) => C.Hash C.PaymentKey -> m C.TxId
@@ -290,3 +292,11 @@ _expectLeft :: (MonadFail m, Show b) => String -> Either a b -> m ()
 _expectLeft msg = \case
   Left _ -> pure ()
   (Right r) -> fail $ "Expected " ++ msg ++ " but found Right " ++ show r
+
+-- TODO: Need to make this nicer
+{-| Make sure that the exception is a failure due to blacklisted address
+-}
+assertBlacklistedAddressException :: SomeException -> Assertion
+assertBlacklistedAddressException ex
+  | "user error (TransferBlacklistedCredential (PubKeyCredential" `isPrefixOf` show ex = pure ()
+  | otherwise = throw ex
