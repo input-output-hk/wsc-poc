@@ -48,6 +48,13 @@ jobs:
     #     key: cabal-${{ hashFiles('cabal.project') }}
 
     # We currently do not have a default target
-    - run: nix build --accept-flake-config .#wst-poc-cli
-    - run: nix flake --accept-flake-config check
+    - name: nix build wst-poc client application
+      run: nix build --accept-flake-config .#wst-poc-cli
+    - name: nix flake check
+      run: nix flake --accept-flake-config check
+    - name: check compiled scripts are consistent
+      # git diff --quiet implies --exit-code
+      run: |
+        nix run --accept-flake-config .#export-smart-tokens
+        git diff --quiet
 
