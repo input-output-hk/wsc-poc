@@ -5,10 +5,15 @@
 {-# LANGUAGE OverloadedRecordDot   #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE QualifiedDo           #-}
+{-# LANGUAGE UndecidableInstances  #-}
+
 module SmartTokens.Contracts.ProgrammableLogicBase (
+  TokenProof (..),
+  ProgrammableLogicGlobalRedeemer (..),
   mkProgrammableLogicBase,
-  mkProgrammableLogicGlobal
+  mkProgrammableLogicGlobal,
 ) where
 
 import Plutarch.Builtin (pasByteStr, pasConstr, pforgetData)
@@ -16,6 +21,7 @@ import Plutarch.Core.Utils (pand'List, pcanFind, pcountInputsFromCred,
                             pelemAtFast, pfilterCSFromValue, phasDataCS,
                             pisRewarding, pmustFind, ptxSignedByPkh,
                             pvalidateConditions, pvalueContains)
+import Plutarch.DataRepr (DerivePConstantViaData (..))
 import Plutarch.Extra.Record (mkRecordConstr, (.&), (.=))
 import Plutarch.LedgerApi.V3 (AmountGuarantees (Positive),
                               KeyGuarantees (Sorted), PCredential (..),
@@ -25,6 +31,7 @@ import Plutarch.LedgerApi.V3 (AmountGuarantees (Positive),
                               PScriptContext, PStakingCredential (PStakingHash),
                               PTokenName, PTxInInfo, PTxOut (..), PValue (..),
                               pdnothing)
+import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (..))
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude (ClosedTerm, DerivePlutusType (..), Generic, PAsData,
                          PBool, PBuiltinList, PBuiltinPair, PByteString,
@@ -35,9 +42,10 @@ import Plutarch.Prelude (ClosedTerm, DerivePlutusType (..), Generic, PAsData,
                          S, Term, pcon, pconstant, pdata, pelem, perror, pfield,
                          pfix, pfromData, pfstBuiltin, phoistAcyclic, pif, plam,
                          plet, pletFields, pmap, pmatch, pnot, psndBuiltin, pto,
-                         ptraceInfo, type (:-->), (#$), (#), (#||))
+                         ptraceInfo, type (:-->), (#$), (#), (#||), PShow)
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V1.Value (Value)
+import PlutusTx qualified
 import SmartTokens.Types.ProtocolParams (PProgrammableLogicGlobalParams)
 import SmartTokens.Types.PTokenDirectory (PDirectorySetNode)
 
@@ -56,6 +64,19 @@ pstripAda = phoistAcyclic $
 -- The current implementation of the contracts in this module are not designed to be maximally efficient.
 -- In the future, this should be optimized to use the redeemer indexing design pattern to identify and validate
 -- the programmable inputs.
+data TokenProof
+  = TokenExists Integer
+  | TokenDoesNotExist Integer
+  deriving stock (Show, Eq, Generic)
+
+PlutusTx.makeIsDataIndexed ''TokenProof
+  [('TokenExists, 0), ('TokenDoesNotExist, 1)]
+
+deriving via
+  (DerivePConstantViaData TokenProof PTokenProof)
+  instance
+    (PConstantDecl TokenProof)
+
 
 data PTokenProof (s :: S)
   = PTokenExists
@@ -69,10 +90,13 @@ data PTokenProof (s :: S)
           )
       )
   deriving stock (Generic)
-  deriving anyclass (PlutusType, PIsData, PEq)
+  deriving anyclass (PlutusType, PIsData, PEq, PShow)
 
 instance DerivePlutusType PTokenProof where
   type DPTStrat _ = PlutusTypeData
+
+instance PUnsafeLiftDecl PTokenProof where
+  type PLifted PTokenProof = TokenProof
 
 emptyValue :: Value
 emptyValue = mempty
@@ -88,7 +112,7 @@ pvalueFromCred = phoistAcyclic $ plam $ \cred sigs scripts inputs ->
         self
           # pletFields @'["address", "value"] (pfield @"resolved" # txIn) (\txInF ->
               plet txInF.address $ \addr ->
-                pif (pfield @"credential" # addr #== cred)
+                pif ((pfield @"credential" # addr) #== cred)
                     (
                       pmatch (pfield @"stakingCredential" # addr) $ \case
                         PDJust ((pfield @"_0" #) -> stakingCred) ->
@@ -280,7 +304,25 @@ pcheckTransferLogicAndGetProgrammableValue = plam $ \directoryNodeCS refInputs p
     in go # proofList # (ptail # mapInnerList) # pto (pto pemptyLedgerValue)
 
 
-data ProgrammableLogicGlobalRedeemer (s :: S)
+data ProgrammableLogicGlobalRedeemer
+  = TransferAct [TokenProof]
+  | SeizeAct {
+        plgrSeizeInputIdx :: Integer,
+        plgrSeizeOutputIdx :: Integer,
+        plgrDirectoryNodeIdx :: Integer
+      }
+  deriving (Show, Eq, Generic)
+
+PlutusTx.makeIsDataIndexed ''ProgrammableLogicGlobalRedeemer
+  [('TransferAct, 0), ('SeizeAct, 1)]
+
+
+deriving via
+  (DerivePConstantViaData ProgrammableLogicGlobalRedeemer PProgrammableLogicGlobalRedeemer)
+  instance
+    (PConstantDecl ProgrammableLogicGlobalRedeemer)
+
+data PProgrammableLogicGlobalRedeemer (s :: S)
   = PTransferAct
       ( Term s ( PDataRecord '[ "proofs" ':= PBuiltinList (PAsData PTokenProof) ] ) )
   | PSeizeAct
@@ -296,17 +338,21 @@ data ProgrammableLogicGlobalRedeemer (s :: S)
   deriving stock (Generic)
   deriving anyclass (PlutusType, PIsData, PEq)
 
-instance DerivePlutusType ProgrammableLogicGlobalRedeemer where
+instance DerivePlutusType PProgrammableLogicGlobalRedeemer where
   type DPTStrat _ = PlutusTypeData
+
+instance PUnsafeLiftDecl PProgrammableLogicGlobalRedeemer where
+  type PLifted PProgrammableLogicGlobalRedeemer = ProgrammableLogicGlobalRedeemer
 
 mkProgrammableLogicGlobal :: ClosedTerm (PAsData PCurrencySymbol :--> PScriptContext :--> PUnit)
 mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
   ctxF <- pletFields @'["txInfo", "redeemer", "scriptInfo"] ctx
   infoF <- pletFields @'["inputs", "referenceInputs", "outputs", "signatories", "wdrl"] ctxF.txInfo
-  let red = pfromData $ punsafeCoerce @_ @_ @(PAsData ProgrammableLogicGlobalRedeemer) (pto ctxF.redeemer)
+  let red = pfromData $ punsafeCoerce @_ @_ @(PAsData PProgrammableLogicGlobalRedeemer) (pto ctxF.redeemer)
   referenceInputs <- plet $ pfromData infoF.referenceInputs
   -- Extract protocol parameter UTxO
   ptraceInfo "Extracting protocol parameter UTxO"
+
   let paramUTxO =
         pfield @"resolved" #$
           pmustFind @PBuiltinList
@@ -321,7 +367,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
   progLogicCred <- plet protocolParamsF.progLogicCred
 
   ptraceInfo "Extracting invoked scripts"
-  let invokedScripts =
+  invokedScripts <- plet $ 
         pmap @PBuiltinList
           # plam (\wdrlPair ->
                     let cred = pfstBuiltin # wdrlPair
@@ -331,14 +377,12 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
 
   pmatch red $ \case
     PTransferAct ((pfield @"proofs" #) -> proofs) -> P.do
-      ptraceInfo "PTransferAct valueFromCred"
       totalProgTokenValue <-
         plet $ pvalueFromCred
                 # progLogicCred
                 # infoF.signatories
                 # invokedScripts
                 # infoF.inputs
-      ptraceInfo "PTransferAct checkTransferLogicAndGetProgrammableValue"
       totalProgTokenValue_ <-
         plet $ pcheckTransferLogicAndGetProgrammableValue
                 # protocolParamsF.directoryNodeCS
@@ -346,7 +390,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                 # pfromData proofs
                 # invokedScripts
                 # totalProgTokenValue
-      ptraceInfo "PTransferAct validateConditions"
+
       pvalidateConditions
           [ pisRewarding ctxF.scriptInfo
           , pcheckTransferLogic
@@ -369,13 +413,13 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
           directoryNodeUTxO = pelemAtFast @PBuiltinList # referenceInputs # pfromData seizeActF.directoryNodeIdx
       seizeDirectoryNode <- pletFields @'["value", "datum"] (pfield @"resolved" # directoryNodeUTxO)
       POutputDatum ((pfield @"outputDatum" #) -> seizeDat') <- pmatch seizeDirectoryNode.datum
-      directoryNodeDatumF <- pletFields @'["key", "next", "transferLogicScript", "issuerLogicScript"] (punsafeCoerce @_ @_ @PDirectorySetNode (pto seizeDat'))
+      directoryNodeDatumF <- pletFields @'["key", "next", "transferLogicScript", "issuerLogicScript"] (punsafeCoerce @_ @_ @(PAsData PDirectorySetNode) (pto seizeDat'))
 
       seizeInputF <- pletFields @'["address", "value", "datum"] seizeInput
       seizeInputAddress <- plet seizeInputF.address
 
       seizeInputValue <- plet $ pfromData seizeInputF.value
-      seizeOutputValue <- plet $ pfilterCSFromValue # seizeInputValue # directoryNodeDatumF.key
+      expectedSeizeOutputValue <- plet $ pfilterCSFromValue # seizeInputValue # directoryNodeDatumF.key
 
       let expectedSeizeOutput =
             pdata $
@@ -384,7 +428,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                 ( #address
                     .= seizeInputF.address
                     .& #value
-                    .= pdata seizeOutputValue
+                    .= pdata expectedSeizeOutputValue
                     .& #datum
                     .= seizeInputF.datum
                     .& #referenceScript
@@ -402,9 +446,9 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
           -- Prevent DDOS greifing attacks via the seize action
           -- i.e. the issuer logic script being used to spend a programmable token UTxO that does not have the given programmable token
           -- back to the mkProgrammableLogicBase script without modifying it (thus preventing any others from spending
-          -- that UTxO in that block). Or using it to repeatedly spend a programmable token UTxO that does have the programmable token back back to 
+          -- that UTxO in that block). Or using it to repeatedly spend a programmable token UTxO that does have the programmable token back back to
           -- the mkProgrammableLogicBase script without removing the programmable token associated with the `issuerLogicCredential`.
-          , pnot # (pdata seizeInputValue #== pdata seizeOutputValue)
+          , pnot # (pdata seizeInputValue #== pdata expectedSeizeOutputValue)
           ]
 
 

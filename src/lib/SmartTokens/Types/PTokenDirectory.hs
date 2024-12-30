@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 {-# LANGUAGE ImpredicativeTypes    #-}
+{-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE OverloadedLabels      #-}
 {-# LANGUAGE OverloadedRecordDot   #-}
 {-# LANGUAGE OverloadedStrings     #-}
@@ -56,7 +57,6 @@ import PlutusTx (Data (B, Constr), FromData, ToData, UnsafeFromData)
 -- Note: Dont put comments over the setup line!
 --
 
-
 data BlacklistNode =
   BlacklistNode {
     blnKey :: BuiltinByteString,
@@ -67,9 +67,39 @@ data BlacklistNode =
   deriving
     (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData) via (ProductIsData BlacklistNode)
 
+-- instance PlutusTx.ToData BlacklistNode where
+--   toBuiltinData BlacklistNode{blnKey, blnNext} =
+--     let blnKeyBstr = head $ snd $ BI.unsafeDataAsConstr (toBuiltinData blnKey)
+--         blnNextBstr = head $ snd $ BI.unsafeDataAsConstr (toBuiltinData blnNext)
+--      in BI.mkList [blnKeyBstr,  blnNextBstr]
+--
+-- instance PlutusTx.FromData BlacklistNode where
+--   fromBuiltinData builtinData =
+--     let fields = BI.unsafeDataAsList builtinData
+--         key = head fields
+--         fields1 = tail fields
+--         next = head fields1
+--      in Just $ undefined -- Don't know how to determine whether credential is pub key or script
+
+
 deriving via (DerivePConstantViaData BlacklistNode PBlacklistNode)
   instance (PConstantDecl BlacklistNode)
 
+{-
+>>> _printTerm $ unsafeEvalTerm NoTracing (mkRecordConstr PBlacklistNode (#blnKey .= pconstant "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff" .& #blnNext .=  pconstant ""))
+No instance for `IsString (PAsDataLifted PByteString)'
+  arising from the literal `"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
+In the first argument of `pconstant', namely
+  `"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
+In the second argument of `(.=)', namely
+  `pconstant
+     "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
+In the first argument of `(.&)', namely
+  `#blnKey
+     .=
+       pconstant
+         "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
+-}
 newtype PBlacklistNode (s :: S)
   = PBlacklistNode
       ( Term
@@ -100,7 +130,6 @@ instance PUnsafeLiftDecl PBlacklistNode where
 --
 -- >>> printTerm NoTracing (pconstantData $ BlacklistNode { blnKey = "a hi", blnNext = "a" })
 -- "program 1.0.0 (List [B #61206869, B #61])"
-
 
 type PBlacklistNodeHRec (s :: S) =
   HRec
@@ -190,12 +219,20 @@ isTailNode :: ClosedTerm (PAsData PDirectorySetNode :--> PBool)
 isTailNode = plam $ \node ->
   pfield @"next" # node #== pemptyCSData
 
-pisEmptyNode :: ClosedTerm (PAsData PDirectorySetNode :--> PBool)
-pisEmptyNode = plam $ \node ->
+{-|
+
+>>> _printTerm $ unsafeEvalTerm NoTracing emptyNode
+"program\n  1.0.0\n  (List\n     [ B #\n     , B #ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\n     , Constr 0 [B #]\n     , Constr 0 [B #] ])"
+-}
+emptyNode :: ClosedTerm (PAsData PDirectorySetNode)
+emptyNode =
   let nullTransferLogicCred = pconstant (Constr 0 [PlutusTx.B ""])
       nullIssuerLogicCred = pconstant (Constr 0 [PlutusTx.B ""])
-      expectedEmptyNode = punsafeCoerce $ plistData # pmkBuiltinList [pforgetData pemptyBSData, pforgetData ptailNextData, nullTransferLogicCred, nullIssuerLogicCred]
-  in node #== expectedEmptyNode
+  in punsafeCoerce $ plistData # pmkBuiltinList [pforgetData pemptyBSData, pforgetData ptailNextData, nullTransferLogicCred, nullIssuerLogicCred]
+
+pisEmptyNode :: ClosedTerm (PAsData PDirectorySetNode :--> PBool)
+pisEmptyNode = plam $ \node ->
+  node #== emptyNode
 
 pemptyBSData :: ClosedTerm (PAsData PByteString)
 pemptyBSData = unsafeEvalTerm NoTracing (punsafeCoerce (pconstant $ PlutusTx.B ""))
@@ -226,12 +263,20 @@ pisInsertedOnNode = phoistAcyclic $
 pisInsertedNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PDirectorySetNode :--> PBool)
 pisInsertedNode = phoistAcyclic $
   plam $ \insertedKey coveringNext outputNode ->
-    pletFields @'["transferLogicScript", "issuerLogicScript"] outputNode $ \outputNodeDatumF ->
+    pletFields @'["transferLogicScript", "issuerLogicScript", "key", "next"] outputNode $ \outputNodeDatumF ->
       let transferLogicCred_ = outputNodeDatumF.transferLogicScript
           issuerLogicCred_ = outputNodeDatumF.issuerLogicScript
           expectedDirectoryNode =
-            pmkDirectorySetNode # insertedKey # coveringNext # pdeserializeCredential transferLogicCred_ # pdeserializeCredential issuerLogicCred_
-      in outputNode #== expectedDirectoryNode
+            pmkDirectorySetNode # insertedKey # coveringNext # transferLogicCred_ # issuerLogicCred_
+
+      -- TODO (jm): Uncommenting the following line results in an error. This is spdeserializeCredential trange because the check below
+      -- asserts that the 'key' and 'next' fields of 'outputnode' are equal to what we expect, and the other two
+      -- fields (transferLogicScript, issuerLogicScript) should also be equal when we construct the 'expectedDirectoryNode'
+
+      in ptraceInfo (pshow $ pmkBuiltinList [pforgetData expectedDirectoryNode]) $ outputNode #== expectedDirectoryNode
+
+      -- in pforgetData insertedKey #== pforgetData outputNodeDatumF.key
+      --     #&& pforgetData coveringNext #== pforgetData ptailNextData
 
 pdeserializeCredential :: Term s (PAsData PCredential) -> Term s (PAsData PCredential)
 pdeserializeCredential term =

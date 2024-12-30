@@ -38,3 +38,17 @@ source-repository-package
     tag: 650a3435f8efbd4bf36e58768fac266ba5beede4
     subdir:
       src/plutarch-onchain-lib
+
+source-repository-package
+  type: git
+  location: https://github.com/j-mueller/sc-tools
+  tag: e2759559324e172f12b11ab815323c48ed8922b0
+  subdir:
+    src/devnet
+    src/blockfrost
+    src/coin-selection
+    src/mockchain
+    src/optics
+    src/wallet
+    src/base
+    src/node-client

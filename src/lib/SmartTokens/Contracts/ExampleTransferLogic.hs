@@ -3,9 +3,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedRecordDot  #-}
 {-# LANGUAGE QualifiedDo #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TemplateHaskell       #-}
+
 module SmartTokens.Contracts.ExampleTransferLogic (
   mkPermissionedTransfer,
   mkFreezeAndSeizeTransfer,
+  BlacklistProof (..),
 ) where
 
 import Plutarch.LedgerApi.V3
@@ -26,7 +30,26 @@ import Plutarch.Core.Utils
       pvalidateConditions )
 import Plutarch.Unsafe ( punsafeCoerce )
 import SmartTokens.Types.PTokenDirectory ( PBlacklistNode, pletFieldsBlacklistNode)
+import qualified PlutusTx
+import Plutarch.DataRepr (DerivePConstantViaData (..))
+import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (..))
 
+-- >>> _printTerm $ unsafeEvalTerm NoTracing (pconstant $ NonmembershipProof 1)
+-- "program 1.0.0 (Constr 0 [I 1])"
+data BlacklistProof
+  = NonmembershipProof Integer
+  deriving stock (Show, Eq, Generic)
+
+PlutusTx.makeIsDataIndexed ''BlacklistProof
+  [('NonmembershipProof, 0)]
+
+deriving via
+  (DerivePConstantViaData BlacklistProof PBlacklistProof)
+  instance
+    (PConstantDecl BlacklistProof)
+
+-- >>> _printTerm $ unsafeEvalTerm NoTracing (mkRecordConstr PNonmembershipProof ( #nodeIdx .= pdata (pconstant 1)))
+-- "program 1.0.0 (Constr 0 [I 1])"
 data PBlacklistProof (s :: S)
   = PNonmembershipProof
       ( Term
@@ -37,10 +60,13 @@ data PBlacklistProof (s :: S)
           )
       )
   deriving stock (Generic)
-  deriving anyclass (PlutusType, PIsData, PEq)
+  deriving anyclass (PlutusType, PIsData, PEq, PShow)
 
 instance DerivePlutusType PBlacklistProof where
   type DPTStrat _ = PlutusTypeData
+
+instance PUnsafeLiftDecl PBlacklistProof where
+  type PLifted PBlacklistProof = BlacklistProof
 
 {-|
   The 'mkPermissionedTransfer' is a transfer logic script that enforces that all transactions which spend the 
@@ -86,7 +112,7 @@ mkPermissionedTransfer = plam $ \permissionedCred ctx ->
       first node and lexographically less than the key of the second node (and thus if it was in the blacklist those two nodes 
       would not be adjacent).
     - Confirms the legitimacy of both directory entries by checking the presence of the directory node currency symbol.
-  - For 'PNonmembershipProofTail':
+  - For 'PNonmembershipProofTail': FIXME: outdated
     - Ensures that the witness key is greater than the tail node key in the blacklist.
     - Confirms the legitimacy of the directory entry by checking the presence of the directory node currency symbol.
 
@@ -113,7 +139,7 @@ pvalidateWitnesses = phoistAcyclic $ plam $ \blacklistNodeCS proofs refInputs wi
                       -- the currency symbol is not in the blacklist
                       nodeKey #< witnessKey
                       , witnessKey #< nodeNext #|| nodeNext #== pconstant ""
-                      -- both directory entries are legitimate, this is proven by the 
+                      -- directory entries are legitimate, this is proven by the 
                       -- presence of the directory node currency symbol.
                       , phasDataCS # blacklistNodeCS # pfromData prevNodeUTxOF.value
                       ]
