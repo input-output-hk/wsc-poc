@@ -193,11 +193,11 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} UTxODat{uIn = seizingTxIn, uOut
 
       (seizedAddr, remainingValue) = case seizingTxOut of
         (C.TxOut a v _ _) ->
-          let (seized, other) =
+          let (_seized, other) =
                   partition
                     ( \case
                         (C.AdaAssetId, _q) -> False
-                        (C.AssetId a _, _q) -> a == seizingTokenPolicyId
+                        (C.AssetId a_ _, _q) -> a_ == seizingTokenPolicyId
                     )
                     $ toList $ C.txOutValueToValue v
           in (a, fromList other)
@@ -241,10 +241,10 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} UTxODat{uIn = seizingTxIn, uOut
     $ C.ScriptWitness C.ScriptWitnessForStakeAddr . programmableGlobalWitness
 
   -- TODO: check that the issuerTxOut is at a programmable logic payment credential
-checkIssuerAddressIsProgLogicCred :: forall era ctx m. ( MonadBuildTx era m) => C.PaymentCredential -> C.TxOut ctx era -> m ()
-checkIssuerAddressIsProgLogicCred _progLogicCred (C.TxOut (C.AddressInEra _ (C.ShelleyAddress _ _pcred _stakeRef)) _ _ C.ReferenceScriptNone) =
+_checkIssuerAddressIsProgLogicCred :: forall era ctx m. ( MonadBuildTx era m) => C.PaymentCredential -> C.TxOut ctx era -> m ()
+_checkIssuerAddressIsProgLogicCred _progLogicCred (C.TxOut (C.AddressInEra _ (C.ShelleyAddress _ _pcred _stakeRef)) _ _ C.ReferenceScriptNone) =
   pure ()
-checkIssuerAddressIsProgLogicCred _ _ = error "Issuer address is not a programmable logic credential"
+_checkIssuerAddressIsProgLogicCred _ _ = error "Issuer address is not a programmable logic credential"
 
 isNodeWithProgrammableSymbol :: forall era. CurrencySymbol -> UTxODat era DirectorySetNode -> Bool
 isNodeWithProgrammableSymbol programmableTokenSymbol (uDatum -> dat) = key dat == programmableTokenSymbol

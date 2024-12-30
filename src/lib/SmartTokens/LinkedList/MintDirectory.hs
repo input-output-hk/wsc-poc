@@ -21,10 +21,9 @@ module SmartTokens.LinkedList.MintDirectory (
   DirectoryNodeAction (..)
 ) where
 
-import Data.Maybe (fromJust)
 import Generics.SOP qualified as SOP
 import Plutarch.Core.Utils (pand'List, passert, phasUTxO)
-import Plutarch.DataRepr (DerivePConstantViaData (..), PDataFields)
+import Plutarch.DataRepr (DerivePConstantViaData (..))
 import Plutarch.LedgerApi.V3 (PScriptContext, PTxOutRef)
 import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (..))
 import Plutarch.Monadic qualified as P
@@ -35,10 +34,8 @@ import Plutarch.Prelude (ClosedTerm, DerivePlutusType (..), Generic, PAsData,
                          pfield, pfromData, pif, plam, plet, pletFields, pmatch,
                          pto, type (:-->), (#))
 import Plutarch.Unsafe (punsafeCoerce)
-import PlutusCore.Data qualified as PLC
 import PlutusLedgerApi.V3 (CurrencySymbol)
 import PlutusTx qualified
-import PlutusTx.Builtins.Internal qualified as BI
 import SmartTokens.LinkedList.Common (makeCommon, pInit, pInsert)
 
 --------------------------------
@@ -52,20 +49,6 @@ data DirectoryNodeAction
 
 PlutusTx.makeIsDataIndexed ''DirectoryNodeAction
   [('InitDirectory, 0), ('InsertDirectoryNode, 1)]
-
--- instance PlutusTx.ToData DirectoryNodeAction where
---   toBuiltinData = \case
---     InitDirectory -> BI.dataToBuiltinData $ PLC.Constr 0 []
---     InsertDirectoryNode sym -> BI.dataToBuiltinData $ PLC.Constr 1 [PlutusTx.toData sym]
-
--- instance PlutusTx.FromData DirectoryNodeAction where
---   fromBuiltinData (BI.builtinDataToData -> d) = case d of
---     PLC.Constr 0 [] -> Just InitDirectory
---     PLC.Constr 1 [PlutusTx.fromData -> Just currencySymbol] -> Just (InsertDirectoryNode currencySymbol)
---     _ -> Nothing
-
--- instance PlutusTx.UnsafeFromData DirectoryNodeAction where
---   unsafeFromBuiltinData = fromJust . PlutusTx.fromBuiltinData
 
 deriving via
   (DerivePConstantViaData DirectoryNodeAction PDirectoryNodeAction)

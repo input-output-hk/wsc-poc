@@ -181,7 +181,7 @@ transferSmartTokens paramsTxIn userCred blacklistNodes directoryList spendingUse
         C.AdaAssetId -> error "Ada is not programmable"
 
   transferProgrammableToken paramsTxIn txins (transPolicyId programmablePolicyId) directoryList -- Invoking the programmableBase and global scripts
-  addTransferWitness blacklistNodes userCred -- Proof of non-membership of the blacklist
+  addTransferWitness blacklistNodes -- Proof of non-membership of the blacklist
 
   -- Send outputs to destinationCred
   destStakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential destinationCred
@@ -287,8 +287,8 @@ checkNotBlacklisted nodes cred = case findProof nodes cred of
 {-| Add a proof that the user is allowed to transfer programmable tokens.
 Uses the user from 'HasOperatorEnv env'. Fails if the user is blacklisted.
 -}
-addTransferWitness :: forall env era m. (MonadError (AppError era) m, MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => [UTxODat era BlacklistNode] -> C.PaymentCredential -> m ()
-addTransferWitness blacklistNodes clientCred = Utils.inBabbage @era $ do
+addTransferWitness :: forall env era m. (MonadError (AppError era) m, MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => [UTxODat era BlacklistNode] -> m ()
+addTransferWitness blacklistNodes = Utils.inBabbage @era $ do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv) -- In this case 'operator' is the user
   nid <- queryNetworkId
   transferScript <- asks (Env.tleTransferScript . Env.transferLogicEnv)
@@ -298,7 +298,7 @@ addTransferWitness blacklistNodes clientCred = Utils.inBabbage @era $ do
 
       -- Finds the index of the blacklist node in the reference scripts
       findWitnessReferenceIndex txBody cred =
-        let UTxODat {uIn, uDatum = blnNodeDatum} = tryFindProof blacklistNodes cred
+        let UTxODat {uIn} = tryFindProof blacklistNodes cred
         in fromIntegral @Int @Integer $ findIndexReference uIn txBody
 
       -- Maps the credential to the index of the blacklist node in the reference scripts

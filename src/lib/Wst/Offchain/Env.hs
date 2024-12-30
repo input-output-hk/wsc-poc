@@ -377,8 +377,8 @@ addRuntimeEnv env e =
   e{ceRuntime = Identity env }
 
 withRuntime :: MonadReader (CombinedEnv o d t r era) m => RuntimeEnv -> ReaderT (CombinedEnv o d t Identity era) m a -> m a
-withRuntime runtime action =
-  asks (addRuntimeEnv runtime)
+withRuntime runtime_ action =
+  asks (addRuntimeEnv runtime_)
     >>= runReaderT action
 
 {-| Add an 'OperatorEnv' to the environment

@@ -27,10 +27,10 @@ module SmartTokens.Types.PTokenDirectory (
 
 import Generics.SOP qualified as SOP
 import Plutarch (Config (NoTracing))
-import Plutarch.Builtin (pasByteStr, pasConstr, pasList, pforgetData, plistData)
+import Plutarch.Builtin (pasList, pforgetData, plistData)
 import Plutarch.Core.PlutusDataList (DerivePConstantViaDataList (..),
                                      PlutusTypeDataList, ProductIsData (..))
-import Plutarch.Core.Utils (pcond, pheadSingleton, pmkBuiltinList)
+import Plutarch.Core.Utils (pheadSingleton, pmkBuiltinList)
 import Plutarch.DataRepr (PDataFields)
 import Plutarch.DataRepr.Internal (DerivePConstantViaData (..))
 import Plutarch.DataRepr.Internal.Field (HRec (..), Labeled (Labeled))
@@ -277,17 +277,3 @@ pisInsertedNode = phoistAcyclic $
 
       -- in pforgetData insertedKey #== pforgetData outputNodeDatumF.key
       --     #&& pforgetData coveringNext #== pforgetData ptailNextData
-
-pdeserializeCredential :: Term s (PAsData PCredential) -> Term s (PAsData PCredential)
-pdeserializeCredential term =
-  plet (pasConstr # pforgetData term) $ \constrPair ->
-    plet (pfstBuiltin # constrPair) $ \constrIdx ->
-      pif (plengthBS # (pasByteStr # (pheadSingleton # (psndBuiltin # constrPair))) #== 28)
-          (
-            pcond
-              [ ( constrIdx #== 0 , term)
-              , ( constrIdx #== 1 , term)
-              ]
-              perror
-          )
-          perror

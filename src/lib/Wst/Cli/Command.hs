@@ -12,9 +12,8 @@ import Convex.Wallet.Operator (OperatorConfigSigning,
                                parseOperatorConfigSigning)
 import Data.String (IsString (..))
 import Options.Applicative (CommandFields, Mod, Parser, ReadM, argument,
-                            command, eitherReader, fullDesc, help, info, long,
-                            many, metavar, optional, progDesc, short, str,
-                            strOption, subparser, (<|>))
+                            command, eitherReader, fullDesc, help, info,
+                            metavar, progDesc, subparser)
 import Text.Read (readMaybe)
 
 parseCommand :: Parser Command
