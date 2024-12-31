@@ -140,18 +140,17 @@ transferSmartTokensTx :: forall era env m.
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadUtxoQuery m
   )
-  => C.PaymentCredential -- ^ Source/User credential
-  -> C.AssetId -- ^ AssetId to transfer
+  => C.AssetId -- ^ AssetId to transfer
   -> Quantity -- ^ Amount of tokens to be minted
   -> C.PaymentCredential -- ^ Destination credential
   -> m (C.Tx era)
-transferSmartTokensTx srcCred assetId quantity destCred = do
+transferSmartTokensTx assetId quantity destCred = do
   directory <- Query.registryNodes @era
   blacklist <- Query.blacklistNodes @era
-  userOutputsAtProgrammable <- Query.userProgrammableOutputs srcCred
+  userOutputsAtProgrammable <- Env.operatorPaymentCredential >>= Query.userProgrammableOutputs
   paramsTxIn <- Query.globalParamsNode @era
   (tx, _) <- Env.balanceTxEnv_ $ do
-    BuildTx.transferSmartTokens paramsTxIn srcCred blacklist directory userOutputsAtProgrammable (assetId, quantity) destCred
+    BuildTx.transferSmartTokens paramsTxIn blacklist directory userOutputsAtProgrammable (assetId, quantity) destCred
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 blacklistCredentialTx :: forall era env m.

@@ -12,6 +12,7 @@ module Wst.Server.Types (
   QueryAPI,
   BuildTxAPI,
   IssueProgrammableTokenArgs(..),
+  TransferProgrammableTokenArgs(..),
   TextEnvelopeJSON(..),
 ) where
 
@@ -54,5 +55,19 @@ data IssueProgrammableTokenArgs =
     deriving stock (Eq, Show, Generic)
     deriving anyclass (ToJSON, FromJSON)
 
+data TransferProgrammableTokenArgs =
+  TransferProgrammableTokenArgs
+    { ttaSender    :: C.Address C.ShelleyAddr
+    , ttaRecipient :: C.Address C.ShelleyAddr
+    , ttaIssuer    :: C.Hash C.PaymentKey
+    , ttaAssetName :: AssetName
+    , ttaQuantity  :: Quantity
+    }
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (ToJSON, FromJSON)
+
 type BuildTxAPI era =
-  "programmable-token" :> "issue" :> Description "Create some programamble tokens" :> ReqBody '[JSON] IssueProgrammableTokenArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
+  "programmable-token" :>
+    ( "issue" :> Description "Create some programmable tokens" :> ReqBody '[JSON] IssueProgrammableTokenArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
+      :<|> "transfer" :> Description "Transfer programmable tokens from one address to another" :> ReqBody '[JSON] TransferProgrammableTokenArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
+    )

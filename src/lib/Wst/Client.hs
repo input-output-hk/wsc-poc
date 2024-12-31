@@ -10,6 +10,7 @@ module Wst.Client (
 
   -- * Build tx
   postIssueProgrammableTokenTx,
+  postTransferProgrammableTokenTx
 ) where
 
 import Cardano.Api qualified as C
@@ -20,7 +21,7 @@ import Servant.Client.Core (ClientError)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import Wst.Offchain.Query (UTxODat)
 import Wst.Server.Types (API, APIInEra, IssueProgrammableTokenArgs (..),
-                         TextEnvelopeJSON)
+                         TextEnvelopeJSON, TransferProgrammableTokenArgs (..))
 
 getHealthcheck :: ClientEnv -> IO (Either ClientError NoContent)
 getHealthcheck env = do
@@ -34,5 +35,10 @@ getGlobalParams env = do
 
 postIssueProgrammableTokenTx :: forall era. C.IsShelleyBasedEra era => ClientEnv -> IssueProgrammableTokenArgs -> IO (Either ClientError (TextEnvelopeJSON (C.Tx era)))
 postIssueProgrammableTokenTx env args = do
-  let _ :<|> _ :<|> issueProgrammableTokenTx = client (Proxy @(API era))
+  let _ :<|> _ :<|> (issueProgrammableTokenTx :<|> _) = client (Proxy @(API era))
   runClientM (issueProgrammableTokenTx args) env
+
+postTransferProgrammableTokenTx :: forall era. C.IsShelleyBasedEra era => ClientEnv -> TransferProgrammableTokenArgs -> IO (Either ClientError (TextEnvelopeJSON (C.Tx era)))
+postTransferProgrammableTokenTx env args = do
+  let _ :<|> _ :<|> (_ :<|> transferProgrammableTokenTx) = client (Proxy @(API era))
+  runClientM (transferProgrammableTokenTx args) env
