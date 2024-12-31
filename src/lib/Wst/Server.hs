@@ -22,8 +22,9 @@ import Wst.Offchain.BuildTx.ProgrammableLogic (alwaysSucceedsArgs,
 import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query qualified as Query
-import Wst.Server.Types (APIInEra, BuildTxAPI, IssueProgrammableTokenArgs (..),
-                         QueryAPI, TextEnvelopeJSON (..),
+import Wst.Server.Types (APIInEra, AddToBlacklistArgs (..), BuildTxAPI,
+                         IssueProgrammableTokenArgs (..), QueryAPI,
+                         SeizeAssetsArgs (..), TextEnvelopeJSON (..),
                          TransferProgrammableTokenArgs (..))
 
 runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env) => env -> IO ()
@@ -48,6 +49,8 @@ txApi :: forall env. (Env.HasDirectoryEnv env) => ServerT (BuildTxAPI C.ConwayEr
 txApi =
   issueProgrammableTokenEndpoint @C.ConwayEra @env
   :<|> transferProgrammableTokenEndpoint @C.ConwayEra @env
+  :<|> addToBlacklistEndpoint
+  :<|> seizeAssetsEndpoint
 
 issueProgrammableTokenEndpoint :: forall era env m.
   ( MonadReader env m
@@ -59,8 +62,8 @@ issueProgrammableTokenEndpoint :: forall era env m.
   , MonadUtxoQuery m
   )
   => IssueProgrammableTokenArgs -> m (TextEnvelopeJSON (C.Tx era))
-issueProgrammableTokenEndpoint IssueProgrammableTokenArgs{itaAssetName, itaQuantity, itaOperatorAddress} = do
-  operatorEnv <- Env.loadOperatorEnvFromAddress itaOperatorAddress
+issueProgrammableTokenEndpoint IssueProgrammableTokenArgs{itaAssetName, itaQuantity, itaIssuer} = do
+  operatorEnv <- Env.loadOperatorEnvFromAddress itaIssuer
   dirEnv <- asks Env.directoryEnv
 
       -- FIXME: Replace alwaysSucceedsArgs with blacklist monetary policy as soon as it is finished
@@ -71,6 +74,11 @@ issueProgrammableTokenEndpoint IssueProgrammableTokenArgs{itaAssetName, itaQuant
 paymentCredentialFromAddress :: C.Address C.ShelleyAddr -> C.PaymentCredential
 paymentCredentialFromAddress = \case
   C.ShelleyAddress _ cred _ -> C.fromShelleyPaymentCredential cred
+
+paymentKeyHashFromAddress :: C.Address C.ShelleyAddr -> C.Hash C.PaymentKey
+paymentKeyHashFromAddress = \case
+  C.ShelleyAddress _ (C.fromShelleyPaymentCredential -> C.PaymentCredentialByKey cred) _ -> cred
+  _ -> error "Expected PaymentCredentialByKey"
 
 transferProgrammableTokenEndpoint :: forall era env m.
   ( MonadReader env m
@@ -86,7 +94,45 @@ transferProgrammableTokenEndpoint TransferProgrammableTokenArgs{ttaSender, ttaRe
   operatorEnv <- Env.loadOperatorEnvFromAddress ttaSender
   dirEnv <- asks Env.directoryEnv
   programmableBaseLogicCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
-  let transferLogic = Env.mkTransferLogicEnv programmableBaseLogicCred ttaIssuer
+  let transferLogic = Env.mkTransferLogicEnv programmableBaseLogicCred (paymentKeyHashFromAddress ttaIssuer)
   assetId <- programmableTokenAssetId <$> Env.getGlobalParams <*> pure (fromTransferEnv transferLogic) <*> pure ttaAssetName
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
     TextEnvelopeJSON <$> Endpoints.transferSmartTokensTx assetId ttaQuantity (paymentCredentialFromAddress ttaRecipient)
+
+addToBlacklistEndpoint :: forall era env m.
+  ( MonadReader env m
+  , Env.HasDirectoryEnv env
+  , MonadBlockchain era m
+  , MonadError (AppError era) m
+  , C.IsBabbageBasedEra era
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , MonadUtxoQuery m
+  )
+  => AddToBlacklistArgs -> m (TextEnvelopeJSON (C.Tx era))
+addToBlacklistEndpoint AddToBlacklistArgs{atbIssuer, atbBlacklistAddress} = do
+  let badCred = paymentCredentialFromAddress atbBlacklistAddress
+  operatorEnv <- Env.loadOperatorEnvFromAddress atbIssuer
+  dirEnv <- asks Env.directoryEnv
+  programmableBaseLogicCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
+  let transferLogic = Env.mkTransferLogicEnv programmableBaseLogicCred (paymentKeyHashFromAddress atbIssuer)
+  Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
+    TextEnvelopeJSON <$> Endpoints.blacklistCredentialTx badCred
+
+seizeAssetsEndpoint :: forall era env m.
+  ( MonadReader env m
+  , Env.HasDirectoryEnv env
+  , MonadBlockchain era m
+  , MonadError (AppError era) m
+  , C.IsBabbageBasedEra era
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , MonadUtxoQuery m
+  )
+  => SeizeAssetsArgs -> m (TextEnvelopeJSON (C.Tx era))
+seizeAssetsEndpoint SeizeAssetsArgs{saIssuer, saTarget} = do
+  let badCred = paymentCredentialFromAddress saTarget
+  operatorEnv <- Env.loadOperatorEnvFromAddress saIssuer
+  dirEnv <- asks Env.directoryEnv
+  programmableBaseLogicCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
+  let transferLogic = Env.mkTransferLogicEnv programmableBaseLogicCred (paymentKeyHashFromAddress saIssuer)
+  Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
+    TextEnvelopeJSON <$> Endpoints.seizeCredentialAssetsTx badCred

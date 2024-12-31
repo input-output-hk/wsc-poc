@@ -13,6 +13,8 @@ module Wst.Server.Types (
   BuildTxAPI,
   IssueProgrammableTokenArgs(..),
   TransferProgrammableTokenArgs(..),
+  AddToBlacklistArgs(..),
+  SeizeAssetsArgs(..),
   TextEnvelopeJSON(..),
 ) where
 
@@ -48,7 +50,7 @@ type QueryAPI era =
 -}
 data IssueProgrammableTokenArgs =
   IssueProgrammableTokenArgs
-    { itaOperatorAddress :: C.Address C.ShelleyAddr
+    { itaIssuer    :: C.Address C.ShelleyAddr
     , itaAssetName :: AssetName
     , itaQuantity  :: Quantity
     }
@@ -59,9 +61,25 @@ data TransferProgrammableTokenArgs =
   TransferProgrammableTokenArgs
     { ttaSender    :: C.Address C.ShelleyAddr
     , ttaRecipient :: C.Address C.ShelleyAddr
-    , ttaIssuer    :: C.Hash C.PaymentKey
+    , ttaIssuer    :: C.Address C.ShelleyAddr
     , ttaAssetName :: AssetName
     , ttaQuantity  :: Quantity
+    }
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (ToJSON, FromJSON)
+
+data AddToBlacklistArgs =
+  AddToBlacklistArgs
+    { atbIssuer           :: C.Address C.ShelleyAddr
+    , atbBlacklistAddress :: C.Address C.ShelleyAddr
+    }
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (ToJSON, FromJSON)
+
+data SeizeAssetsArgs =
+  SeizeAssetsArgs
+    { saIssuer  :: C.Address C.ShelleyAddr
+    , saTarget  :: C.Address C.ShelleyAddr
     }
     deriving stock (Eq, Show, Generic)
     deriving anyclass (ToJSON, FromJSON)
@@ -70,4 +88,6 @@ type BuildTxAPI era =
   "programmable-token" :>
     ( "issue" :> Description "Create some programmable tokens" :> ReqBody '[JSON] IssueProgrammableTokenArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
       :<|> "transfer" :> Description "Transfer programmable tokens from one address to another" :> ReqBody '[JSON] TransferProgrammableTokenArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
+      :<|> "blacklist" :> Description "Add a credential to the blacklist" :> ReqBody '[JSON] AddToBlacklistArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
+      :<|> "seize" :> Description "Seize a user's funds" :> ReqBody '[JSON] SeizeAssetsArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
     )
