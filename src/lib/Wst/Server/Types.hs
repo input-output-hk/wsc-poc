@@ -31,7 +31,7 @@ import Data.Proxy (Proxy (..))
 import GHC.Generics (Generic)
 import Servant (FromHttpApiData (..), ToHttpApiData (toUrlPiece))
 import Servant.API (Capture, Description, Get, JSON, NoContent, Post, ReqBody,
-                    ToHttpApiData, type (:>), (:<|>) (..))
+                    type (:>), (:<|>) (..))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import Wst.Offchain.Query (UTxODat (..))
 
@@ -59,11 +59,11 @@ type API era =
   :<|> "query" :> QueryAPI era
   :<|> "tx" :> BuildTxAPI era
 
--- TODO: FromHttpApiData, ToHttpApiData C.Address C.ShelleyAddr
-
 type QueryAPI era =
   "global-params" :> Description "The UTxO with the global parameters" :> Get '[JSON] (UTxODat era ProgrammableLogicGlobalParams)
   :<|> "blacklist" :> Description "The list of addresses that have been blacklisted" :> Capture "address" (SerialiseAddress (C.Address C.ShelleyAddr)) :>  Get '[JSON] [C.Hash C.PaymentKey]
+  :<|> "user-funds" :> Description "Total value locked in programmable token outputs addressed to the user" :> Capture "address" (SerialiseAddress (C.Address C.ShelleyAddr)) :> Get '[JSON] C.Value
+  :<|> "all-funds" :> Description "Total value of all programmable tokens" :> Get '[JSON] C.Value
 
 {-| Arguments for the programmable-token endpoint. The asset name can be something like "USDW" for the regulated stablecoin.
 -}

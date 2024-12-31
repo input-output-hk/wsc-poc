@@ -6,8 +6,10 @@
 module Wst.Server(runServer) where
 
 import Cardano.Api.Shelley qualified as C
+import Control.Lens qualified as L
 import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader, asks)
+import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Data.Data (Proxy (..))
 import Network.Wai.Handler.Warp qualified as Warp
@@ -40,16 +42,18 @@ runServer env = do
 server :: forall env. (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env) => env -> Server APIInEra
 server env = hoistServer (Proxy @APIInEra) (runWstAppServant env) $
   healthcheck
-  :<|> queryApi @env @C.ConwayEra
+  :<|> queryApi @env
   :<|> txApi @env
 
 healthcheck :: Applicative m => m NoContent
 healthcheck = pure NoContent
 
-queryApi :: forall env era. C.IsBabbageBasedEra era => ServerT (QueryAPI era) (WstApp env era)
+queryApi :: forall env. (Env.HasDirectoryEnv env) => ServerT (QueryAPI C.ConwayEra) (WstApp env C.ConwayEra)
 queryApi =
   Query.globalParamsNode
-  :<|> queryBlacklistedNodes (Proxy @era)
+  :<|> queryBlacklistedNodes (Proxy @C.ConwayEra)
+  :<|> queryUserFunds @C.ConwayEra @env (Proxy @C.ConwayEra)
+  :<|> queryAllFunds @C.ConwayEra @env (Proxy @C.ConwayEra)
 
 txApi :: forall env. (Env.HasDirectoryEnv env) => ServerT (BuildTxAPI C.ConwayEra) (WstApp env C.ConwayEra)
 txApi =
@@ -74,6 +78,32 @@ queryBlacklistedNodes _ (SerialiseAddress addr) = do
         . blnKey
         . uDatum
   Env.withEnv $ Env.withTransfer transferLogic (fmap (fmap getHash) (Query.blacklistNodes @era))
+
+txOutValue :: C.IsMaryBasedEra era => C.TxOut C.CtxUTxO era -> C.Value
+txOutValue = L.view (L._TxOut . L._2 . L._TxOutValue)
+
+queryUserFunds :: forall era env m.
+  ( MonadUtxoQuery m
+  , C.IsBabbageBasedEra era
+  , MonadReader env m
+  , Env.HasDirectoryEnv env
+  , MonadBlockchain era m
+  )
+  => Proxy era
+  -> SerialiseAddress (C.Address C.ShelleyAddr)
+  -> m C.Value
+queryUserFunds _ (SerialiseAddress addr) =
+  foldMap (txOutValue . Query.uOut) <$> Query.userProgrammableOutputs @era @env (paymentCredentialFromAddress addr)
+
+queryAllFunds :: forall era env m.
+  ( MonadUtxoQuery m
+  , C.IsBabbageBasedEra era
+  , MonadReader env m
+  , Env.HasDirectoryEnv env
+  )
+  => Proxy era
+  -> m C.Value
+queryAllFunds _ = foldMap (txOutValue . Query.uOut) <$> Query.programmableLogicOutputs @era @env
 
 issueProgrammableTokenEndpoint :: forall era env m.
   ( MonadReader env m
