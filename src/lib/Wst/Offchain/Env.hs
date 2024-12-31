@@ -242,8 +242,8 @@ instance HasTransferLogicEnv TransferLogicEnv where
 {-| The 'TransferLogicEnv' with scripts that allow the given payment credential
 to manage the blacklist and issue / burn tokens
 -}
-mkTransferLogicEnv :: C.Hash C.PaymentKey -> TransferLogicEnv
-mkTransferLogicEnv cred =
+mkTransferLogicEnv :: C.PaymentCredential -> C.Hash C.PaymentKey -> TransferLogicEnv
+mkTransferLogicEnv progLogicBaseCred cred =
   let blacklistMinting = blacklistMintingScript cred
       blacklistPolicy = scriptPolicyIdV3 blacklistMinting
   in
@@ -251,7 +251,7 @@ mkTransferLogicEnv cred =
     { tleBlacklistMintingScript = blacklistMinting
     , tleBlacklistSpendingScript = blacklistSpendingScript cred
     , tleMintingScript =  permissionedTransferScript cred
-    , tleTransferScript = freezeTransferScript blacklistPolicy
+    , tleTransferScript = freezeTransferScript progLogicBaseCred blacklistPolicy
     , tleIssuerScript = permissionedTransferScript cred
     }
 
@@ -355,14 +355,15 @@ withTransfer dir action = do
   asks (addTransferEnv dir)
     >>= runReaderT action
 
-withTransferFor :: MonadReader (CombinedEnv o d t r era) m => C.Hash C.PaymentKey -> ReaderT (CombinedEnv o d Identity r era) m a -> m a
-withTransferFor = withTransfer . mkTransferLogicEnv
+withTransferFor :: MonadReader (CombinedEnv o d t r era) m => C.PaymentCredential -> C.Hash C.PaymentKey -> ReaderT (CombinedEnv o d Identity r era) m a -> m a
+withTransferFor plbBaseCred opPKH = withTransfer $ mkTransferLogicEnv plbBaseCred opPKH
 
-withTransferFromOperator :: MonadReader (CombinedEnv Identity d t r era) m => ReaderT (CombinedEnv Identity d Identity r era) m a -> m a
+withTransferFromOperator :: (MonadReader (CombinedEnv Identity Identity t r era) m) => ReaderT (CombinedEnv Identity Identity Identity r era) m a -> m a
 withTransferFromOperator action = do
   env <- ask
   let opPkh = fst . bteOperator . operatorEnv $ env
-  runReaderT action (addTransferEnv (mkTransferLogicEnv opPkh) env)
+      programmableBaseLogicCred = programmableLogicBaseCredential . directoryEnv $ env
+  runReaderT action (addTransferEnv (mkTransferLogicEnv programmableBaseLogicCred opPkh) env)
 
 {-| Add a 'DirectoryEnv' for the 'C.TxIn' in to the environment and run the
 action with the modified environment

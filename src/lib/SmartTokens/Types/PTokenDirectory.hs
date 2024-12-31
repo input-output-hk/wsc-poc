@@ -27,10 +27,10 @@ module SmartTokens.Types.PTokenDirectory (
 
 import Generics.SOP qualified as SOP
 import Plutarch (Config (NoTracing))
-import Plutarch.Builtin (pasList, pforgetData, plistData)
+import Plutarch.Builtin (pasByteStr, pasConstr, pasList, pforgetData, plistData)
 import Plutarch.Core.PlutusDataList (DerivePConstantViaDataList (..),
                                      PlutusTypeDataList, ProductIsData (..))
-import Plutarch.Core.Utils (pheadSingleton, pmkBuiltinList)
+import Plutarch.Core.Utils (pcond, pheadSingleton, pmkBuiltinList)
 import Plutarch.DataRepr (PDataFields)
 import Plutarch.DataRepr.Internal (DerivePConstantViaData (..))
 import Plutarch.DataRepr.Internal.Field (HRec (..), Labeled (Labeled))
@@ -217,7 +217,7 @@ isHeadNode = plam $ \node ->
 
 isTailNode :: ClosedTerm (PAsData PDirectorySetNode :--> PBool)
 isTailNode = plam $ \node ->
-  pfield @"next" # node #== pemptyCSData
+  pfield @"next" # node #== ptailNextData
 
 {-|
 
@@ -254,12 +254,6 @@ pisInsertedOnNode = phoistAcyclic $
     let expectedDirectoryNode = pmkDirectorySetNode # coveringKey # insertedKey # transferLogicCred # issuerLogicCred
      in outputNode #== expectedDirectoryNode
 
--- pisInsertedNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PCredential :--> PAsData PCredential :--> PAsData PDirectorySetNode :--> PBool)
--- pisInsertedNode = phoistAcyclic $
---   plam $ \insertedKey coveringNext transferLogicCred issuerLogicCred outputNode ->
---     let expectedDirectoryNode = pmkDirectorySetNode # insertedKey # coveringNext # transferLogicCred # issuerLogicCred
---      in outputNode #== expectedDirectoryNode
-
 pisInsertedNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PDirectorySetNode :--> PBool)
 pisInsertedNode = phoistAcyclic $
   plam $ \insertedKey coveringNext outputNode ->
@@ -267,13 +261,28 @@ pisInsertedNode = phoistAcyclic $
       let transferLogicCred_ = outputNodeDatumF.transferLogicScript
           issuerLogicCred_ = outputNodeDatumF.issuerLogicScript
           expectedDirectoryNode =
-            pmkDirectorySetNode # insertedKey # coveringNext # transferLogicCred_ # issuerLogicCred_
+            pmkDirectorySetNode # insertedKey # coveringNext # pdeserializeCredential transferLogicCred_ # pdeserializeCredential issuerLogicCred_
+      in outputNode #== expectedDirectoryNode
 
       -- TODO (jm): Uncommenting the following line results in an error. This is spdeserializeCredential trange because the check below
       -- asserts that the 'key' and 'next' fields of 'outputnode' are equal to what we expect, and the other two
       -- fields (transferLogicScript, issuerLogicScript) should also be equal when we construct the 'expectedDirectoryNode'
 
-      in ptraceInfo (pshow $ pmkBuiltinList [pforgetData expectedDirectoryNode]) $ outputNode #== expectedDirectoryNode
+      -- in ptraceInfo (pshow $ pmkBuiltinList [pforgetData expectedDirectoryNode]) $ outputNode #== expectedDirectoryNode
 
-      -- in pforgetData insertedKey #== pforgetData outputNodeDatumF.key
-      --     #&& pforgetData coveringNext #== pforgetData ptailNextData
+      -- -- in pforgetData insertedKey #== pforgetData outputNodeDatumF.key
+      -- --     #&& pforgetData coveringNext #== pforgetData ptailNextData
+
+pdeserializeCredential :: Term s (PAsData PCredential) -> Term s (PAsData PCredential)
+pdeserializeCredential term =
+  plet (pasConstr # pforgetData term) $ \constrPair ->
+    plet (pfstBuiltin # constrPair) $ \constrIdx ->
+      pif (plengthBS # (pasByteStr # (pheadSingleton # (psndBuiltin # constrPair))) #== 28)
+          (
+            pcond
+              [ ( constrIdx #== 0 , term)
+              , ( constrIdx #== 1 , term)
+              ]
+              perror
+          )
+          perror

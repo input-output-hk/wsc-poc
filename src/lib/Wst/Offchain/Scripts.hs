@@ -109,9 +109,9 @@ permissionedTransferScript cred =
   let script = tryCompile prodConfig $ mkPermissionedTransfer # pdata (pconstant $ transPubKeyHash cred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
-freezeTransferScript :: C.PolicyId -> C.PlutusScript C.PlutusScriptV3
-freezeTransferScript blacklistPolicyId =
-  let script = tryCompile prodConfig $ mkFreezeAndSeizeTransfer # pdata (pconstant $ transPolicyId blacklistPolicyId)
+freezeTransferScript :: C.PaymentCredential -> C.PolicyId -> C.PlutusScript C.PlutusScriptV3
+freezeTransferScript progLogicBaseSpndingCred blacklistPolicyId =
+  let script = tryCompile prodConfig $ mkFreezeAndSeizeTransfer # pdata (pconstant $ transCredential progLogicBaseSpndingCred) # pdata (pconstant $ transPolicyId blacklistPolicyId)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 blacklistMintingScript :: C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3

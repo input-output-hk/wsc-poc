@@ -1,10 +1,11 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use newtype instead of data" #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedRecordDot  #-}
-{-# LANGUAGE QualifiedDo #-}
+{-# LANGUAGE OverloadedStrings    #-}
+{-# LANGUAGE QualifiedDo          #-}
+{-# LANGUAGE TemplateHaskell      #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE TemplateHaskell       #-}
+{-# OPTIONS_GHC -Wno-unused-do-bind #-}
 
 module SmartTokens.Contracts.ExampleTransferLogic (
   mkPermissionedTransfer,
@@ -12,27 +13,21 @@ module SmartTokens.Contracts.ExampleTransferLogic (
   BlacklistProof (..),
 ) where
 
-import Plutarch.LedgerApi.V3
-    ( PPubKeyHash,
-      PCurrencySymbol,
-      POutputDatum(POutputDatum),
-      PScriptContext,
-      PTxInInfo )
+import Plutarch.Builtin (pasByteStr, pasConstr, pforgetData)
+import Plutarch.Core.Utils (pand'List, pelemAtFast, phasDataCS, pisRewarding,
+                            ptxSignedByPkh, pvalidateConditions)
+import Plutarch.DataRepr (DerivePConstantViaData (..))
+import Plutarch.LedgerApi.V3 (PCredential, PCurrencySymbol,
+                              PMaybeData (PDJust, PDNothing),
+                              POutputDatum (POutputDatum), PPubKeyHash,
+                              PScriptContext, PTxInInfo)
+import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (..))
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
-import Plutarch.Builtin ( pasByteStr, pasConstr, pforgetData )
-import Plutarch.Core.Utils
-    ( pisRewarding,
-      phasDataCS,
-      pelemAtFast,
-      ptxSignedByPkh,
-      pand'List,
-      pvalidateConditions )
-import Plutarch.Unsafe ( punsafeCoerce )
-import SmartTokens.Types.PTokenDirectory ( PBlacklistNode, pletFieldsBlacklistNode)
-import qualified PlutusTx
-import Plutarch.DataRepr (DerivePConstantViaData (..))
-import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (..))
+import Plutarch.Unsafe (punsafeCoerce)
+import PlutusTx qualified
+import SmartTokens.Types.PTokenDirectory (PBlacklistNode,
+                                          pletFieldsBlacklistNode)
 
 -- >>> _printTerm $ unsafeEvalTerm NoTracing (pconstant $ NonmembershipProof 1)
 -- "program 1.0.0 (Constr 0 [I 1])"
@@ -69,7 +64,7 @@ instance PUnsafeLiftDecl PBlacklistProof where
   type PLifted PBlacklistProof = BlacklistProof
 
 {-|
-  The 'mkPermissionedTransfer' is a transfer logic script that enforces that all transactions which spend the 
+  The 'mkPermissionedTransfer' is a transfer logic script that enforces that all transactions which spend the
   associated programmable tokens must be signed by the specified permissioned credential.
 
   Parameters:
@@ -108,14 +103,10 @@ mkPermissionedTransfer = plam $ \permissionedCred ctx ->
   It performs the following checks for each proof:
   - For 'PNonmembershipProof':
     - Ensures that the two nodes are adjacent in the blacklist.
-    - Verifies that the witness key is not in the blacklist by checking that it is lexographically greater than the key of the 
-      first node and lexographically less than the key of the second node (and thus if it was in the blacklist those two nodes 
+    - Verifies that the witness key is not in the blacklist by checking that it is lexographically greater than the key of the
+      first node and lexographically less than the key of the second node (and thus if it was in the blacklist those two nodes
       would not be adjacent).
     - Confirms the legitimacy of both directory entries by checking the presence of the directory node currency symbol.
-  - For 'PNonmembershipProofTail': FIXME: outdated
-    - Ensures that the witness key is greater than the tail node key in the blacklist.
-    - Confirms the legitimacy of the directory entry by checking the presence of the directory node currency symbol.
-
   If any of the checks fail, the function throws an error.
 -}
 pvalidateWitnesses :: Term s (PAsData PCurrencySymbol :--> PBuiltinList (PAsData PBlacklistProof) :--> PBuiltinList (PAsData PTxInInfo) :--> PBuiltinList (PAsData PByteString) :--> PBool)
@@ -136,12 +127,12 @@ pvalidateWitnesses = phoistAcyclic $ plam $ \blacklistNodeCS proofs refInputs wi
               let checks =
                     pand'List
                       [
-                      -- the currency symbol is not in the blacklist
-                      nodeKey #< witnessKey
-                      , witnessKey #< nodeNext #|| nodeNext #== pconstant ""
-                      -- directory entries are legitimate, this is proven by the 
+                      -- the witness is not in the blacklist
+                      ptraceInfoIfFalse "witness is blacklisted" $ nodeKey #< witnessKey
+                      , ptraceInfoIfFalse "witness is blacklisted" $ witnessKey #< nodeNext
+                      -- directory entries are legitimate, this is proven by the
                       -- presence of the directory node currency symbol.
-                      , phasDataCS # blacklistNodeCS # pfromData prevNodeUTxOF.value
+                      , ptraceInfoIfFalse "indexed invalid blacklist node" $ phasDataCS # blacklistNodeCS # pfromData prevNodeUTxOF.value
                       ]
               pif checks
                   (self # (ptail # remainingProofs) # remainWits)
@@ -151,9 +142,34 @@ pvalidateWitnesses = phoistAcyclic $ plam $ \blacklistNodeCS proofs refInputs wi
         txWits
     ) # proofs # witnesses
 
+pextractRequiredWitnesses :: Term s (PAsData PCredential :--> PBuiltinList (PAsData PTxInInfo) :--> PBuiltinList (PAsData PByteString))
+pextractRequiredWitnesses = phoistAcyclic $ plam $ \progBaseCred inputs ->
+  (pfix #$ plam $ \self acc ->
+    pelimList
+      (\txIn xs ->
+        self
+          # pletFields @'["address"] (pfield @"resolved" # txIn) (\txInF ->
+              plet txInF.address $ \addr ->
+                pif ((pfield @"credential" # addr) #== progBaseCred)
+                    (
+                      pmatch (pfield @"stakingCredential" # addr) $ \case
+                        PDJust ((pfield @"_0" #) -> stakingCred) ->
+                          let ownerCred = phead #$ psndBuiltin #$ pasConstr # pforgetData stakingCred
+                              credHash = punsafeCoerce @_ @_ @(PAsData PByteString) $ phead #$ psndBuiltin #$ pasConstr # ownerCred
+                          in pcons # credHash # acc
+                        PDNothing _ -> perror
+                    )
+                    acc
+              )
+          # xs
+      )
+      acc
+  )
+  # pnil
+  # inputs
 
 {-|
-  The 'mkFreezeAndSeizeTransfer' is a transfer logic script that allows the associated programmable token 
+  The 'mkFreezeAndSeizeTransfer' is a transfer logic script that allows the associated programmable token
   to be frozen via a dynamic blacklist.
 
   Parameters:
@@ -164,28 +180,17 @@ pvalidateWitnesses = phoistAcyclic $ plam $ \blacklistNodeCS proofs refInputs wi
   1. Constructs a list of transaction witnesses by iterating over the withdrawal list, extracting the script credentials and
      prepending them to the transaction required_signers set (txInfoSignatories).
   2. Enforces that the script is being invoked as a rewarding script (withdraw-zero trick)
-  3. Validates that none of the tx witnesses are in the blacklist. This is done by iterating over the witnesses 
-     the blacklist proofs (provided via the redeemer) verifying the correctness of each proof 
+  3. Validates that none of the tx witnesses are in the blacklist. This is done by iterating over the witnesses
+     the blacklist proofs (provided via the redeemer) verifying the correctness of each proof
      (i.e. that the proof really does prove that the associated witness is not in the blacklist).
 -}
-mkFreezeAndSeizeTransfer :: ClosedTerm (PAsData PCurrencySymbol :--> PScriptContext :--> PUnit)
-mkFreezeAndSeizeTransfer = plam $ \blacklistNodeCS ctx -> P.do
+mkFreezeAndSeizeTransfer :: ClosedTerm (PAsData PCredential :--> PAsData PCurrencySymbol :--> PScriptContext :--> PUnit)
+mkFreezeAndSeizeTransfer = plam $ \programmableLogicBaseCred blacklistNodeCS ctx -> P.do
   ctxF <- pletFields @'["txInfo", "redeemer", "scriptInfo"] ctx
   infoF <- pletFields @'["inputs", "referenceInputs", "outputs", "signatories", "wdrl"] ctxF.txInfo
   let red = pfromData $ punsafeCoerce @_ @_ @(PAsData (PBuiltinList (PAsData PBlacklistProof))) (pto ctxF.redeemer)
-  pkWits <- plet $ punsafeCoerce @_ @_ @(PBuiltinList (PAsData PByteString)) (pfromData infoF.signatories)
-  let txWitnesses = pfix #
-        plam (\self wdrlList ->
-          pelimList @PBuiltinList
-            (\wdrlPair rest ->
-              let cred = pfstBuiltin # wdrlPair
-                  script = punsafeCoerce @_ @_ @(PAsData PByteString) $ phead #$ psndBuiltin #$ pasConstr # pforgetData cred
-              in pcons # script # (self # rest)
-            )
-            pkWits
-            wdrlList
-            ) # pto (pfromData infoF.wdrl)
+  let txWitnesses = pextractRequiredWitnesses # programmableLogicBaseCred # pfromData infoF.inputs
   pvalidateConditions
     [ pisRewarding ctxF.scriptInfo
-    , pvalidateWitnesses # blacklistNodeCS # red # infoF.referenceInputs # txWitnesses
+    , pvalidateWitnesses # blacklistNodeCS # red # pfromData infoF.referenceInputs # txWitnesses
     ]

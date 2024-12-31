@@ -5,8 +5,8 @@
 {-# LANGUAGE OverloadedRecordDot   #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE QualifiedDo           #-}
+{-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE UndecidableInstances  #-}
 
 module SmartTokens.Contracts.ProgrammableLogicBase (
@@ -34,15 +34,17 @@ import Plutarch.LedgerApi.V3 (AmountGuarantees (Positive),
 import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (..))
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude (ClosedTerm, DerivePlutusType (..), Generic, PAsData,
-                         PBool, PBuiltinList, PBuiltinPair, PByteString,
-                         PDataRecord, PEq (..), PInteger, PIsData,
-                         PLabeledType ((:=)),
+                         PBuiltinList, PBuiltinPair, PByteString, PDataRecord,
+                         PEq (..), PInteger, PIsData, PLabeledType ((:=)),
                          PListLike (pcons, pelimList, phead, ptail),
-                         PPartialOrd ((#<)), PUnit, PlutusType, PlutusTypeData,
-                         S, Term, pcon, pconstant, pdata, pelem, perror, pfield,
-                         pfix, pfromData, pfstBuiltin, phoistAcyclic, pif, plam,
-                         plet, pletFields, pmap, pmatch, pnot, psndBuiltin, pto,
-                         ptraceInfo, type (:-->), (#$), (#), (#||), PShow)
+                         PPartialOrd ((#<)), PShow, PUnit, PlutusType,
+                         PlutusTypeData, S, Term, pcon, pconstant, pdata, pelem,
+                         perror, pfield, pfix, pfromData, pfstBuiltin,
+                         phoistAcyclic, pif, plam, plet, pletFields, pmap,
+                         pmatch, pnot, psndBuiltin, pto, ptraceInfo,
+                         ptraceInfoError, ptraceInfoIfFalse, type (:-->), (#$),
+                         (#))
+import Plutarch.Show (pshow)
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V1.Value (Value)
 import PlutusTx qualified
@@ -122,11 +124,11 @@ pvalueFromCred = phoistAcyclic $ plam $ \cred sigs scripts inputs ->
                                 PPubKeyCredential ((pfield @"_0" #) -> pkh) ->
                                   pif (ptxSignedByPkh # pkh # sigs)
                                       (acc <> pfromData txInF.value)
-                                      perror
+                                      (ptraceInfoError "Missing required pk witness")
                                 PScriptCredential ((pfield @"_0" #) -> scriptHash_) ->
                                   pif (pelem # punsafeCoerce scriptHash_ # scripts)
                                       (acc <> pfromData txInF.value)
-                                      perror
+                                      (ptraceInfoError "Missing required script witness")
                             _ -> perror
                         PDNothing _ -> perror
                     )
@@ -178,66 +180,66 @@ mkProgrammableLogicBase = plam $ \stakeCred ctx ->
                     # plam (\withdrawPair -> pfstBuiltin # withdrawPair #== stakeCred)
                     # (ptail # withdrawals)
                 )
-      in pvalidateConditions [hasCred]
+      in pvalidateConditions [ptraceInfoIfFalse "programmable global not invoked" hasCred]
 
 -- | Traverse the currency symbols of the combined value of all programmable base inputs
 -- (excluding the first currency symbol in `totalValue` which the ledger enforces must be Ada).
 -- For each currency symbol, we check a proof that either:
 -- 1. The currency symbol is in the directory and the associated transfer logic script is executed in the transaction.
 -- 2. The currency symbol is not in the directory.
-pcheckTransferLogic :: Term s (PAsData PCurrencySymbol :--> PBuiltinList (PAsData PTxInInfo) :--> PBuiltinList (PAsData PTokenProof) :--> PBuiltinList (PAsData PByteString) :--> PValue 'Sorted 'Positive :--> PBool)
-pcheckTransferLogic = plam $ \directoryNodeCS refInputs proofList scripts totalValue ->
-  plet (pelemAtFast @PBuiltinList # refInputs) $ \patRefUTxOIdx ->
-    let mapInnerList = pto (pto totalValue)
-        go = pfix #$ plam $ \self proofs innerValue ->
-              pelimList
-                (\csPair csPairs ->
-                  let cs :: Term _ (PAsData PByteString)
-                      cs = punsafeCoerce $ pfstBuiltin # csPair
-                  in
-                    pmatch (pfromData $ phead # proofs) $ \case
-                      PTokenExists ((pfield @"nodeIdx" #) -> nodeIdx) -> P.do
-                        directoryNodeUTxOF <- pletFields @'["value", "datum"] $ pfield @"resolved" # (patRefUTxOIdx # pfromData nodeIdx)
-                        POutputDatum ((pfield @"outputDatum" #) -> paramDat') <- pmatch directoryNodeUTxOF.datum
-                        directoryNodeDatumF <- pletFields @'["key", "next", "transferLogicScript"] (punsafeCoerce @_ @_ @PDirectorySetNode (pto paramDat'))
-                        let transferLogicScriptHash = punsafeCoerce @_ @_ @(PAsData PByteString) $ phead #$ psndBuiltin #$ pasConstr # pforgetData directoryNodeDatumF.transferLogicScript
-                        -- validate that the directory entry for the currency symbol is referenced by the proof
-                        -- and that the associated transfer logic script is executed in the transaction
-                        let checks =
-                              pand'List
-                                [ pelem # transferLogicScriptHash # scripts
-                                , punsafeCoerce directoryNodeDatumF.key #== cs
-                                , phasDataCS # directoryNodeCS # pfromData directoryNodeUTxOF.value
-                                ]
-                        pif checks
-                            (self # (ptail # proofs) # csPairs)
-                            perror
-                      PTokenDoesNotExist notExist -> P.do
-                        notExistF <- pletFields @'["nodeIdx"] notExist
-                        prevNodeUTxOF <- pletFields @'["value", "datum"] $ pfield @"resolved" # (patRefUTxOIdx # pfromData notExistF.nodeIdx)
-                        POutputDatum ((pfield @"outputDatum" #) -> prevNodeDat') <- pmatch prevNodeUTxOF.datum
-                        nodeDatumF <- pletFields @'["key", "next"] (punsafeCoerce @_ @_ @PDirectorySetNode (pto prevNodeDat'))
-                        currCS <- plet $ pasByteStr # pforgetData (pfstBuiltin # csPair)
-                        nodeKey <- plet $ pasByteStr # pforgetData nodeDatumF.key
-                        nodeNext <- plet $ pasByteStr # pforgetData nodeDatumF.next
-                        let checks =
-                              pand'List
-                                [
-                                -- the currency symbol is not in the directory
-                                nodeKey #< currCS
-                                , currCS #< nodeNext #|| nodeNext #== pconstant ""
-                                -- both directory entries are legitimate, this is proven by the
-                                -- presence of the directory node currency symbol.
-                                , phasDataCS # directoryNodeCS # pfromData prevNodeUTxOF.value
-                                ]
-                        pif checks
-                            (self # (ptail # proofs) # csPairs)
-                            perror
-                )
-                (pconstant True)
-                innerValue
-    -- drop the ada entry in the value before traversing the rest of the value entries
-    in go # proofList # (ptail # mapInnerList)
+-- pcheckTransferLogic :: Term s (PAsData PCurrencySymbol :--> PBuiltinList (PAsData PTxInInfo) :--> PBuiltinList (PAsData PTokenProof) :--> PBuiltinList (PAsData PByteString) :--> PValue 'Sorted 'Positive :--> PBool)
+-- pcheckTransferLogic = plam $ \directoryNodeCS refInputs proofList scripts totalValue ->
+--   plet (pelemAtFast @PBuiltinList # refInputs) $ \patRefUTxOIdx ->
+--     let mapInnerList = pto (pto totalValue)
+--         go = pfix #$ plam $ \self proofs innerValue ->
+--               pelimList
+--                 (\csPair csPairs ->
+--                   let cs :: Term _ (PAsData PByteString)
+--                       cs = punsafeCoerce $ pfstBuiltin # csPair
+--                   in
+--                     pmatch (pfromData $ phead # proofs) $ \case
+--                       PTokenExists ((pfield @"nodeIdx" #) -> nodeIdx) -> P.do
+--                         directoryNodeUTxOF <- pletFields @'["value", "datum"] $ pfield @"resolved" # (patRefUTxOIdx # pfromData nodeIdx)
+--                         POutputDatum ((pfield @"outputDatum" #) -> paramDat') <- pmatch directoryNodeUTxOF.datum
+--                         directoryNodeDatumF <- pletFields @'["key", "next", "transferLogicScript"] (punsafeCoerce @_ @_ @PDirectorySetNode (pto paramDat'))
+--                         let transferLogicScriptHash = punsafeCoerce @_ @_ @(PAsData PByteString) $ phead #$ psndBuiltin #$ pasConstr # pforgetData directoryNodeDatumF.transferLogicScript
+--                         -- validate that the directory entry for the currency symbol is referenced by the proof
+--                         -- and that the associated transfer logic script is executed in the transaction
+--                         let checks =
+--                               pand'List
+--                                 [ pelem # transferLogicScriptHash # scripts
+--                                 , punsafeCoerce directoryNodeDatumF.key #== cs
+--                                 , phasDataCS # directoryNodeCS # pfromData directoryNodeUTxOF.value
+--                                 ]
+--                         pif checks
+--                             (self # (ptail # proofs) # csPairs)
+--                             perror
+--                       PTokenDoesNotExist notExist -> P.do
+--                         notExistF <- pletFields @'["nodeIdx"] notExist
+--                         prevNodeUTxOF <- pletFields @'["value", "datum"] $ pfield @"resolved" # (patRefUTxOIdx # pfromData notExistF.nodeIdx)
+--                         POutputDatum ((pfield @"outputDatum" #) -> prevNodeDat') <- pmatch prevNodeUTxOF.datum
+--                         nodeDatumF <- pletFields @'["key", "next"] (punsafeCoerce @_ @_ @PDirectorySetNode (pto prevNodeDat'))
+--                         currCS <- plet $ pasByteStr # pforgetData (pfstBuiltin # csPair)
+--                         nodeKey <- plet $ pasByteStr # pforgetData nodeDatumF.key
+--                         nodeNext <- plet $ pasByteStr # pforgetData nodeDatumF.next
+--                         let checks =
+--                               pand'List
+--                                 [
+--                                 -- the currency symbol is not in the directory
+--                                 nodeKey #< currCS
+--                                 , currCS #< nodeNext
+--                                 -- both directory entries are legitimate, this is proven by the
+--                                 -- presence of the directory node currency symbol.
+--                                 , phasDataCS # directoryNodeCS # pfromData prevNodeUTxOF.value
+--                                 ]
+--                         pif checks
+--                             (self # (ptail # proofs) # csPairs)
+--                             perror
+--                 )
+--                 (pconstant True)
+--                 innerValue
+--     -- drop the ada entry in the value before traversing the rest of the value entries
+--     in go # proofList # (ptail # mapInnerList)
 
 -- | Traverse the currency symbols of the combined value of all programmable base inputs
 -- (excluding the first currency symbol in `totalValue` which the ledger enforces must be Ada).
@@ -269,9 +271,9 @@ pcheckTransferLogicAndGetProgrammableValue = plam $ \directoryNodeCS refInputs p
                         -- and that the associated transfer logic script is executed in the transaction
                         let checks =
                               pand'List
-                                [ pelem # transferLogicScriptHash # scripts
-                                , punsafeCoerce directoryNodeDatumF.key #== cs
-                                , phasDataCS # directoryNodeCS # pfromData directoryNodeUTxOF.value
+                                [ ptraceInfoIfFalse "Missing required transfer script" $ pelem # transferLogicScriptHash # scripts
+                                , ptraceInfoIfFalse "directory proof mismatch" $ punsafeCoerce directoryNodeDatumF.key #== cs
+                                , ptraceInfoIfFalse "invalid dir node" $ phasDataCS # directoryNodeCS # pfromData directoryNodeUTxOF.value
                                 ]
                         pif checks
                             (self # (ptail # proofs) # csPairs # (pcons # csPair # actualProgrammableTokenValue))
@@ -288,11 +290,11 @@ pcheckTransferLogicAndGetProgrammableValue = plam $ \directoryNodeCS refInputs p
                               pand'List
                                 [
                                 -- the currency symbol is not in the directory
-                                nodeKey #< currCS
-                                , currCS #< nodeNext #|| nodeNext #== pconstant ""
+                                ptraceInfoIfFalse "dir neg-proof node must cover" $ nodeKey #< currCS
+                                , ptraceInfoIfFalse "dir neg-proof node must cover" $ currCS #< nodeNext
                                 -- both directory entries are legitimate, this is proven by the
                                 -- presence of the directory node currency symbol.
-                                , phasDataCS # directoryNodeCS # pfromData prevNodeUTxOF.value
+                                , ptraceInfoIfFalse "invalid dir node n" $ phasDataCS # directoryNodeCS # pfromData prevNodeUTxOF.value
                                 ]
                         pif checks
                             (self # (ptail # proofs) # csPairs # actualProgrammableTokenValue)
@@ -350,6 +352,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
   infoF <- pletFields @'["inputs", "referenceInputs", "outputs", "signatories", "wdrl"] ctxF.txInfo
   let red = pfromData $ punsafeCoerce @_ @_ @(PAsData PProgrammableLogicGlobalRedeemer) (pto ctxF.redeemer)
   referenceInputs <- plet $ pfromData infoF.referenceInputs
+
   -- Extract protocol parameter UTxO
   ptraceInfo "Extracting protocol parameter UTxO"
 
@@ -367,7 +370,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
   progLogicCred <- plet protocolParamsF.progLogicCred
 
   ptraceInfo "Extracting invoked scripts"
-  invokedScripts <- plet $ 
+  invokedScripts <- plet $
         pmap @PBuiltinList
           # plam (\wdrlPair ->
                     let cred = pfstBuiltin # wdrlPair
@@ -393,13 +396,8 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
 
       pvalidateConditions
           [ pisRewarding ctxF.scriptInfo
-          , pcheckTransferLogic
-              # protocolParamsF.directoryNodeCS
-              # referenceInputs
-              # pfromData proofs
-              # invokedScripts
-              # totalProgTokenValue_
-          , pvalueContains # (pvalueToCred # progLogicCred # pfromData infoF.outputs) # totalProgTokenValue_
+          , ptraceInfoIfFalse "prog tokens escape" $
+              pvalueContains # (pvalueToCred # progLogicCred # pfromData infoF.outputs) # totalProgTokenValue_
           ]
     PSeizeAct seizeAct -> P.do
       -- TODO:

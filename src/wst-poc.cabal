@@ -63,6 +63,7 @@ library
     SmartTokens.Core.Scripts
     SmartTokens.LinkedList.Common
     SmartTokens.LinkedList.MintDirectory
+    SmartTokens.LinkedList.SpendBlacklist
     SmartTokens.LinkedList.SpendDirectory
     SmartTokens.Types.Constants
     SmartTokens.Types.ProtocolParams

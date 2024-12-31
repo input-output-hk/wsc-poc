@@ -89,10 +89,11 @@ issueProgrammableTokenTx issueTokenArgs assetName quantity = do
     BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness (BuildTx.intaMintingLogic issueTokenArgs) C.NoScriptDatumForStake ()
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
-deployBlacklistTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => m (C.Tx era)
+deployBlacklistTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, Env.HasDirectoryEnv env) => m (C.Tx era)
 deployBlacklistTx = do
   opEnv <- asks Env.operatorEnv
-  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withTransferFromOperator
+  dirEnv <- asks Env.directoryEnv
+  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectory dirEnv $ Env.withTransferFromOperator
               $ Env.balanceTxEnv_ BuildTx.initBlacklist
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
