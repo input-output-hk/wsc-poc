@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds          #-}
 {-# LANGUAGE DeriveAnyClass     #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE TypeOperators      #-}
 
 
@@ -11,11 +12,16 @@ module Wst.Server.Types (
   APIInEra,
   QueryAPI,
   BuildTxAPI,
+
+  -- * Build tx arguments
   IssueProgrammableTokenArgs(..),
   TransferProgrammableTokenArgs(..),
   AddToBlacklistArgs(..),
   SeizeAssetsArgs(..),
+
+  -- * Newtypes
   TextEnvelopeJSON(..),
+  SerialiseAddress(..)
 ) where
 
 import Cardano.Api (AssetName, Quantity)
@@ -23,8 +29,9 @@ import Cardano.Api qualified as C
 import Data.Aeson (FromJSON (..), ToJSON (..))
 import Data.Proxy (Proxy (..))
 import GHC.Generics (Generic)
-import Servant.API (Description, Get, JSON, NoContent, Post, ReqBody, type (:>),
-                    (:<|>) (..))
+import Servant (FromHttpApiData (..), ToHttpApiData (toUrlPiece))
+import Servant.API (Capture, Description, Get, JSON, NoContent, Post, ReqBody,
+                    ToHttpApiData, type (:>), (:<|>) (..))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import Wst.Offchain.Query (UTxODat (..))
 
@@ -38,13 +45,25 @@ instance C.HasTextEnvelope a => ToJSON (TextEnvelopeJSON a) where
 instance C.HasTextEnvelope a => FromJSON (TextEnvelopeJSON a) where
   parseJSON val = parseJSON val >>= either (fail . show) (pure . TextEnvelopeJSON) . C.deserialiseFromTextEnvelope (C.proxyToAsType Proxy)
 
+newtype SerialiseAddress a = SerialiseAddress{unSerialiseAddress :: a }
+
+instance C.SerialiseAddress a => FromHttpApiData (SerialiseAddress a) where
+  parseUrlPiece =
+    maybe (Left "Failed to deserialise address") (Right . SerialiseAddress) . C.deserialiseAddress (C.proxyToAsType Proxy)
+
+instance C.SerialiseAddress a => ToHttpApiData (SerialiseAddress a) where
+  toUrlPiece = C.serialiseAddress . unSerialiseAddress
+
 type API era =
   "healthcheck" :> Description "Is the server alive?" :> Get '[JSON] NoContent
   :<|> "query" :> QueryAPI era
   :<|> "tx" :> BuildTxAPI era
 
+-- TODO: FromHttpApiData, ToHttpApiData C.Address C.ShelleyAddr
+
 type QueryAPI era =
   "global-params" :> Description "The UTxO with the global parameters" :> Get '[JSON] (UTxODat era ProgrammableLogicGlobalParams)
+  :<|> "blacklist" :> Description "The list of addresses that have been blacklisted" :> Capture "address" (SerialiseAddress (C.Address C.ShelleyAddr)) :>  Get '[JSON] [C.Hash C.PaymentKey]
 
 {-| Arguments for the programmable-token endpoint. The asset name can be something like "USDW" for the regulated stablecoin.
 -}

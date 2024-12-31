@@ -33,7 +33,7 @@ getHealthcheck env = do
 
 getGlobalParams :: forall era. C.IsShelleyBasedEra era => ClientEnv -> IO (Either ClientError (UTxODat era ProgrammableLogicGlobalParams))
 getGlobalParams env = do
-  let _ :<|> globalParams :<|> _ = client (Proxy @(API era))
+  let _ :<|> (globalParams :<|> _) :<|> _ = client (Proxy @(API era))
   runClientM globalParams env
 
 postIssueProgrammableTokenTx :: forall era. C.IsShelleyBasedEra era => ClientEnv -> IssueProgrammableTokenArgs -> IO (Either ClientError (TextEnvelopeJSON (C.Tx era)))

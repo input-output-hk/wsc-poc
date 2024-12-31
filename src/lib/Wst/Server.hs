@@ -11,9 +11,11 @@ import Control.Monad.Reader (MonadReader, asks)
 import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Data.Data (Proxy (..))
 import Network.Wai.Handler.Warp qualified as Warp
+import PlutusTx.Prelude qualified as P
 import Servant (Server, ServerT)
 import Servant.API (NoContent (..), (:<|>) (..))
 import Servant.Server (hoistServer, serve)
+import SmartTokens.Types.PTokenDirectory (blnKey)
 import Wst.App (WstApp, runWstAppServant)
 import Wst.AppError (AppError)
 import Wst.Offchain.BuildTx.ProgrammableLogic (alwaysSucceedsArgs,
@@ -21,10 +23,12 @@ import Wst.Offchain.BuildTx.ProgrammableLogic (alwaysSucceedsArgs,
                                                programmableTokenAssetId)
 import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Env qualified as Env
+import Wst.Offchain.Query (UTxODat (uDatum))
 import Wst.Offchain.Query qualified as Query
 import Wst.Server.Types (APIInEra, AddToBlacklistArgs (..), BuildTxAPI,
                          IssueProgrammableTokenArgs (..), QueryAPI,
-                         SeizeAssetsArgs (..), TextEnvelopeJSON (..),
+                         SeizeAssetsArgs (..), SerialiseAddress (..),
+                         TextEnvelopeJSON (..),
                          TransferProgrammableTokenArgs (..))
 
 runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env) => env -> IO ()
@@ -43,7 +47,9 @@ healthcheck :: Applicative m => m NoContent
 healthcheck = pure NoContent
 
 queryApi :: forall env era. C.IsBabbageBasedEra era => ServerT (QueryAPI era) (WstApp env era)
-queryApi = Query.globalParamsNode
+queryApi =
+  Query.globalParamsNode
+  :<|> queryBlacklistedNodes (Proxy @era)
 
 txApi :: forall env. (Env.HasDirectoryEnv env) => ServerT (BuildTxAPI C.ConwayEra) (WstApp env C.ConwayEra)
 txApi =
@@ -51,6 +57,23 @@ txApi =
   :<|> transferProgrammableTokenEndpoint @C.ConwayEra @env
   :<|> addToBlacklistEndpoint
   :<|> seizeAssetsEndpoint
+
+queryBlacklistedNodes :: forall era m.
+  ( MonadUtxoQuery m
+  , C.IsBabbageBasedEra era
+  )
+  => Proxy era
+  -> SerialiseAddress (C.Address C.ShelleyAddr)
+  -> m [C.Hash C.PaymentKey]
+queryBlacklistedNodes _ (SerialiseAddress addr) = do
+  let transferLogic = Env.mkTransferLogicEnv (paymentKeyHashFromAddress addr)
+      getHash =
+        either (error "deserialiseFromRawBytes failed") id
+        . C.deserialiseFromRawBytes (C.proxyToAsType $ Proxy @(C.Hash C.PaymentKey))
+        . P.fromBuiltin
+        . blnKey
+        . uDatum
+  Env.withEnv $ Env.withTransfer transferLogic (fmap (fmap getHash) (Query.blacklistNodes @era))
 
 issueProgrammableTokenEndpoint :: forall era env m.
   ( MonadReader env m
