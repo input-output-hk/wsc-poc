@@ -116,7 +116,7 @@ transferSmartTokens = failOnError $ Env.withEnv $ do
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
   txI <- deployDirectorySet
 
-  asAdmin @C.ConwayEra $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ Env.withTransferFromOperator $ do
     Endpoints.deployBlacklistTx
       >>= void . sendTx . signTxOperator admin
     Query.blacklistNodes @C.ConwayEra
@@ -144,7 +144,7 @@ blacklistCredential = failOnError $ Env.withEnv $ do
 
   txIn <- deployDirectorySet
 
-  asAdmin @C.ConwayEra $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
     Endpoints.deployBlacklistTx
       >>= void . sendTx . signTxOperator admin
     Query.blacklistNodes @C.ConwayEra
@@ -167,7 +167,7 @@ blacklistTransfer = failOnError $ Env.withEnv $ do
   txIn <- deployDirectorySet
   aid <- issueTransferLogicProgrammableToken txIn
 
-  asAdmin @C.ConwayEra $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
     Endpoints.deployBlacklistTx
       >>= void . sendTx . signTxOperator admin
 
@@ -177,11 +177,15 @@ blacklistTransfer = failOnError $ Env.withEnv $ do
       >>= void . sendTx . signTxOperator admin
     pure opPkh
 
+  progLogicCred <- asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
+    cred <- asks Env.directoryEnv
+    pure $ Env.programmableLogicBaseCredential cred
+
   asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
     Endpoints.blacklistCredentialTx userPaymentCred
       >>= void . sendTx . signTxOperator admin
 
-  asWallet Wallet.w2 $ Env.withDirectoryFor txIn $ Env.withTransferFor opPkh $ do
+  asWallet Wallet.w2 $ Env.withDirectoryFor txIn $ Env.withTransferFor progLogicCred opPkh $ do
     Endpoints.transferSmartTokensTx (C.PaymentCredentialByKey userPkh) aid 30 (C.PaymentCredentialByKey opPkh)
       >>= void . sendTx . signTxOperator (user Wallet.w2)
 
@@ -193,7 +197,7 @@ seizeUserOutput = failOnError $ Env.withEnv $ do
   txIn <- deployDirectorySet
   aid <- issueTransferLogicProgrammableToken txIn
 
-  asAdmin @C.ConwayEra $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
     Endpoints.deployBlacklistTx
       >>= void . sendTx . signTxOperator admin
 
