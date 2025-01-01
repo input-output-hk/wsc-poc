@@ -1,15 +1,23 @@
 {-| Mock implementation of server API for testing / UI development
 -}
 module Wst.Test.MockServer(
-  mockServer
+  mockServer,
+  runMockServer
 ) where
 
 import Cardano.Api qualified as C
+import Control.Monad.IO.Class (MonadIO (..))
+import Data.Proxy (Proxy (..))
+import Network.Wai.Handler.Warp qualified as Warp
 import Servant (Server)
 import Servant.API (NoContent (..), (:<|>) (..))
-import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
-import Wst.Offchain.Query (UTxODat (UTxODat))
-import Wst.Server.Types (APIInEra, BuildTxAPI, QueryAPI)
+import Servant.Server (serve)
+import Test.Gen.Cardano.Api.Typed qualified as Gen
+import Test.QuickCheck qualified as QC
+import Test.QuickCheck.Gen qualified as Gen
+import Test.QuickCheck.Hedgehog (hedgehog)
+import Wst.Server.Types (APIInEra, BuildTxAPI, QueryAPI, TextEnvelopeJSON (..))
+import Wst.Test.Gen qualified as Gen
 
 mockServer :: Server APIInEra
 mockServer =
@@ -19,26 +27,25 @@ mockServer =
 
 mockQueryApi :: Server (QueryAPI C.ConwayEra)
 mockQueryApi =
-  (pure globalParalsUtxo)
-  :<|> undefined
+  liftIO (QC.generate $ Gen.genUTxODat Gen.genGlobalParams)
+  :<|> (\_ -> liftIO $ QC.generate $ Gen.listOf (hedgehog $ Gen.genVerificationKeyHash (C.proxyToAsType Proxy)))
+  :<|> (\_ -> liftIO $ fmap (C.fromLedgerValue C.ShelleyBasedEraConway) $ QC.generate $ hedgehog $ Gen.genValue C.MaryEraOnwardsConway Gen.genAssetId Gen.genPositiveQuantity)
+  :<|> liftIO (fmap (C.fromLedgerValue C.ShelleyBasedEraConway) $ QC.generate $ hedgehog $ Gen.genValue C.MaryEraOnwardsConway Gen.genAssetId Gen.genPositiveQuantity)
+
+genTx :: MonadIO m => m (TextEnvelopeJSON (C.Tx C.ConwayEra))
+genTx = liftIO $ fmap TextEnvelopeJSON $ QC.generate $ hedgehog $ Gen.genTx C.shelleyBasedEra
 
 mockTxApi :: Server (BuildTxAPI C.ConwayEra)
-mockTxApi = undefined
+mockTxApi =
+  const genTx
+  :<|> const genTx
+  :<|> const genTx
+  :<|> const genTx
 
-genUtxo :: Gen a -> Gen (UTxODat era a)
-genUtxo g =
-  UTxODat
-    <$> Gen.genTxIn
-    <*> Gen.genTxOut
-    <*> g
-
-globalParalsUtxo :: UTxODat era ProgrammableLogicGlobalParams
-globalParalsUtxo =
-  UTxODat
-    { uIn = undefined
-    , uOut = undefined
-    , uDatum = mockParams
-    }
-
-mockParams :: ProgrammableLogicGlobalParams
-mockParams = undefined
+-- | Start the mock server
+runMockServer :: IO ()
+runMockServer = do
+  let app = serve (Proxy @APIInEra) mockServer
+      port = 8080
+  putStrLn $ "Starting mock server on port " <> show port
+  Warp.run port app
