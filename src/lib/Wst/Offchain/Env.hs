@@ -350,12 +350,12 @@ addTransferEnv :: TransferLogicEnv -> CombinedEnv o d t r era -> CombinedEnv o d
 addTransferEnv de env =
   env{ceTransfer = Identity de }
 
-withTransfer :: MonadReader (CombinedEnv o d t r era) m => TransferLogicEnv -> ReaderT (CombinedEnv o d Identity r era) m a -> m a
+withTransfer :: MonadReader (CombinedEnv o Identity t r era) m => TransferLogicEnv -> ReaderT (CombinedEnv o Identity Identity r era) m a -> m a
 withTransfer dir action = do
   asks (addTransferEnv dir)
     >>= runReaderT action
 
-withTransferFor :: MonadReader (CombinedEnv o d t r era) m => C.PaymentCredential -> C.Hash C.PaymentKey -> ReaderT (CombinedEnv o d Identity r era) m a -> m a
+withTransferFor :: MonadReader (CombinedEnv o Identity t r era) m => C.PaymentCredential -> C.Hash C.PaymentKey -> ReaderT (CombinedEnv o Identity Identity r era) m a -> m a
 withTransferFor plbBaseCred opPKH = withTransfer $ mkTransferLogicEnv plbBaseCred opPKH
 
 withTransferFromOperator :: (MonadReader (CombinedEnv Identity Identity t r era) m) => ReaderT (CombinedEnv Identity Identity Identity r era) m a -> m a
