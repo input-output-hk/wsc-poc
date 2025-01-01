@@ -146,14 +146,21 @@ executable export-smart-tokens
 
   hs-source-dirs: exe/export-smart-tokens
 
+library wst-poc-test-lib
+  import:          lang
+  hs-source-dirs:  test/lib
+  exposed-modules: Wst.Test.Gen
+  build-depends:
+    , base
+    , servant
+    , servant-server
+    , warp
+    , wst-poc
+
 test-suite wst-poc-test
   import:         lang
   type:           exitcode-stdio-1.0
-  hs-source-dirs: test
-  ghc-options:
-    -fobject-code -fno-ignore-interface-pragmas
-    -fno-omit-interface-pragmas -fno-specialise -Wno-unused-packages
-
+  hs-source-dirs: test/unit
   main-is:        Spec.hs
   other-modules:
     Wst.Test.Env

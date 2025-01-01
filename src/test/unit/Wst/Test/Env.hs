@@ -27,7 +27,7 @@ admin =
     }
 
 user :: Wallet.Wallet -> Operator Signing
-user w = 
+user w =
   Operator
     { oPaymentKey = PESigning (Wallet.getWallet w)
     , oStakeKey = Nothing

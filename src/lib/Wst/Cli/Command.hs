@@ -11,10 +11,12 @@ import Control.Monad (when)
 import Convex.Wallet.Operator (OperatorConfigSigning,
                                parseOperatorConfigSigning)
 import Data.String (IsString (..))
-import Options.Applicative (CommandFields, Mod, Parser, ReadM, argument,
-                            command, eitherReader, fullDesc, help, info,
-                            metavar, progDesc, subparser)
+import Options.Applicative (CommandFields, Mod, Parser, ReadM, argument, auto,
+                            command, eitherReader, fullDesc, help, info, long,
+                            metavar, option, optional, progDesc, short,
+                            subparser, value)
 import Text.Read (readMaybe)
+import Wst.Server (ServerArgs (..))
 
 parseCommand :: Parser Command
 parseCommand =
@@ -32,7 +34,7 @@ data Command =
 -- | Commands that require a deployed system
 data ManageCommand =
   Status
-  | StartServer
+  | StartServer ServerArgs
   deriving stock Show
 
 parseDeploy :: Mod CommandFields Command
@@ -46,12 +48,23 @@ parseManage =
     info (Manage <$> parseTxIn <*> parseManageCommand) (fullDesc <> progDesc "Manage a deployed system")
 
 parseManageCommand :: Parser ManageCommand
-parseManageCommand = subparser $ mconcat [parseStatus]
+parseManageCommand = subparser $ mconcat [parseStatus, parseStartServer]
 
 parseStatus :: Mod CommandFields ManageCommand
 parseStatus =
   command "status" $
     info (pure Status) (fullDesc <> progDesc "Show the status of the programmable tokens")
+
+parseStartServer :: Mod CommandFields ManageCommand
+parseStartServer =
+  command "start" $
+    info (StartServer <$> parseServerArgs) (fullDesc <> progDesc "Start the HTTP server")
+
+parseServerArgs :: Parser ServerArgs
+parseServerArgs =
+  ServerArgs
+    <$> option auto (help "The port" <> value 8080 <> long "port" <> short 'p')
+    <*> optional (option auto (help "Folder to serve static files from" <> long "static-files"))
 
 parseTxIn :: Parser TxIn
 parseTxIn =
