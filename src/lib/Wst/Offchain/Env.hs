@@ -55,7 +55,8 @@ module Wst.Offchain.Env(
   addRuntimeEnv,
   withRuntime,
   addOperatorEnv,
-  withOperator
+  withOperator,
+  blacklistNodePolicyId
 ) where
 
 import Blammo.Logging (Logger)
@@ -254,6 +255,9 @@ mkTransferLogicEnv progLogicBaseCred cred =
     , tleTransferScript = freezeTransferScript progLogicBaseCred blacklistPolicy
     , tleIssuerScript = permissionedTransferScript cred
     }
+
+blacklistNodePolicyId :: TransferLogicEnv -> C.PolicyId
+blacklistNodePolicyId = scriptPolicyIdV3 . tleBlacklistMintingScript
 
 data RuntimeEnv
   = RuntimeEnv

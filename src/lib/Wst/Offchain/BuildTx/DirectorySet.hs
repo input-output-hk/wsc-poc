@@ -125,12 +125,10 @@ insertDirectoryNode UTxODat{uIn=paramsRef} UTxODat{uIn, uOut=firstTxOut, uDatum=
             , issuerLogicScript = transStakeCredential inaIssuerLogic
             }
       newDat = C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData dsn
-
       insertedNode = C.TxOut addr newVal newDat C.ReferenceScriptNone
 
       firstDat = firstTxData { next = inaNewKey }
       firstOutput = C.TxOut addr firstTxVal (C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData firstDat) C.ReferenceScriptNone
-
   addReference paramsRef
   spendPlutusInlineDatum uIn directorySpendingScript ()
   mintPlutus directoryMintingScript (InsertDirectoryNode inaNewKey) newTokenName 1

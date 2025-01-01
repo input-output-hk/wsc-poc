@@ -69,7 +69,7 @@ intaFromEnv = do
 blacklistInitialNode :: BlacklistNode
 blacklistInitialNode =
   BlacklistNode
-    { blnNext= ""
+    { blnNext= "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
     , blnKey= ""}
 
 initBlacklist :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => m ()

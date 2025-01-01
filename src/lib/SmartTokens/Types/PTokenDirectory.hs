@@ -23,6 +23,7 @@ module SmartTokens.Types.PTokenDirectory (
   pletFieldsBlacklistNode,
   pisEmptyNode,
   BlacklistNode(..),
+  pdeserializeCredential,
 ) where
 
 import Generics.SOP qualified as SOP
@@ -257,13 +258,28 @@ pisInsertedOnNode = phoistAcyclic $
 pisInsertedNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PDirectorySetNode :--> PBool)
 pisInsertedNode = phoistAcyclic $
   plam $ \insertedKey coveringNext outputNode ->
-    pletFields @'["transferLogicScript", "issuerLogicScript", "key", "next"] outputNode $ \outputNodeDatumF ->
-      let transferLogicCred_ = outputNodeDatumF.transferLogicScript
-          issuerLogicCred_ = outputNodeDatumF.issuerLogicScript
+    pletFields @'["transferLogicScript", "issuerLogicScript"] outputNode $ \outputNodeDatumF ->
+      let transferLogicCred_ = ptraceInfoShowId outputNodeDatumF.transferLogicScript
+          issuerLogicCred_ = ptraceInfoShowId outputNodeDatumF.issuerLogicScript
           expectedDirectoryNode =
-            pmkDirectorySetNode # insertedKey # coveringNext # pdeserializeCredential transferLogicCred_ # pdeserializeCredential issuerLogicCred_
+            pmkDirectorySetNode # insertedKey # coveringNext # pdeserializeDirectoryCredential transferLogicCred_ # pdeserializeDirectoryCredential issuerLogicCred_
       in outputNode #== expectedDirectoryNode
 
+pdeserializeDirectoryCredential :: Term s (PAsData PCredential) -> Term s (PAsData PCredential)
+pdeserializeDirectoryCredential term =
+  plet (pasConstr # pforgetData term) $ \constrPair ->
+    plet (pfstBuiltin # constrPair) $ \constrIdx ->
+      pif (plengthBS # (pasByteStr # (pheadSingleton # (psndBuiltin # constrPair))) #<= 28)
+          (
+            pcond
+              [ ( constrIdx #== 0 , term)
+              , ( constrIdx #== 1 , term)
+              ]
+              (ptraceInfoError "Invalid credential")
+          )
+          (ptraceInfoError $ pconstant "Invalid credential len" <> pshow (plengthBS # (pasByteStr # (pheadSingleton # (psndBuiltin # constrPair)))))
+
+-- TODO: move to catalyst library
 pdeserializeCredential :: Term s (PAsData PCredential) -> Term s (PAsData PCredential)
 pdeserializeCredential term =
   plet (pasConstr # pforgetData term) $ \constrPair ->
@@ -274,6 +290,6 @@ pdeserializeCredential term =
               [ ( constrIdx #== 0 , term)
               , ( constrIdx #== 1 , term)
               ]
-              perror
+              (ptraceInfoError "Invalid credential")
           )
-          perror
+          (ptraceInfoError $ pconstant "Invalid credential len" <> pshow (plengthBS # (pasByteStr # (pheadSingleton # (psndBuiltin # constrPair)))))

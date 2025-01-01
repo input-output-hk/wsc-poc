@@ -119,8 +119,7 @@ issueProgrammableToken paramsTxOut (an, q) IssueNewTokenArgs{intaMintingLogic, i
 
    IMPORTANT: The caller should ensure that the destination address of the
    programmable token(s) in this transaction all correspond to the same
-   programmable logic payment credential (even in the case of non-programmable
-   tokens) otherwise the transaction will fail onchain validation.
+   programmable logic payment credential otherwise the transaction will fail onchain validation.
 -}
 transferProgrammableToken :: forall env era m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams ->  [C.TxIn] -> CurrencySymbol -> [UTxODat era DirectorySetNode] -> m ()
 transferProgrammableToken _ _ _ [] = error "directory list not initialised"

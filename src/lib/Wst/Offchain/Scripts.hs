@@ -49,7 +49,10 @@ import SmartTokens.LinkedList.MintDirectory (mkDirectoryNodeMP)
 import SmartTokens.LinkedList.SpendDirectory (pmkDirectorySpending)
 
 tracingConfig :: Config
-tracingConfig = Tracing LogInfo DoTracingAndBinds
+tracingConfig = Tracing LogInfo DoTracing
+
+tracingAndBindsConfig :: Config
+tracingAndBindsConfig = Tracing LogInfo DoTracingAndBinds
 
 prodConfig :: Config
 prodConfig = NoTracing
@@ -60,34 +63,34 @@ prodConfig = NoTracing
 -- one shot mint
 protocolParamsMintingScript :: C.TxIn -> C.PlutusScript C.PlutusScriptV3
 protocolParamsMintingScript txIn =
-  let script = tryCompile prodConfig $ mkProtocolParametersMinting # pdata (pconstant $ transTxOutRef txIn)
+  let script = tryCompile tracingConfig $ mkProtocolParametersMinting # pdata (pconstant $ transTxOutRef txIn)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- | The spending script for the protocol parameters NFT parameterized by ""
 -- nonce
 protocolParamsSpendingScript :: C.PlutusScript C.PlutusScriptV3
 protocolParamsSpendingScript =
-  let script = tryCompile prodConfig $ alwaysFailScript # pforgetData (pdata (pconstant "" :: ClosedTerm PByteString))
+  let script = tryCompile tracingConfig $ alwaysFailScript # pforgetData (pdata (pconstant "" :: ClosedTerm PByteString))
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- | The minting script for the directory node tokens, takes initial TxIn for
 -- symbol uniqueness across instances
 directoryNodeMintingScript :: C.TxIn -> C.PlutusScript C.PlutusScriptV3
 directoryNodeMintingScript txIn =
-  let script = tryCompile prodConfig $ mkDirectoryNodeMP # pdata (pconstant $ transTxOutRef txIn)
+  let script = tryCompile tracingConfig $ mkDirectoryNodeMP # pdata (pconstant $ transTxOutRef txIn)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- | The spending script for the directory node tokens, parameterized by the
 -- policy id of the protocol parameters NFT.
 directoryNodeSpendingScript :: C.PolicyId -> C.PlutusScript C.PlutusScriptV3
 directoryNodeSpendingScript paramsPolId =
-  let script = tryCompile prodConfig $ pmkDirectorySpending # pdata (pconstant $ transPolicyId paramsPolId)
+  let script = tryCompile tracingConfig $ pmkDirectorySpending # pdata (pconstant $ transPolicyId paramsPolId)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- TODO: can we change the signature to just take the param policy id?
 programmableLogicMintingScript :: C.PaymentCredential -> C.StakeCredential -> C.PolicyId -> C.PlutusScript C.PlutusScriptV3
 programmableLogicMintingScript progLogicBaseSpndingCred mintingCred nodePolId =
-  let script = tryCompile prodConfig
+  let script = tryCompile tracingConfig
                $ mkProgrammableLogicMinting
                   # pdata (pconstant $ transCredential progLogicBaseSpndingCred)
                   # pdata (pconstant $ transPolicyId nodePolId)
@@ -96,39 +99,39 @@ programmableLogicMintingScript progLogicBaseSpndingCred mintingCred nodePolId =
 
 programmableLogicBaseScript :: C.StakeCredential -> C.PlutusScript C.PlutusScriptV3 -- Parameterized by the stake cred of the global script
 programmableLogicBaseScript globalCred =
-  let script = tryCompile prodConfig $ mkProgrammableLogicBase # pdata (pconstant $ transStakeCredential globalCred)
+  let script = tryCompile tracingConfig $ mkProgrammableLogicBase # pdata (pconstant $ transStakeCredential globalCred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 programmableLogicGlobalScript :: C.PolicyId -> C.PlutusScript C.PlutusScriptV3 -- Parameterized by the CS holding protocol params datum
 programmableLogicGlobalScript paramsPolId =
-  let script = tryCompile prodConfig $ mkProgrammableLogicGlobal # pdata (pconstant $ transPolicyId paramsPolId)
+  let script = tryCompile tracingConfig $ mkProgrammableLogicGlobal # pdata (pconstant $ transPolicyId paramsPolId)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 permissionedTransferScript :: C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
 permissionedTransferScript cred =
-  let script = tryCompile prodConfig $ mkPermissionedTransfer # pdata (pconstant $ transPubKeyHash cred)
+  let script = tryCompile tracingConfig $ mkPermissionedTransfer # pdata (pconstant $ transPubKeyHash cred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 freezeTransferScript :: C.PaymentCredential -> C.PolicyId -> C.PlutusScript C.PlutusScriptV3
 freezeTransferScript progLogicBaseSpndingCred blacklistPolicyId =
-  let script = tryCompile prodConfig $ mkFreezeAndSeizeTransfer # pdata (pconstant $ transCredential progLogicBaseSpndingCred) # pdata (pconstant $ transPolicyId blacklistPolicyId)
+  let script = tryCompile tracingConfig $ mkFreezeAndSeizeTransfer # pdata (pconstant $ transCredential progLogicBaseSpndingCred) # pdata (pconstant $ transPolicyId blacklistPolicyId)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 blacklistMintingScript :: C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
 blacklistMintingScript cred =
-  let script = tryCompile prodConfig $ mkPermissionedMinting # pdata (pconstant $ transPubKeyHash cred)
+  let script = tryCompile tracingConfig $ mkPermissionedMinting # pdata (pconstant $ transPubKeyHash cred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 blacklistSpendingScript :: C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
 blacklistSpendingScript cred =
-  let script = tryCompile prodConfig $ mkPermissionedTransfer # pdata (pconstant $ transPubKeyHash cred)
+  let script = tryCompile tracingConfig $ mkPermissionedTransfer # pdata (pconstant $ transPubKeyHash cred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 {-| 'C.PlutusScript C.PlutusScriptV3' that always succeeds. Can be used for minting, withdrawal, spending, etc.
 -}
 alwaysSucceedsScript :: C.PlutusScript C.PlutusScriptV3
 alwaysSucceedsScript =
-  C.PlutusScriptSerialised $ serialiseScript $ tryCompile prodConfig palwaysSucceed
+  C.PlutusScriptSerialised $ serialiseScript $ tryCompile tracingConfig palwaysSucceed
 
 -- Utilities
 scriptPolicyIdV3 :: C.PlutusScript C.PlutusScriptV3 -> C.PolicyId
