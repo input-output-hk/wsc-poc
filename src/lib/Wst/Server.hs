@@ -62,15 +62,18 @@ txApi =
   :<|> addToBlacklistEndpoint
   :<|> seizeAssetsEndpoint
 
-queryBlacklistedNodes :: forall era m.
+queryBlacklistedNodes :: forall era env m.
   ( MonadUtxoQuery m
   , C.IsBabbageBasedEra era
+  , MonadReader env m
+  , Env.HasDirectoryEnv env
   )
   => Proxy era
   -> SerialiseAddress (C.Address C.ShelleyAddr)
   -> m [C.Hash C.PaymentKey]
 queryBlacklistedNodes _ (SerialiseAddress addr) = do
-  let transferLogic = Env.mkTransferLogicEnv (paymentKeyHashFromAddress addr)
+  programmableBaseLogicCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
+  let transferLogic = Env.mkTransferLogicEnv programmableBaseLogicCred (paymentKeyHashFromAddress addr)
       getHash =
         either (error "deserialiseFromRawBytes failed") id
         . C.deserialiseFromRawBytes (C.proxyToAsType $ Proxy @(C.Hash C.PaymentKey))
