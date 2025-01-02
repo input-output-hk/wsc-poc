@@ -36,8 +36,7 @@ import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
-import Wst.Offchain.Scripts (directoryNodeMintingScript,
-                             directoryNodeSpendingScript, scriptPolicyIdV3)
+import Wst.Offchain.Scripts (scriptPolicyIdV3)
 
 _unused :: String
 _unused = _printTerm $ unsafeEvalTerm NoTracing (pconstantData initialNode)
@@ -57,22 +56,21 @@ initialNode = DirectorySetNode
 
 initDirectorySet :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => m ()
 initDirectorySet = Utils.inBabbage @era $ do
-  txIn <- asks (Env.dsTxIn . Env.directoryEnv)
-  paramsPolicyId <- asks (Env.protocolParamsPolicyId . Env.directoryEnv)
   netId <- queryNetworkId
-  let mintingScript = directoryNodeMintingScript txIn
+  directoryMintingScript <- asks (Env.dsDirectoryMintingScript . Env.directoryEnv)
+  directorySpendingScript <- asks (Env.dsDirectorySpendingScript . Env.directoryEnv)
 
-  mintPlutus mintingScript InitDirectory (unTransAssetName directoryNodeToken) 1
+  mintPlutus directoryMintingScript InitDirectory (unTransAssetName directoryNodeToken) 1
 
   let
       val = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
-            $ fromList [(C.AssetId (scriptPolicyIdV3 mintingScript) (unTransAssetName directoryNodeToken), 1)]
+            $ fromList [(C.AssetId (scriptPolicyIdV3 directoryMintingScript) (unTransAssetName directoryNodeToken), 1)]
 
       addr =
         C.makeShelleyAddressInEra
           C.shelleyBasedEra
           netId
-          (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 $ directoryNodeSpendingScript paramsPolicyId)
+          (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 directorySpendingScript)
           C.NoStakeAddress
 
       dat = C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData initialNode
@@ -95,7 +93,6 @@ data InsertNodeArgs =
 insertDirectoryNode :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era DirectorySetNode -> InsertNodeArgs -> m ()
 insertDirectoryNode UTxODat{uIn=paramsRef} UTxODat{uIn, uOut=firstTxOut, uDatum=firstTxData} InsertNodeArgs{inaNewKey, inaTransferLogic, inaIssuerLogic} = Utils.inBabbage @era $ do
   netId <- queryNetworkId
-  paramsPolicyId <- asks (Env.protocolParamsPolicyId . Env.directoryEnv)
   directorySpendingScript <- asks (Env.dsDirectorySpendingScript . Env.directoryEnv)
   directoryMintingScript <- asks (Env.dsDirectoryMintingScript . Env.directoryEnv)
   let
@@ -115,7 +112,7 @@ insertDirectoryNode UTxODat{uIn=paramsRef} UTxODat{uIn, uOut=firstTxOut, uDatum=
         C.makeShelleyAddressInEra
           C.shelleyBasedEra
           netId
-          (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 $ directoryNodeSpendingScript paramsPolicyId )
+          (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 directorySpendingScript)
           C.NoStakeAddress
 
       dsn = DirectorySetNode

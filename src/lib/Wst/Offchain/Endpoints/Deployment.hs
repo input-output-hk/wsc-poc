@@ -30,6 +30,7 @@ import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
 import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
 import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
 import Wst.Offchain.BuildTx.TransferLogic qualified as BuildTx
+import Wst.Offchain.Env (DirectoryScriptRoot (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Query qualified as Query
@@ -37,14 +38,15 @@ import Wst.Offchain.Query qualified as Query
 {-| Build a transaction that deploys the directory and global params. Returns the
 transaction and the 'TxIn' that was selected for the one-shot NFTs.
 -}
-deployTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => m (C.Tx era, C.TxIn)
-deployTx = do
+deployTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => ScriptTarget -> m (C.Tx era, DirectoryScriptRoot)
+deployTx target = do
   (txi, _) <- Env.selectOperatorOutput
   opEnv <- asks Env.operatorEnv
-  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectoryFor Production txi
+  let root = DirectoryScriptRoot txi target
+  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectoryFor root
               $ Env.balanceTxEnv_
               $ BuildTx.mintProtocolParams >> BuildTx.initDirectorySet
-  pure (Convex.CoinSelection.signBalancedTxBody [] tx, txi)
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx, root)
 
 {-| Build a transaction that inserts a node into the directory
 -}
@@ -69,6 +71,7 @@ issueProgrammableTokenTx :: forall era env m.
   ( MonadReader env m
   , Env.HasOperatorEnv era env
   , Env.HasDirectoryEnv env
+  , Env.HasTransferLogicEnv env
   , MonadBlockchain era m
   , MonadError (AppError era) m
   , C.IsBabbageBasedEra era
@@ -83,7 +86,7 @@ issueProgrammableTokenTx issueTokenArgs assetName quantity = do
   directory <- Query.registryNodes @era
   paramsNode <- Query.globalParamsNode @era
   (tx, _) <- Env.balanceTxEnv_ $ do
-    polId <- BuildTx.issueProgrammableToken paramsNode (assetName, quantity) issueTokenArgs directory
+    polId <- BuildTx.issueProgrammableToken paramsNode (assetName, quantity) directory
     Env.operatorPaymentCredential
       >>= BuildTx.paySmartTokensToDestination (assetName, quantity) polId
     let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion $ BuildTx.intaMintingLogic issueTokenArgs)
@@ -94,7 +97,7 @@ deployBlacklistTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockc
 deployBlacklistTx = do
   opEnv <- asks Env.operatorEnv
   dirEnv <- asks Env.directoryEnv
-  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectory dirEnv $ Env.withTransferFromOperator
+  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectory dirEnv $ Env.withTransferFromOperator (error "issueProgramableTokenTx: target")
               $ Env.balanceTxEnv_ BuildTx.initBlacklist
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 

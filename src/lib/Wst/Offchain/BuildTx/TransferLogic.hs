@@ -44,23 +44,12 @@ import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (BlacklistNode (..),
                                           DirectorySetNode (..))
 import Wst.AppError (AppError (TransferBlacklistedCredential))
-import Wst.Offchain.BuildTx.ProgrammableLogic (IssueNewTokenArgs (..),
-                                               issueProgrammableToken,
+import Wst.Offchain.BuildTx.ProgrammableLogic (issueProgrammableToken,
                                                seizeProgrammableToken,
                                                transferProgrammableToken)
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Scripts (scriptPolicyIdV3)
-
-intaFromEnv :: forall env m. (MonadReader env m, Env.HasTransferLogicEnv env)=> m IssueNewTokenArgs
-intaFromEnv = do
-  Env.TransferLogicEnv{Env.tleIssuerScript, Env.tleMintingScript, Env.tleTransferScript} <- asks Env.transferLogicEnv
-  pure $ IssueNewTokenArgs
-    { intaTransferLogic= tleTransferScript
-    , intaMintingLogic= tleMintingScript
-    , intaIssuerLogic= tleIssuerScript
-    }
-
 
 {-
 >>> _printTerm $ unsafeEvalTerm NoTracing (pconstant blacklistInitialNode)
@@ -157,10 +146,7 @@ paySmartTokensToDestination (an, q) issuedPolicyId destinationCred = Utils.inBab
 
 issueSmartTokens :: forall era env m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> [UTxODat era DirectorySetNode] -> C.PaymentCredential -> m C.AssetId
 issueSmartTokens paramsTxOut (an, q) directoryList destinationCred = Utils.inBabbage @era $ do
-  inta <- intaFromEnv
-  issuedPolicyId <- issueProgrammableToken paramsTxOut (an, q) inta directoryList
-
-
+  issuedPolicyId <- issueProgrammableToken paramsTxOut (an, q) directoryList
   addIssueWitness
   --  payToAddress addr value
   paySmartTokensToDestination (an, q) issuedPolicyId destinationCred
