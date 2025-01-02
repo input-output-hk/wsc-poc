@@ -1,3 +1,4 @@
+{-# LANGUAGE NamedFieldPuns #-}
 {-| Deploy the directory and global params
 -}
 module Wst.Offchain.Endpoints.Deployment(
@@ -22,6 +23,7 @@ import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Convex.CoinSelection qualified
 import Data.Foldable (maximumBy)
 import Data.Function (on)
+import SmartTokens.Core.Scripts (ScriptTarget (..))
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.AppError (AppError)
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (inaNewKey))
@@ -29,6 +31,7 @@ import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
 import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
 import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
 import Wst.Offchain.BuildTx.TransferLogic qualified as BuildTx
+import Wst.Offchain.Env (DirectoryScriptRoot (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Query qualified as Query
@@ -36,14 +39,15 @@ import Wst.Offchain.Query qualified as Query
 {-| Build a transaction that deploys the directory and global params. Returns the
 transaction and the 'TxIn' that was selected for the one-shot NFTs.
 -}
-deployTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => m (C.Tx era, C.TxIn)
-deployTx = do
+deployTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => ScriptTarget -> m (C.Tx era, DirectoryScriptRoot)
+deployTx target = do
   (txi, _) <- Env.selectOperatorOutput
   opEnv <- asks Env.operatorEnv
-  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectoryFor txi
+  let root = DirectoryScriptRoot txi target
+  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectoryFor root
               $ Env.balanceTxEnv_
               $ BuildTx.mintProtocolParams >> BuildTx.initDirectorySet
-  pure (Convex.CoinSelection.signBalancedTxBody [] tx, txi)
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx, root)
 
 {-| Build a transaction that inserts a node into the directory
 -}
@@ -68,25 +72,26 @@ issueProgrammableTokenTx :: forall era env m.
   ( MonadReader env m
   , Env.HasOperatorEnv era env
   , Env.HasDirectoryEnv env
+  , Env.HasTransferLogicEnv env
   , MonadBlockchain era m
   , MonadError (AppError era) m
   , C.IsBabbageBasedEra era
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadUtxoQuery m
   )
-  => BuildTx.IssueNewTokenArgs -- ^ credentials of the token
-  -> C.AssetName -- ^ Name of the asset
+  => C.AssetName -- ^ Name of the asset
   -> Quantity -- ^ Amount of tokens to be minted
   -> m (C.Tx era)
-issueProgrammableTokenTx issueTokenArgs assetName quantity = do
+issueProgrammableTokenTx assetName quantity = do
   directory <- Query.registryNodes @era
   paramsNode <- Query.globalParamsNode @era
+  Env.TransferLogicEnv{Env.tleMintingScript} <- asks Env.transferLogicEnv
   (tx, _) <- Env.balanceTxEnv_ $ do
-    polId <- BuildTx.issueProgrammableToken paramsNode (assetName, quantity) issueTokenArgs directory
+    polId <- BuildTx.issueProgrammableToken paramsNode (assetName, quantity) directory
     Env.operatorPaymentCredential
       >>= BuildTx.paySmartTokensToDestination (assetName, quantity) polId
-    let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion $ BuildTx.intaMintingLogic issueTokenArgs)
-    BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness (BuildTx.intaMintingLogic issueTokenArgs) C.NoScriptDatumForStake ()
+    let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion tleMintingScript)
+    BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness tleMintingScript C.NoScriptDatumForStake ()
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 deployBlacklistTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, Env.HasDirectoryEnv env) => m (C.Tx era)
