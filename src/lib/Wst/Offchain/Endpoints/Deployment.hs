@@ -98,7 +98,7 @@ deployBlacklistTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockc
 deployBlacklistTx = do
   opEnv <- asks Env.operatorEnv
   dirEnv <- asks Env.directoryEnv
-  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectory dirEnv $ Env.withTransferFromOperator (error "issueProgramableTokenTx: target")
+  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectory dirEnv $ Env.withTransferFromOperator
               $ Env.balanceTxEnv_ BuildTx.initBlacklist
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 

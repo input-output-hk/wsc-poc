@@ -186,7 +186,6 @@ test-suite wst-poc-test
     , convex-wallet
     , lens
     , mtl
-    , plutus-ledger-api
     , tasty
     , tasty-hunit
     , wst-poc
