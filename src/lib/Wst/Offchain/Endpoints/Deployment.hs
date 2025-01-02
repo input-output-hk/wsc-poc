@@ -1,3 +1,4 @@
+{-# LANGUAGE NamedFieldPuns #-}
 {-| Deploy the directory and global params
 -}
 module Wst.Offchain.Endpoints.Deployment(
@@ -78,19 +79,19 @@ issueProgrammableTokenTx :: forall era env m.
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadUtxoQuery m
   )
-  => BuildTx.IssueNewTokenArgs -- ^ credentials of the token
-  -> C.AssetName -- ^ Name of the asset
+  => C.AssetName -- ^ Name of the asset
   -> Quantity -- ^ Amount of tokens to be minted
   -> m (C.Tx era)
-issueProgrammableTokenTx issueTokenArgs assetName quantity = do
+issueProgrammableTokenTx assetName quantity = do
   directory <- Query.registryNodes @era
   paramsNode <- Query.globalParamsNode @era
+  Env.TransferLogicEnv{Env.tleMintingScript} <- asks Env.transferLogicEnv
   (tx, _) <- Env.balanceTxEnv_ $ do
     polId <- BuildTx.issueProgrammableToken paramsNode (assetName, quantity) directory
     Env.operatorPaymentCredential
       >>= BuildTx.paySmartTokensToDestination (assetName, quantity) polId
-    let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion $ BuildTx.intaMintingLogic issueTokenArgs)
-    BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness (BuildTx.intaMintingLogic issueTokenArgs) C.NoScriptDatumForStake ()
+    let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion tleMintingScript)
+    BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness tleMintingScript C.NoScriptDatumForStake ()
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 deployBlacklistTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, Env.HasDirectoryEnv env) => m (C.Tx era)
