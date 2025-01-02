@@ -26,14 +26,20 @@ import Convex.PlutusLedger.V1 (transCredential, unTransStakeCredential)
 import Convex.Scripts (fromHashableScriptData)
 import Convex.Utxos (UtxoSet, toApiUtxo)
 import Data.Aeson (FromJSON, ToJSON)
+import Data.Aeson qualified as JSON
 import Data.Map qualified as Map
 import Data.Maybe (listToMaybe, mapMaybe)
+import Data.OpenApi.Schema (ToSchema (..))
+import Data.OpenApi.Schema qualified as Schema
+import Data.OpenApi.SchemaOptions qualified as SchemaOptions
+import Data.Typeable (Typeable)
 import GHC.Exts (IsList (..))
 import GHC.Generics (Generic)
 import PlutusTx qualified
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import SmartTokens.Types.PTokenDirectory (BlacklistNode, DirectorySetNode (..))
 import Wst.AppError (AppError (GlobalParamsNodeNotFound))
+import Wst.JSON.Utils qualified as JSON
 import Wst.Offchain.Env (DirectoryEnv (..), HasDirectoryEnv (directoryEnv),
                          HasTransferLogicEnv (transferLogicEnv),
                          TransferLogicEnv (tleBlacklistSpendingScript),
@@ -51,7 +57,21 @@ data UTxODat era a =
     , uDatum :: a
     }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (ToJSON, FromJSON)
+
+-- | Aeson options for the UTxODat type. Used to derive JSON instances and ToSchema
+utxoDatOptions :: JSON.Options
+utxoDatOptions = JSON.customJsonOptions 2
+
+instance (C.IsCardanoEra era, ToJSON a) => ToJSON (UTxODat era a) where
+  toJSON = JSON.genericToJSON utxoDatOptions
+  toEncoding = JSON.genericToEncoding utxoDatOptions
+
+instance (C.IsCardanoEra era, FromJSON a, C.IsShelleyBasedEra era) => FromJSON (UTxODat era a) where
+  parseJSON = JSON.genericParseJSON utxoDatOptions
+
+  -- TODO:
+instance (Typeable a, ToSchema a, Typeable era) => ToSchema (UTxODat era a) where
+  declareNamedSchema = Schema.genericDeclareNamedSchema (SchemaOptions.fromAesonOptions utxoDatOptions)
 
 {-| Find all UTxOs that make up the registry
 -}

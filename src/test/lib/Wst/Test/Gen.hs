@@ -3,6 +3,10 @@
 module Wst.Test.Gen(
   genGlobalParams,
   genUTxODat,
+  genUTxO,
+  genTxIn,
+  genAddress,
+  genPaymentKeyHash,
 
   -- * Plutus types
   -- TODO: move to sc-tools?
@@ -36,5 +40,17 @@ genUTxODat :: C.IsShelleyBasedEra era => Gen a -> Gen (UTxODat era a)
 genUTxODat a =
   UTxODat
     <$> hedgehog Gen.genTxIn
-    <*> hedgehog (Gen.genTxOutUTxOContext C.shelleyBasedEra)
+    <*> genUTxO
     <*> a
+
+genUTxO ::  C.IsShelleyBasedEra era => Gen (C.TxOut C.CtxUTxO era)
+genUTxO = hedgehog (Gen.genTxOutUTxOContext C.shelleyBasedEra)
+
+genTxIn :: Gen C.TxIn
+genTxIn = hedgehog Gen.genTxIn
+
+genAddress :: Gen (C.Address C.ShelleyAddr)
+genAddress = hedgehog Gen.genAddressShelley
+
+genPaymentKeyHash :: Gen (C.Hash C.PaymentKey)
+genPaymentKeyHash = hedgehog (Gen.genVerificationKeyHash C.AsPaymentKey)
