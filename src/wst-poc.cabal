@@ -63,6 +63,7 @@ library
     SmartTokens.Core.Scripts
     SmartTokens.LinkedList.Common
     SmartTokens.LinkedList.MintDirectory
+    SmartTokens.LinkedList.SpendBlacklist
     SmartTokens.LinkedList.SpendDirectory
     SmartTokens.Types.Constants
     SmartTokens.Types.ProtocolParams
@@ -161,6 +162,7 @@ test-suite wst-poc-test
   build-depends:
     , base                    >=4.14.0
     , cardano-api
+    , cardano-ledger-api
     , cardano-ledger-core
     , cardano-ledger-shelley
     , convex-base

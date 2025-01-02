@@ -5,9 +5,12 @@ module Wst.Test.UnitTest(
 
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
+import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Core qualified as Ledger
+import Cardano.Ledger.Plutus.ExUnits qualified as Ledger
 import Cardano.Ledger.Shelley.TxCert qualified as TxCert
-import Control.Lens ((^.))
+import Control.Exception (try)
+import Control.Lens (set, (%~), (&), (^.))
 import Control.Monad (void)
 import Control.Monad.Reader (asks)
 import Control.Monad.Reader.Class (MonadReader)
@@ -16,12 +19,17 @@ import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain (queryProtocolParameters, sendTx),
                      MonadMockchain, MonadUtxoQuery)
 import Convex.CoinSelection (ChangeOutputPosition (TrailingChange))
+import Convex.MockChain
 import Convex.MockChain.CoinSelection (tryBalanceAndSubmit)
+import Convex.MockChain.Defaults qualified as Defaults
 import Convex.MockChain.Utils (mockchainFails, mockchainSucceeds)
+import Convex.NodeParams (NodeParams, ledgerProtocolParameters,
+                          protocolParameters)
 import Convex.Utils (failOnError)
 import Convex.Wallet.MockWallet qualified as Wallet
 import Convex.Wallet.Operator (signTxOperator)
 import Data.List (isPrefixOf)
+import Data.Word (Word32)
 import GHC.Exception (SomeException, throw)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, testCase)
@@ -33,9 +41,28 @@ import Wst.Offchain.Query qualified as Query
 import Wst.Offchain.Scripts qualified as Scripts
 import Wst.Test.Env (admin, asAdmin, asWallet, user)
 
+testTxSize :: Word32
+testTxSize = 16384
+
+testNodeParams :: NodeParams C.ConwayEra
+testNodeParams =
+  -- restrict script bugdet to current value on mainnet
+  let newExUnits = Ledger.ExUnits {Ledger.exUnitsSteps = 10_000_000_000, Ledger.exUnitsMem = 14_000_000}
+      npsTx = Defaults.nodeParams & set (ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxSizeL) testTxSize
+  in npsTx & set (ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxExUnitsL) newExUnits
+
+-- | Run the 'Mockchain' action with modified node parameters to allow larger-than-usual
+-- transactions. This is useful for showing debug output from the scripts and fail if there is an error
+mockchainSucceedsWithLargeTx :: MockchainIO C.ConwayEra a -> Assertion
+mockchainSucceedsWithLargeTx action =
+  let params' = testNodeParams & ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxSizeL %~ (*10)
+  in try @SomeException (runMockchain0IOWith Wallet.initialUTxOs params' action) >>= \case
+      Right{} -> pure ()
+      Left err -> fail (show err)
+
 tests :: TestTree
 tests = testGroup "unit tests"
-  [ testCase "deploy directory and global params" (mockchainSucceeds deployDirectorySet)
+  [ testCase "deploy directory and global params" (mockchainSucceedsWithLargeTx deployDirectorySet)
   , testCase "insert directory node" (mockchainSucceeds insertDirectoryNode)
   , testGroup "issue programmable tokens"
       [ testCase "always succeeds validator" (mockchainSucceeds issueAlwaysSucceedsValidator)
@@ -116,7 +143,7 @@ transferSmartTokens = failOnError $ Env.withEnv $ do
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
   txI <- deployDirectorySet
 
-  asAdmin @C.ConwayEra $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ Env.withTransferFromOperator $ do
     Endpoints.deployBlacklistTx
       >>= void . sendTx . signTxOperator admin
     Query.blacklistNodes @C.ConwayEra
@@ -144,7 +171,7 @@ blacklistCredential = failOnError $ Env.withEnv $ do
 
   txIn <- deployDirectorySet
 
-  asAdmin @C.ConwayEra $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
     Endpoints.deployBlacklistTx
       >>= void . sendTx . signTxOperator admin
     Query.blacklistNodes @C.ConwayEra
@@ -167,7 +194,7 @@ blacklistTransfer = failOnError $ Env.withEnv $ do
   txIn <- deployDirectorySet
   aid <- issueTransferLogicProgrammableToken txIn
 
-  asAdmin @C.ConwayEra $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
     Endpoints.deployBlacklistTx
       >>= void . sendTx . signTxOperator admin
 
@@ -177,11 +204,15 @@ blacklistTransfer = failOnError $ Env.withEnv $ do
       >>= void . sendTx . signTxOperator admin
     pure opPkh
 
+  progLogicCred <- asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
+    cred <- asks Env.directoryEnv
+    pure $ Env.programmableLogicBaseCredential cred
+
   asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
     Endpoints.blacklistCredentialTx userPaymentCred
       >>= void . sendTx . signTxOperator admin
 
-  asWallet Wallet.w2 $ Env.withDirectoryFor txIn $ Env.withTransferFor opPkh $ do
+  asWallet Wallet.w2 $ Env.withDirectoryFor txIn $ Env.withTransferFor progLogicCred opPkh $ do
     Endpoints.transferSmartTokensTx (C.PaymentCredentialByKey userPkh) aid 30 (C.PaymentCredentialByKey opPkh)
       >>= void . sendTx . signTxOperator (user Wallet.w2)
 
@@ -193,7 +224,7 @@ seizeUserOutput = failOnError $ Env.withEnv $ do
   txIn <- deployDirectorySet
   aid <- issueTransferLogicProgrammableToken txIn
 
-  asAdmin @C.ConwayEra $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
     Endpoints.deployBlacklistTx
       >>= void . sendTx . signTxOperator admin
 
