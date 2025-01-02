@@ -6,9 +6,8 @@ module Wst.Test.UnitTest(
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Cardano.Ledger.Api qualified as Ledger
-import Cardano.Ledger.Plutus.ExUnits qualified as Ledger
 import Cardano.Ledger.Shelley.TxCert qualified as TxCert
-import Control.Lens (set, (%~), (&), (^.))
+import Control.Lens ((%~), (&), (^.))
 import Control.Monad (void)
 import Control.Monad.Reader (MonadReader (ask), ReaderT (runReaderT), asks)
 import Convex.BuildTx (MonadBuildTx, addCertificate)
@@ -28,7 +27,6 @@ import Convex.Wallet.Operator (signTxOperator)
 import Convex.Wallet.Operator qualified as Operator
 import Data.List (isPrefixOf)
 import Data.String (IsString (..))
-import Data.Word (Word32)
 import GHC.Exception (SomeException, throw)
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import Test.Tasty (TestTree, testGroup)
@@ -40,16 +38,6 @@ import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query qualified as Query
 import Wst.Offchain.Scripts qualified as Scripts
 import Wst.Test.Env (admin, asAdmin, asWallet, user)
-
-testTxSize :: Word32
-testTxSize = 16384
-
-testNodeParams :: NodeParams C.ConwayEra
-testNodeParams =
-  -- restrict script bugdet to current value on mainnet
-  let newExUnits = Ledger.ExUnits {Ledger.exUnitsSteps = 10_000_000_000, Ledger.exUnitsMem = 14_000_000}
-      npsTx = Defaults.nodeParams & set (ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxSizeL) testTxSize
-  in npsTx & set (ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxExUnitsL) newExUnits
 
 tests :: TestTree
 tests = testGroup "unit tests"
@@ -323,8 +311,8 @@ nodeParamsFor :: ScriptTarget -> NodeParams C.ConwayEra
 nodeParamsFor = \case
   -- Run the 'Mockchain' action with modified node parameters to allow larger-than-usual
   -- transactions. This is useful for showing debug output from the scripts and fail if there is an error
-  Debug -> testNodeParams & ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxSizeL %~ (*10)
-  Production -> testNodeParams
+  Debug -> Defaults.nodeParams & ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxSizeL %~ (*10)
+  Production -> Defaults.nodeParams
 
 mockchainSucceedsWithTarget :: ScriptTarget -> ReaderT ScriptTarget (MockchainT C.ConwayEra IO) a -> Assertion
 mockchainSucceedsWithTarget target =
