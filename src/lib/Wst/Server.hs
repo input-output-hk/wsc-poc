@@ -21,11 +21,9 @@ import PlutusTx.Prelude qualified as P
 import Servant (Server, ServerT)
 import Servant.API (NoContent (..), (:<|>) (..))
 import Servant.Server (hoistServer, serve)
-import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import SmartTokens.Types.PTokenDirectory (blnKey)
 import Wst.App (WstApp, runWstAppServant)
 import Wst.AppError (AppError)
-import Wst.Offchain.BuildTx.ProgrammableLogic (programmableTokenAssetId)
 import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (uDatum))
@@ -89,9 +87,8 @@ queryBlacklistedNodes :: forall era env m.
   -> SerialiseAddress (C.Address C.ShelleyAddr)
   -> m [C.Hash C.PaymentKey]
 queryBlacklistedNodes _ (SerialiseAddress addr) = do
-  programmableBaseLogicCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
-  let transferLogic = Env.mkTransferLogicEnv Production programmableBaseLogicCred (paymentKeyHashFromAddress addr)
-      getHash =
+  transferLogic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress addr)
+  let getHash =
         either (error "deserialiseFromRawBytes failed") id
         . C.deserialiseFromRawBytes (C.proxyToAsType $ Proxy @(C.Hash C.PaymentKey))
         . P.fromBuiltin
@@ -138,8 +135,8 @@ issueProgrammableTokenEndpoint :: forall era env m.
 issueProgrammableTokenEndpoint IssueProgrammableTokenArgs{itaAssetName, itaQuantity, itaIssuer} = do
   operatorEnv <- Env.loadOperatorEnvFromAddress itaIssuer
   dirEnv <- asks Env.directoryEnv
-  programmableBaseLogicCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
-  Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer (Env.mkTransferLogicEnv Production programmableBaseLogicCred (paymentKeyHashFromAddress itaIssuer)) $ do
+  logic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress itaIssuer)
+  Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer logic $ do
     TextEnvelopeJSON <$> Endpoints.issueProgrammableTokenTx itaAssetName itaQuantity
 
 paymentCredentialFromAddress :: C.Address C.ShelleyAddr -> C.PaymentCredential
@@ -164,10 +161,9 @@ transferProgrammableTokenEndpoint :: forall era env m.
 transferProgrammableTokenEndpoint TransferProgrammableTokenArgs{ttaSender, ttaRecipient, ttaAssetName, ttaQuantity, ttaIssuer} = do
   operatorEnv <- Env.loadOperatorEnvFromAddress ttaSender
   dirEnv <- asks Env.directoryEnv
-  programmableBaseLogicCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
-  let transferLogic = Env.mkTransferLogicEnv Production programmableBaseLogicCred (paymentKeyHashFromAddress ttaIssuer)
-  assetId <- programmableTokenAssetId <$> Env.getGlobalParams <*> pure transferLogic <*> pure ttaAssetName
-  Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
+  logic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress ttaIssuer)
+  assetId <- Env.programmableTokenAssetId dirEnv <$> Env.transferLogicForDirectory (paymentKeyHashFromAddress ttaIssuer) <*> pure ttaAssetName
+  Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer logic $ do
     TextEnvelopeJSON <$> Endpoints.transferSmartTokensTx assetId ttaQuantity (paymentCredentialFromAddress ttaRecipient)
 
 addToBlacklistEndpoint :: forall era env m.
@@ -184,8 +180,7 @@ addToBlacklistEndpoint AddToBlacklistArgs{atbIssuer, atbBlacklistAddress} = do
   let badCred = paymentCredentialFromAddress atbBlacklistAddress
   operatorEnv <- Env.loadOperatorEnvFromAddress atbIssuer
   dirEnv <- asks Env.directoryEnv
-  programmableBaseLogicCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
-  let transferLogic = Env.mkTransferLogicEnv Production programmableBaseLogicCred (paymentKeyHashFromAddress atbIssuer)
+  transferLogic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress atbIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
     TextEnvelopeJSON <$> Endpoints.blacklistCredentialTx badCred
 
@@ -203,7 +198,6 @@ seizeAssetsEndpoint SeizeAssetsArgs{saIssuer, saTarget} = do
   let badCred = paymentCredentialFromAddress saTarget
   operatorEnv <- Env.loadOperatorEnvFromAddress saIssuer
   dirEnv <- asks Env.directoryEnv
-  programmableBaseLogicCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
-  let transferLogic = Env.mkTransferLogicEnv Production programmableBaseLogicCred (paymentKeyHashFromAddress saIssuer)
+  transferLogic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress saIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
     TextEnvelopeJSON <$> Endpoints.seizeCredentialAssetsTx badCred
