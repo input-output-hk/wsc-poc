@@ -8,20 +8,18 @@ import Cardano.Api.Shelley qualified as C
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Plutus.ExUnits qualified as Ledger
 import Cardano.Ledger.Shelley.TxCert qualified as TxCert
-import Control.Exception (try)
 import Control.Lens (set, (%~), (&), (^.))
 import Control.Monad (void)
-import Control.Monad.Reader (asks)
-import Control.Monad.Reader.Class (MonadReader)
+import Control.Monad.Reader (MonadReader (ask), ReaderT (runReaderT), asks)
 import Convex.BuildTx (MonadBuildTx, addCertificate)
 import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain (queryProtocolParameters, sendTx),
                      MonadMockchain, MonadUtxoQuery)
 import Convex.CoinSelection (ChangeOutputPosition (TrailingChange))
-import Convex.MockChain
+import Convex.MockChain (MockchainT)
 import Convex.MockChain.CoinSelection (tryBalanceAndSubmit)
 import Convex.MockChain.Defaults qualified as Defaults
-import Convex.MockChain.Utils (mockchainFails, mockchainSucceeds)
+import Convex.MockChain.Utils (mockchainFails, mockchainSucceedsWith)
 import Convex.NodeParams (NodeParams, ledgerProtocolParameters,
                           protocolParameters)
 import Convex.Utils (failOnError)
@@ -29,9 +27,10 @@ import Convex.Wallet.MockWallet qualified as Wallet
 import Convex.Wallet.Operator (signTxOperator)
 import Convex.Wallet.Operator qualified as Operator
 import Data.List (isPrefixOf)
+import Data.String (IsString (..))
 import Data.Word (Word32)
 import GHC.Exception (SomeException, throw)
-import SmartTokens.Core.Scripts (ScriptTarget (Production))
+import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, testCase)
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..))
@@ -52,42 +51,41 @@ testNodeParams =
       npsTx = Defaults.nodeParams & set (ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxSizeL) testTxSize
   in npsTx & set (ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxExUnitsL) newExUnits
 
--- | Run the 'Mockchain' action with modified node parameters to allow larger-than-usual
--- transactions. This is useful for showing debug output from the scripts and fail if there is an error
-mockchainSucceedsWithLargeTx :: MockchainIO C.ConwayEra a -> Assertion
-mockchainSucceedsWithLargeTx action =
-  let params' = testNodeParams & ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxSizeL %~ (*10)
-  in try @SomeException (runMockchain0IOWith Wallet.initialUTxOs params' action) >>= \case
-      Right{} -> pure ()
-      Left err -> fail (show err)
-
 tests :: TestTree
 tests = testGroup "unit tests"
-  [ testCase "deploy directory and global params" (mockchainSucceedsWithLargeTx deployDirectorySet)
-  , testCase "insert directory node" (mockchainSucceeds insertDirectoryNode)
-  , testGroup "issue programmable tokens"
-      [ testCase "always succeeds validator" (mockchainSucceeds issueAlwaysSucceedsValidator)
-      , testCase "smart token issuance" (mockchainSucceeds issueSmartTokensScenario)
-      , testCase "smart token transfer" (mockchainSucceeds transferSmartTokens)
-      , testCase "blacklist credential" (mockchainSucceeds (void blacklistCredential))
-      , testCase "blacklisted transfer" (mockchainFails blacklistTransfer assertBlacklistedAddressException)
-      , testCase "seize user output" (mockchainSucceeds seizeUserOutput)
-      ]
+  [ scriptTargetTests Debug
+  , scriptTargetTests Production
   ]
 
-deployDirectorySet :: (MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => m DirectoryScriptRoot
-deployDirectorySet = failOnError $ Env.withEnv $ asAdmin @C.ConwayEra $ do
-  (tx, scriptRoot) <- Endpoints.deployTx Production
-  void $ sendTx $ signTxOperator admin tx
-  Env.withDirectoryFor scriptRoot $ do
-    Query.registryNodes @C.ConwayEra
-      >>= void . expectSingleton "registry output"
-    void $ Query.globalParamsNode @C.ConwayEra
-  pure scriptRoot
+scriptTargetTests :: ScriptTarget -> TestTree
+scriptTargetTests target =
+  testGroup (fromString $ show target)
+    [ testCase "deploy directory and global params" (mockchainSucceedsWithTarget target deployDirectorySet)
+    , testCase "insert directory node" (mockchainSucceedsWithTarget target $ deployDirectorySet >>= insertDirectoryNode)
+    , testGroup "issue programmable tokens"
+        [ testCase "always succeeds validator" (mockchainSucceedsWithTarget target $ deployDirectorySet >>= issueAlwaysSucceedsValidator)
+        , testCase "smart token issuance" (mockchainSucceedsWithTarget target issueSmartTokensScenario)
+        , testCase "smart token transfer" (mockchainSucceedsWithTarget target $ deployDirectorySet >>= transferSmartTokens)
+        , testCase "blacklist credential" (mockchainSucceedsWithTarget target $ void $ deployDirectorySet >>= blacklistCredential)
+        , testCase "blacklisted transfer" (mockchainFails blacklistTransfer assertBlacklistedAddressException)
+        , testCase "seize user output" (mockchainSucceedsWithTarget target $ deployDirectorySet >>= seizeUserOutput)
+        ]
+    ]
 
-insertDirectoryNode :: (MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => m ()
-insertDirectoryNode = failOnError $ Env.withEnv $ do
-  scriptRoot <- deployDirectorySet
+deployDirectorySet :: (MonadReader ScriptTarget m, MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => m DirectoryScriptRoot
+deployDirectorySet = do
+  target <- ask
+  failOnError $ Env.withEnv $ asAdmin @C.ConwayEra $ do
+    (tx, scriptRoot) <- Endpoints.deployTx target
+    void $ sendTx $ signTxOperator admin tx
+    Env.withDirectoryFor scriptRoot $ do
+      Query.registryNodes @C.ConwayEra
+        >>= void . expectSingleton "registry output"
+      void $ Query.globalParamsNode @C.ConwayEra
+    pure scriptRoot
+
+insertDirectoryNode :: (MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => DirectoryScriptRoot -> m ()
+insertDirectoryNode scriptRoot = failOnError $ Env.withEnv $ do
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ do
     Endpoints.insertNodeTx dummyNodeArgs >>= void . sendTx . signTxOperator admin
     Query.registryNodes @C.ConwayEra
@@ -95,15 +93,14 @@ insertDirectoryNode = failOnError $ Env.withEnv $ do
 
 {-| Issue some tokens with the "always succeeds" validator
 -}
-issueAlwaysSucceedsValidator :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m ()
-issueAlwaysSucceedsValidator = failOnError $ Env.withEnv $ do
+issueAlwaysSucceedsValidator :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m ()
+issueAlwaysSucceedsValidator scriptRoot = failOnError $ Env.withEnv $ do
 
   -- Register the stake validator
   -- Oddly, the tests passes even if we don't do this.
   -- But I'll leave it in because it seems right.
   registerAlwaysSucceedsStakingCert
 
-  scriptRoot <- deployDirectorySet
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransfer (Env.alwaysSucceedsTransferLogic Production) $ do
     Endpoints.issueProgrammableTokenTx "dummy asset" 100
       >>= void . sendTx . signTxOperator admin
@@ -112,7 +109,7 @@ issueAlwaysSucceedsValidator = failOnError $ Env.withEnv $ do
     Query.programmableLogicOutputs @C.ConwayEra
       >>= void . expectN 1 "programmable logic outputs"
 
-issueSmartTokensScenario :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m C.AssetId
+issueSmartTokensScenario :: (MonadReader ScriptTarget m, MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m C.AssetId
 issueSmartTokensScenario = deployDirectorySet >>= issueTransferLogicProgrammableToken
 
 {-| Issue some tokens with the smart stabelcoin transfer logic validator
@@ -139,10 +136,9 @@ issueTransferLogicProgrammableToken scriptRoot = failOnError $ Env.withEnv $ do
 
 {-| Issue some tokens with the smart stabelcoin transfer logic validator
 -}
-transferSmartTokens :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m ()
-transferSmartTokens = failOnError $ Env.withEnv $ do
+transferSmartTokens :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m ()
+transferSmartTokens scriptRoot = failOnError $ Env.withEnv $ do
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
-  scriptRoot <- deployDirectorySet
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
     Endpoints.deployBlacklistTx
@@ -165,12 +161,10 @@ transferSmartTokens = failOnError $ Env.withEnv $ do
     Query.userProgrammableOutputs (C.PaymentCredentialByKey opPkh)
       >>= void . expectN 1 "user programmable outputs"
 
-blacklistCredential :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m C.PaymentCredential
-blacklistCredential = failOnError $ Env.withEnv $ do
+blacklistCredential :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m C.PaymentCredential
+blacklistCredential scriptRoot = failOnError $ Env.withEnv $ do
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
   let paymentCred = C.PaymentCredentialByKey userPkh
-
-  scriptRoot <- deployDirectorySet
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
     Endpoints.deployBlacklistTx
@@ -189,10 +183,10 @@ blacklistCredential = failOnError $ Env.withEnv $ do
 
 blacklistTransfer :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m ()
 blacklistTransfer = failOnError $ Env.withEnv $ do
+  scriptRoot <- runReaderT deployDirectorySet Production
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
   let userPaymentCred = C.PaymentCredentialByKey userPkh
 
-  scriptRoot <- deployDirectorySet
   aid <- issueTransferLogicProgrammableToken scriptRoot
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
@@ -215,12 +209,11 @@ blacklistTransfer = failOnError $ Env.withEnv $ do
     Endpoints.transferSmartTokensTx aid 30 (C.PaymentCredentialByKey opPkh)
       >>= void . sendTx . signTxOperator (user Wallet.w2)
 
-seizeUserOutput :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m ()
-seizeUserOutput = failOnError $ Env.withEnv $ do
+seizeUserOutput :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m ()
+seizeUserOutput scriptRoot = failOnError $ Env.withEnv $ do
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
   let userPaymentCred = C.PaymentCredentialByKey userPkh
 
-  scriptRoot <- deployDirectorySet
   aid <- issueTransferLogicProgrammableToken scriptRoot
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
@@ -325,3 +318,15 @@ assertBlacklistedAddressException :: SomeException -> Assertion
 assertBlacklistedAddressException ex
   | "user error (TransferBlacklistedCredential (PubKeyCredential" `isPrefixOf` show ex = pure ()
   | otherwise = throw ex
+
+nodeParamsFor :: ScriptTarget -> NodeParams C.ConwayEra
+nodeParamsFor = \case
+  -- Run the 'Mockchain' action with modified node parameters to allow larger-than-usual
+  -- transactions. This is useful for showing debug output from the scripts and fail if there is an error
+  Debug -> testNodeParams & ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxSizeL %~ (*10)
+  Production -> testNodeParams
+
+mockchainSucceedsWithTarget :: ScriptTarget -> ReaderT ScriptTarget (MockchainT C.ConwayEra IO) a -> Assertion
+mockchainSucceedsWithTarget target =
+  mockchainSucceedsWith (nodeParamsFor target) . flip runReaderT target
+
