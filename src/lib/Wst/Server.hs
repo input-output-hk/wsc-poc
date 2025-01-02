@@ -21,12 +21,11 @@ import PlutusTx.Prelude qualified as P
 import Servant (Server, ServerT)
 import Servant.API (NoContent (..), (:<|>) (..))
 import Servant.Server (hoistServer, serve)
+import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import SmartTokens.Types.PTokenDirectory (blnKey)
 import Wst.App (WstApp, runWstAppServant)
 import Wst.AppError (AppError)
-import Wst.Offchain.BuildTx.ProgrammableLogic (alwaysSucceedsArgs,
-                                               fromTransferEnv,
-                                               programmableTokenAssetId)
+import Wst.Offchain.BuildTx.ProgrammableLogic (programmableTokenAssetId)
 import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (uDatum))
@@ -36,7 +35,6 @@ import Wst.Server.Types (APIInEra, AddToBlacklistArgs (..), BuildTxAPI,
                          SeizeAssetsArgs (..), SerialiseAddress (..),
                          TextEnvelopeJSON (..),
                          TransferProgrammableTokenArgs (..))
-import SmartTokens.Core.Scripts (ScriptTarget(Production))
 
 data ServerArgs =
   ServerArgs
@@ -140,12 +138,9 @@ issueProgrammableTokenEndpoint :: forall era env m.
 issueProgrammableTokenEndpoint IssueProgrammableTokenArgs{itaAssetName, itaQuantity, itaIssuer} = do
   operatorEnv <- Env.loadOperatorEnvFromAddress itaIssuer
   dirEnv <- asks Env.directoryEnv
-
-      -- FIXME: Replace alwaysSucceedsArgs with blacklist monetary policy as soon as it is finished
-  let tokenArgs = alwaysSucceedsArgs Production
   programmableBaseLogicCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer (Env.mkTransferLogicEnv Production programmableBaseLogicCred (paymentKeyHashFromAddress itaIssuer)) $ do
-    TextEnvelopeJSON <$> Endpoints.issueProgrammableTokenTx tokenArgs itaAssetName itaQuantity
+    TextEnvelopeJSON <$> Endpoints.issueProgrammableTokenTx itaAssetName itaQuantity
 
 paymentCredentialFromAddress :: C.Address C.ShelleyAddr -> C.PaymentCredential
 paymentCredentialFromAddress = \case
@@ -171,7 +166,7 @@ transferProgrammableTokenEndpoint TransferProgrammableTokenArgs{ttaSender, ttaRe
   dirEnv <- asks Env.directoryEnv
   programmableBaseLogicCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
   let transferLogic = Env.mkTransferLogicEnv Production programmableBaseLogicCred (paymentKeyHashFromAddress ttaIssuer)
-  assetId <- programmableTokenAssetId <$> Env.getGlobalParams <*> pure (fromTransferEnv transferLogic) <*> pure ttaAssetName
+  assetId <- programmableTokenAssetId <$> Env.getGlobalParams <*> pure transferLogic <*> pure ttaAssetName
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
     TextEnvelopeJSON <$> Endpoints.transferSmartTokensTx assetId ttaQuantity (paymentCredentialFromAddress ttaRecipient)
 

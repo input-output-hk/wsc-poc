@@ -6,11 +6,7 @@
 
 {-# HLINT ignore "Use second" #-}
 module Wst.Offchain.BuildTx.ProgrammableLogic
-  (
-    IssueNewTokenArgs (..),
-    alwaysSucceedsArgs,
-    fromTransferEnv,
-    programmableTokenMintingScript,
+  ( programmableTokenMintingScript,
     programmableTokenAssetId,
     issueProgrammableToken,
     transferProgrammableToken,
@@ -42,7 +38,6 @@ import PlutusLedgerApi.V3 (CurrencySymbol (..))
 import SmartTokens.Contracts.Issuance (SmartTokenMintingAction (MintPToken, RegisterPToken))
 import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedeemer (..),
                                                     TokenProof (..))
-import SmartTokens.Core.Scripts (ScriptTarget)
 import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..),
@@ -50,46 +45,20 @@ import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..),
 import Wst.Offchain.Env (TransferLogicEnv (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
-import Wst.Offchain.Scripts (alwaysSucceedsScript,
-                             programmableLogicMintingScript)
+import Wst.Offchain.Scripts (programmableLogicMintingScript)
 
-data IssueNewTokenArgs = IssueNewTokenArgs
-  { intaMintingLogic  :: C.PlutusScript C.PlutusScriptV3, -- TODO: We could add a parameter for the script 'lang' instead of fixing it to PlutusV3
-    intaTransferLogic :: C.PlutusScript C.PlutusScriptV3,
-    intaIssuerLogic   :: C.PlutusScript C.PlutusScriptV3
-  }
-
-{-| 'IssueNewTokenArgs' for the policy that always succeeds (no checks)
--}
-alwaysSucceedsArgs :: ScriptTarget -> IssueNewTokenArgs
-alwaysSucceedsArgs target =
-  IssueNewTokenArgs
-    { intaMintingLogic = alwaysSucceedsScript target
-    , intaTransferLogic = alwaysSucceedsScript target
-    , intaIssuerLogic = alwaysSucceedsScript target
-    }
-
-{-| 'IssueNewTokenArgs' for the transfer logic
--}
-fromTransferEnv :: TransferLogicEnv -> IssueNewTokenArgs
-fromTransferEnv TransferLogicEnv{tleMintingScript, tleTransferScript, tleIssuerScript} =
-  IssueNewTokenArgs
-    { intaMintingLogic  = tleMintingScript
-    , intaTransferLogic = tleTransferScript
-    , intaIssuerLogic   = tleIssuerScript
-    }
-
+-- FIXME: Move to Env
 {-| The minting script for a programmable token that uses the global parameters
 -}
-programmableTokenMintingScript :: ProgrammableLogicGlobalParams -> IssueNewTokenArgs -> C.PlutusScript C.PlutusScriptV3
-programmableTokenMintingScript ProgrammableLogicGlobalParams {progLogicCred, directoryNodeCS} IssueNewTokenArgs{intaMintingLogic} =
+programmableTokenMintingScript :: ProgrammableLogicGlobalParams -> TransferLogicEnv -> C.PlutusScript C.PlutusScriptV3
+programmableTokenMintingScript ProgrammableLogicGlobalParams {progLogicCred, directoryNodeCS} TransferLogicEnv{tleMintingScript} =
   let progLogicScriptCredential = fromRight (error "could not parse protocol params") $ unTransCredential progLogicCred
       directoryNodeSymbol       = fromRight (error "could not parse protocol params") $ unTransPolicyId directoryNodeCS
-  in programmableLogicMintingScript (error "programmableTokenMintingScript: scriptTarget") progLogicScriptCredential (C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion intaMintingLogic) directoryNodeSymbol
+  in programmableLogicMintingScript (error "programmableTokenMintingScript: scriptTarget") progLogicScriptCredential (C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleMintingScript) directoryNodeSymbol
 
 {-| 'C.AssetId' of the programmable tokens
 -}
-programmableTokenAssetId :: ProgrammableLogicGlobalParams -> IssueNewTokenArgs -> C.AssetName -> C.AssetId
+programmableTokenAssetId :: ProgrammableLogicGlobalParams -> TransferLogicEnv -> C.AssetName -> C.AssetId
 programmableTokenAssetId params inta =
   C.AssetId
     (C.scriptPolicyId $ C.PlutusScript C.plutusScriptVersion $ programmableTokenMintingScript params inta)
@@ -102,7 +71,7 @@ programmableTokenAssetId params inta =
 -}
 issueProgrammableToken :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> [UTxODat era DirectorySetNode] -> m C.PolicyId
 issueProgrammableToken paramsTxOut (an, q) directoryList = Utils.inBabbage @era $ do
-  inta@IssueNewTokenArgs{intaTransferLogic, intaIssuerLogic} <- asks (fromTransferEnv . Env.transferLogicEnv)
+  inta@TransferLogicEnv{tleMintingScript, tleTransferScript, tleIssuerScript} <- asks Env.transferLogicEnv
   glParams <- asks (Env.globalParams . Env.directoryEnv)
 
   -- The global params in the UTxO need to match those in our 'DirectoryEnv'.
@@ -127,8 +96,8 @@ issueProgrammableToken paramsTxOut (an, q) directoryList = Utils.inBabbage @era 
       let nodeArgs =
             InsertNodeArgs
               { inaNewKey = issuedSymbol
-              , inaTransferLogic = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion intaTransferLogic
-              , inaIssuerLogic = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion intaIssuerLogic
+              , inaTransferLogic = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleTransferScript
+              , inaIssuerLogic = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleIssuerScript
               }
 
       mintPlutus mintingScript RegisterPToken an q

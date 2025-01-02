@@ -35,6 +35,7 @@ module Wst.Offchain.Env(
 
   -- ** Transfer logic environment
   TransferLogicEnv(..),
+  alwaysSucceedsTransferLogic,
   HasTransferLogicEnv(..),
   mkTransferLogicEnv,
   addTransferEnv,
@@ -93,7 +94,8 @@ import SmartTokens.Core.Scripts (ScriptTarget)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 import System.Environment qualified
 import Wst.AppError (AppError (..))
-import Wst.Offchain.Scripts (blacklistMintingScript, blacklistSpendingScript,
+import Wst.Offchain.Scripts (alwaysSucceedsScript, blacklistMintingScript,
+                             blacklistSpendingScript,
                              directoryNodeMintingScript,
                              directoryNodeSpendingScript, freezeTransferScript,
                              permissionedTransferScript,
@@ -248,11 +250,23 @@ getGlobalParams = asks (globalParams . directoryEnv)
 
 data TransferLogicEnv =
   TransferLogicEnv
-    { tleBlacklistMintingScript :: PlutusScript PlutusScriptV3
+    { tleBlacklistMintingScript  :: PlutusScript PlutusScriptV3
     , tleBlacklistSpendingScript :: PlutusScript PlutusScriptV3
-    , tleMintingScript :: PlutusScript PlutusScriptV3
-    , tleTransferScript :: PlutusScript PlutusScriptV3
-    , tleIssuerScript :: PlutusScript PlutusScriptV3
+    , tleMintingScript           :: PlutusScript PlutusScriptV3
+    , tleTransferScript          :: PlutusScript PlutusScriptV3
+    , tleIssuerScript            :: PlutusScript PlutusScriptV3
+    }
+
+{-| 'IssueNewTokenArgs' for the policy that always succeeds (no checks)
+-}
+alwaysSucceedsTransferLogic :: ScriptTarget -> TransferLogicEnv
+alwaysSucceedsTransferLogic target =
+  TransferLogicEnv
+    { tleBlacklistMintingScript = alwaysSucceedsScript target
+    , tleBlacklistSpendingScript = alwaysSucceedsScript target
+    , tleMintingScript = alwaysSucceedsScript target
+    , tleTransferScript = alwaysSucceedsScript target
+    , tleIssuerScript = alwaysSucceedsScript target
     }
 
 class HasTransferLogicEnv e where
