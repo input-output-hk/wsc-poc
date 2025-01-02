@@ -74,6 +74,7 @@ library
     Wst.Cli
     Wst.Cli.Command
     Wst.Client
+    Wst.JSON.Utils
     Wst.Offchain.BuildTx.DirectorySet
     Wst.Offchain.BuildTx.LinkedList
     Wst.Offchain.BuildTx.ProgrammableLogic
@@ -83,6 +84,7 @@ library
     Wst.Offchain.Env
     Wst.Offchain.Query
     Wst.Offchain.Scripts
+    Wst.Orphans
     Wst.Server
     Wst.Server.Types
 
@@ -104,6 +106,7 @@ library
     , generics-sop
     , lens
     , mtl
+    , openapi3
     , optparse-applicative
     , plutarch
     , plutarch-ledger-api
@@ -197,3 +200,14 @@ executable wst-poc-mock-server
   build-depends:
     , base
     , wst-poc:test-lib
+
+executable write-openapi-schema
+  import:         lang
+  main-is:        Main.hs
+  hs-source-dirs: exe/write-openapi-schema
+  build-depends:
+    , aeson-pretty
+    , base
+    , bytestring
+    , servant-openapi3
+    , wst-poc
