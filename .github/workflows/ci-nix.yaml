@@ -4,6 +4,8 @@ name: "ci-nix"
 on:
   pull_request:
   push:
+    branches:
+      - main
 
 concurrency:
   group: "ci-nix-${{ github.ref }}"

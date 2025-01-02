@@ -6,7 +6,6 @@ module Wst.Test.UnitTest(
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Cardano.Ledger.Api qualified as Ledger
-import Cardano.Ledger.Core qualified as Ledger
 import Cardano.Ledger.Plutus.ExUnits qualified as Ledger
 import Cardano.Ledger.Shelley.TxCert qualified as TxCert
 import Control.Exception (try)
@@ -154,7 +153,7 @@ transferSmartTokens = failOnError $ Env.withEnv $ do
   asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ Env.withTransferFromOperator $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
 
-    Endpoints.transferSmartTokensTx (C.PaymentCredentialByKey opPkh) aid 80 (C.PaymentCredentialByKey userPkh)
+    Endpoints.transferSmartTokensTx aid 80 (C.PaymentCredentialByKey userPkh)
       >>= void . sendTx . signTxOperator admin
 
     Query.programmableLogicOutputs @C.ConwayEra
@@ -200,7 +199,7 @@ blacklistTransfer = failOnError $ Env.withEnv $ do
 
   opPkh <- asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
-    Endpoints.transferSmartTokensTx (C.PaymentCredentialByKey opPkh) aid 50 (C.PaymentCredentialByKey userPkh)
+    Endpoints.transferSmartTokensTx aid 50 (C.PaymentCredentialByKey userPkh)
       >>= void . sendTx . signTxOperator admin
     pure opPkh
 
@@ -213,7 +212,7 @@ blacklistTransfer = failOnError $ Env.withEnv $ do
       >>= void . sendTx . signTxOperator admin
 
   asWallet Wallet.w2 $ Env.withDirectoryFor txIn $ Env.withTransferFor progLogicCred opPkh $ do
-    Endpoints.transferSmartTokensTx (C.PaymentCredentialByKey userPkh) aid 30 (C.PaymentCredentialByKey opPkh)
+    Endpoints.transferSmartTokensTx aid 30 (C.PaymentCredentialByKey opPkh)
       >>= void . sendTx . signTxOperator (user Wallet.w2)
 
 seizeUserOutput :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m ()
@@ -229,8 +228,7 @@ seizeUserOutput = failOnError $ Env.withEnv $ do
       >>= void . sendTx . signTxOperator admin
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
-    opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
-    Endpoints.transferSmartTokensTx (C.PaymentCredentialByKey opPkh) aid 50 (C.PaymentCredentialByKey userPkh)
+    Endpoints.transferSmartTokensTx aid 50 (C.PaymentCredentialByKey userPkh)
       >>= void . sendTx . signTxOperator admin
     Query.programmableLogicOutputs @C.ConwayEra
       >>= void . expectN 2 "programmable logic outputs"

@@ -6,6 +6,8 @@ name: "ci-oci"
 on:
   pull_request:
   push:
+    branches:
+      - main
 
 concurrency:
   group: "ci-oci-${{ github.ref }}"

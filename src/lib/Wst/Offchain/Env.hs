@@ -28,7 +28,7 @@ module Wst.Offchain.Env(
   directoryNodePolicyId,
   protocolParamsPolicyId,
   globalParams,
-
+  getGlobalParams,
 
   -- * Transfer logic environment
   TransferLogicEnv(..),
@@ -222,6 +222,9 @@ globalParams scripts =
     , progLogicCred   = transCredential (programmableLogicBaseCredential scripts) -- its the script hash of the programmable base spending script
     }
 
+getGlobalParams :: (MonadReader e m, HasDirectoryEnv e) => m ProgrammableLogicGlobalParams
+getGlobalParams = asks (globalParams . directoryEnv)
+
 {-| Scripts related to managing the specific transfer logic
 -}
 
@@ -261,8 +264,8 @@ blacklistNodePolicyId = scriptPolicyIdV3 . tleBlacklistMintingScript
 
 data RuntimeEnv
   = RuntimeEnv
-      { envLogger     :: Logger
-      , envBlockfrost :: Blockfrost.Project
+      { envLogger      :: Logger
+      , envBlockfrost  :: Blockfrost.Project
       }
 
 makeLensesFor
@@ -292,7 +295,7 @@ data CombinedEnv operatorF directoryF transferF runtimeF era =
     { ceOperator  :: operatorF (OperatorEnv era)
     , ceDirectory :: directoryF DirectoryEnv
     , ceTransfer  :: transferF TransferLogicEnv
-    , ceRuntime :: runtimeF RuntimeEnv
+    , ceRuntime   :: runtimeF RuntimeEnv
     }
 
 makeLensesFor
@@ -354,7 +357,7 @@ addTransferEnv :: TransferLogicEnv -> CombinedEnv o d t r era -> CombinedEnv o d
 addTransferEnv de env =
   env{ceTransfer = Identity de }
 
-withTransfer :: MonadReader (CombinedEnv o Identity t r era) m => TransferLogicEnv -> ReaderT (CombinedEnv o Identity Identity r era) m a -> m a
+withTransfer :: MonadReader (CombinedEnv o d t r era) m => TransferLogicEnv -> ReaderT (CombinedEnv o d Identity r era) m a -> m a
 withTransfer dir action = do
   asks (addTransferEnv dir)
     >>= runReaderT action

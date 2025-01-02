@@ -10,6 +10,8 @@ module Wst.Offchain.BuildTx.ProgrammableLogic
     IssueNewTokenArgs (..),
     alwaysSucceedsArgs,
     fromTransferEnv,
+    programmableTokenMintingScript,
+    programmableTokenAssetId,
     issueProgrammableToken,
     transferProgrammableToken,
     seizeProgrammableToken,
@@ -29,6 +31,7 @@ import Convex.Class (MonadBlockchain (queryNetworkId))
 import Convex.PlutusLedger.V1 (transPolicyId, unTransCredential,
                                unTransPolicyId)
 import Convex.Utils qualified as Utils
+import Data.Either (fromRight)
 import Data.Foldable (find, maximumBy, traverse_)
 import Data.Function (on)
 import Data.List (partition)
@@ -74,19 +77,30 @@ fromTransferEnv TransferLogicEnv{tleMintingScript, tleTransferScript, tleIssuerS
     , intaIssuerLogic   = tleIssuerScript
     }
 
+{-| The minting script for a programmable token that uses the global parameters
+-}
+programmableTokenMintingScript :: ProgrammableLogicGlobalParams -> IssueNewTokenArgs -> C.PlutusScript C.PlutusScriptV3
+programmableTokenMintingScript ProgrammableLogicGlobalParams {progLogicCred, directoryNodeCS} IssueNewTokenArgs{intaMintingLogic} =
+  let progLogicScriptCredential = fromRight (error "could not parse protocol params") $ unTransCredential progLogicCred
+      directoryNodeSymbol       = fromRight (error "could not parse protocol params") $ unTransPolicyId directoryNodeCS
+  in programmableLogicMintingScript progLogicScriptCredential (C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion intaMintingLogic) directoryNodeSymbol
+
+{-| 'C.AssetId' of the programmable tokens
+-}
+programmableTokenAssetId :: ProgrammableLogicGlobalParams -> IssueNewTokenArgs -> C.AssetName -> C.AssetId
+programmableTokenAssetId params inta =
+  C.AssetId
+    (C.scriptPolicyId $ C.PlutusScript C.plutusScriptVersion $ programmableTokenMintingScript params inta)
+
+
 {- Issue a programmable token and register it in the directory set if necessary. The caller should ensure that the specific
    minting logic stake script witness is included in the final transaction.
   - If the programmable token is not in the directory, then it is registered
   - If the programmable token is in the directory, then it is minted
 -}
 issueProgrammableToken :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> IssueNewTokenArgs -> [UTxODat era DirectorySetNode] -> m C.PolicyId
-issueProgrammableToken paramsTxOut (an, q) IssueNewTokenArgs{intaMintingLogic, intaTransferLogic, intaIssuerLogic} directoryList = Utils.inBabbage @era $ do
-  let ProgrammableLogicGlobalParams {directoryNodeCS, progLogicCred} = uDatum paramsTxOut
-
-  progLogicScriptCredential <- either (const $ error "could not parse protocol params") pure $ unTransCredential progLogicCred
-  directoryNodeSymbol <- either (const $ error "could not parse protocol params") pure $ unTransPolicyId directoryNodeCS
-
-  let mintingScript = programmableLogicMintingScript progLogicScriptCredential (C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion intaMintingLogic) directoryNodeSymbol
+issueProgrammableToken paramsTxOut (an, q) inta@IssueNewTokenArgs{intaTransferLogic, intaIssuerLogic} directoryList = Utils.inBabbage @era $ do
+  let mintingScript = programmableTokenMintingScript (uDatum paramsTxOut) inta
       issuedPolicyId = C.scriptPolicyId $ C.PlutusScript C.PlutusScriptV3 mintingScript
       issuedSymbol = transPolicyId issuedPolicyId
 

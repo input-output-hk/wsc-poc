@@ -166,9 +166,10 @@ issueSmartTokens paramsTxOut (an, q) directoryList destinationCred = Utils.inBab
   paySmartTokensToDestination (an, q) issuedPolicyId destinationCred
   pure $ C.AssetId issuedPolicyId an
 
-transferSmartTokens :: forall env era a m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env, MonadError (AppError era) m) => UTxODat era ProgrammableLogicGlobalParams -> C.PaymentCredential -> [UTxODat era BlacklistNode] -> [UTxODat era DirectorySetNode] -> [UTxODat era a] -> (C.AssetId, C.Quantity) -> C.PaymentCredential -> m ()
-transferSmartTokens paramsTxIn userCred blacklistNodes directoryList spendingUserOutputs (assetId, q) destinationCred = Utils.inBabbage @era $ do
+transferSmartTokens :: forall env era a m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env, MonadError (AppError era) m) => UTxODat era ProgrammableLogicGlobalParams -> [UTxODat era BlacklistNode] -> [UTxODat era DirectorySetNode] -> [UTxODat era a] -> (C.AssetId, C.Quantity) -> C.PaymentCredential -> m ()
+transferSmartTokens paramsTxIn blacklistNodes directoryList spendingUserOutputs (assetId, q) destinationCred = Utils.inBabbage @era $ do
   nid <- queryNetworkId
+  userCred <- Env.operatorPaymentCredential
   progLogicBaseCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
 
   -- Find sufficient inputs to cover the transfer
