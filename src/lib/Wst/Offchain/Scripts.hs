@@ -54,9 +54,9 @@ import SmartTokens.LinkedList.SpendDirectory (pmkDirectorySpending)
 
 -- | The minting script for the protocol parameters NFT, takes initial TxIn for
 -- one shot mint
-protocolParamsMintingScript :: C.TxIn -> C.PlutusScript C.PlutusScriptV3
-protocolParamsMintingScript txIn =
-  let script = Scripts.tryCompile Production $ mkProtocolParametersMinting # pdata (pconstant $ transTxOutRef txIn)
+protocolParamsMintingScript :: ScriptTarget -> C.TxIn -> C.PlutusScript C.PlutusScriptV3
+protocolParamsMintingScript target txIn =
+  let script = Scripts.tryCompile target $ mkProtocolParametersMinting # pdata (pconstant $ transTxOutRef txIn)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- | The spending script for the protocol parameters NFT parameterized by ""

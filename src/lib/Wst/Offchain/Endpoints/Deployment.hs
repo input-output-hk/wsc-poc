@@ -22,6 +22,7 @@ import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Convex.CoinSelection qualified
 import Data.Foldable (maximumBy)
 import Data.Function (on)
+import SmartTokens.Core.Scripts (ScriptTarget (..))
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.AppError (AppError)
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (inaNewKey))
@@ -40,7 +41,7 @@ deployTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era 
 deployTx = do
   (txi, _) <- Env.selectOperatorOutput
   opEnv <- asks Env.operatorEnv
-  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectoryFor txi
+  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectoryFor Production txi
               $ Env.balanceTxEnv_
               $ BuildTx.mintProtocolParams >> BuildTx.initDirectorySet
   pure (Convex.CoinSelection.signBalancedTxBody [] tx, txi)

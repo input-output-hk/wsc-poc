@@ -30,6 +30,7 @@ import Convex.Wallet.Operator (signTxOperator)
 import Data.List (isPrefixOf)
 import Data.Word (Word32)
 import GHC.Exception (SomeException, throw)
+import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, testCase)
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..))
@@ -77,7 +78,7 @@ deployDirectorySet :: (MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFai
 deployDirectorySet = failOnError $ Env.withEnv $ asAdmin @C.ConwayEra $ do
   (tx, txI) <- Endpoints.deployTx
   void $ sendTx $ signTxOperator admin tx
-  Env.withDirectoryFor txI $ do
+  Env.withDirectoryFor Production txI $ do
     Query.registryNodes @C.ConwayEra
       >>= void . expectSingleton "registry output"
     void $ Query.globalParamsNode @C.ConwayEra
@@ -86,7 +87,7 @@ deployDirectorySet = failOnError $ Env.withEnv $ asAdmin @C.ConwayEra $ do
 insertDirectoryNode :: (MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => m ()
 insertDirectoryNode = failOnError $ Env.withEnv $ do
   txI <- deployDirectorySet
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor Production txI $ do
     Endpoints.insertNodeTx dummyNodeArgs >>= void . sendTx . signTxOperator admin
     Query.registryNodes @C.ConwayEra
       >>= void . expectN 2 "registry outputs"
@@ -102,7 +103,7 @@ issueAlwaysSucceedsValidator = failOnError $ Env.withEnv $ do
   registerAlwaysSucceedsStakingCert
 
   txI <- deployDirectorySet
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor Production txI $ do
     Endpoints.issueProgrammableTokenTx alwaysSucceedsArgs "dummy asset" 100
       >>= void . sendTx . signTxOperator admin
     Query.registryNodes @C.ConwayEra
@@ -118,12 +119,12 @@ issueSmartTokensScenario = deployDirectorySet >>= issueTransferLogicProgrammable
 issueTransferLogicProgrammableToken :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => C.TxIn -> m C.AssetId
 issueTransferLogicProgrammableToken txI = failOnError $ Env.withEnv $ do
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor Production txI $ Env.withTransferFromOperator $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
     -- register programmable global stake script
     void $ registerTransferScripts opPkh
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor Production txI $ Env.withTransferFromOperator $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
 
     (balTx, aid) <- Endpoints.issueSmartTokensTx "dummy asset" 100 (C.PaymentCredentialByKey opPkh)
@@ -142,7 +143,7 @@ transferSmartTokens = failOnError $ Env.withEnv $ do
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
   txI <- deployDirectorySet
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor Production txI $ Env.withTransferFromOperator $ do
     Endpoints.deployBlacklistTx
       >>= void . sendTx . signTxOperator admin
     Query.blacklistNodes @C.ConwayEra
@@ -150,7 +151,7 @@ transferSmartTokens = failOnError $ Env.withEnv $ do
 
   aid <- issueTransferLogicProgrammableToken txI
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor txI $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor Production txI $ Env.withTransferFromOperator $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
 
     Endpoints.transferSmartTokensTx aid 80 (C.PaymentCredentialByKey userPkh)
@@ -170,13 +171,13 @@ blacklistCredential = failOnError $ Env.withEnv $ do
 
   txIn <- deployDirectorySet
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor Production txIn $ Env.withTransferFromOperator $ do
     Endpoints.deployBlacklistTx
       >>= void . sendTx . signTxOperator admin
     Query.blacklistNodes @C.ConwayEra
       >>= void . expectSingleton "blacklist output"
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor Production txIn $ Env.withTransferFromOperator $ do
     Endpoints.blacklistCredentialTx paymentCred
       >>= void . sendTx . signTxOperator admin
 
@@ -193,25 +194,25 @@ blacklistTransfer = failOnError $ Env.withEnv $ do
   txIn <- deployDirectorySet
   aid <- issueTransferLogicProgrammableToken txIn
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor Production txIn $ Env.withTransferFromOperator $ do
     Endpoints.deployBlacklistTx
       >>= void . sendTx . signTxOperator admin
 
-  opPkh <- asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
+  opPkh <- asAdmin @C.ConwayEra $ Env.withDirectoryFor Production txIn $ Env.withTransferFromOperator $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
     Endpoints.transferSmartTokensTx aid 50 (C.PaymentCredentialByKey userPkh)
       >>= void . sendTx . signTxOperator admin
     pure opPkh
 
-  progLogicCred <- asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
+  progLogicCred <- asAdmin @C.ConwayEra $ Env.withDirectoryFor Production txIn $ Env.withTransferFromOperator $ do
     cred <- asks Env.directoryEnv
     pure $ Env.programmableLogicBaseCredential cred
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor Production txIn $ Env.withTransferFromOperator $ do
     Endpoints.blacklistCredentialTx userPaymentCred
       >>= void . sendTx . signTxOperator admin
 
-  asWallet Wallet.w2 $ Env.withDirectoryFor txIn $ Env.withTransferFor progLogicCred opPkh $ do
+  asWallet Wallet.w2 $ Env.withDirectoryFor Production txIn $ Env.withTransferFor progLogicCred opPkh $ do
     Endpoints.transferSmartTokensTx aid 30 (C.PaymentCredentialByKey opPkh)
       >>= void . sendTx . signTxOperator (user Wallet.w2)
 
@@ -223,11 +224,12 @@ seizeUserOutput = failOnError $ Env.withEnv $ do
   txIn <- deployDirectorySet
   aid <- issueTransferLogicProgrammableToken txIn
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor Production txIn $ Env.withTransferFromOperator $ do
     Endpoints.deployBlacklistTx
       >>= void . sendTx . signTxOperator admin
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor Production txIn $ Env.withTransferFromOperator $ do
+    opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
     Endpoints.transferSmartTokensTx aid 50 (C.PaymentCredentialByKey userPkh)
       >>= void . sendTx . signTxOperator admin
     Query.programmableLogicOutputs @C.ConwayEra
@@ -235,7 +237,7 @@ seizeUserOutput = failOnError $ Env.withEnv $ do
     Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh)
       >>= void . expectN 1 "user programmable outputs"
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor txIn $ Env.withTransferFromOperator $ do
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor Production txIn $ Env.withTransferFromOperator $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
     Endpoints.seizeCredentialAssetsTx userPaymentCred
       >>= void . sendTx . signTxOperator admin
