@@ -146,14 +146,30 @@ executable export-smart-tokens
 
   hs-source-dirs: exe/export-smart-tokens
 
+library test-lib
+  import:          lang
+  hs-source-dirs:  test/lib
+  exposed-modules:
+    Wst.Test.Gen
+    Wst.Test.MockServer
+
+  build-depends:
+    , base
+    , cardano-api
+    , cardano-api:gen
+    , convex-base
+    , hedgehog-quickcheck
+    , plutus-ledger-api
+    , QuickCheck
+    , servant
+    , servant-server
+    , warp
+    , wst-poc
+
 test-suite wst-poc-test
   import:         lang
   type:           exitcode-stdio-1.0
-  hs-source-dirs: test
-  ghc-options:
-    -fobject-code -fno-ignore-interface-pragmas
-    -fno-omit-interface-pragmas -fno-specialise -Wno-unused-packages
-
+  hs-source-dirs: test/unit
   main-is:        Spec.hs
   other-modules:
     Wst.Test.Env
@@ -171,7 +187,14 @@ test-suite wst-poc-test
     , convex-wallet
     , lens
     , mtl
-    , plutus-ledger-api
     , tasty
     , tasty-hunit
     , wst-poc
+
+executable wst-poc-mock-server
+  import:         lang
+  main-is:        Main.hs
+  hs-source-dirs: exe/wst-poc-mock-server
+  build-depends:
+    , base
+    , wst-poc:test-lib

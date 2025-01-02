@@ -3,7 +3,11 @@
 
 {-| servant server for stablecoin POC
 -}
-module Wst.Server(runServer) where
+module Wst.Server(
+  runServer,
+  ServerArgs(..),
+  defaultServerArgs
+  ) where
 
 import Cardano.Api.Shelley qualified as C
 import Control.Lens qualified as L
@@ -33,10 +37,24 @@ import Wst.Server.Types (APIInEra, AddToBlacklistArgs (..), BuildTxAPI,
                          TextEnvelopeJSON (..),
                          TransferProgrammableTokenArgs (..))
 
-runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env) => env -> IO ()
-runServer env = do
-  let app = serve (Proxy @APIInEra) (server env)
-      port = 8081
+data ServerArgs =
+  ServerArgs
+    { saPort :: !Int
+    , saStaticFiles :: Maybe FilePath
+    }
+    deriving stock (Eq, Show)
+
+defaultServerArgs :: ServerArgs
+defaultServerArgs =
+  ServerArgs
+    { saPort = 8080
+    , saStaticFiles = Nothing
+    }
+
+runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env) => env -> ServerArgs -> IO ()
+runServer env ServerArgs{saPort} = do
+  let app  = serve (Proxy @APIInEra) (server env)
+      port = saPort
   Warp.run port app
 
 server :: forall env. (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env) => env -> Server APIInEra

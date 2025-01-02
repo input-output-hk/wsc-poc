@@ -56,6 +56,7 @@ USDC, another fiat-stablecoin, currently has [264 blacklisted addresses](https:/
 
 # Contributing
 
-Run the tests with `cabal test all`.
+* Run the tests with `cabal test all`.
+* Run `cabal run wst-poc-mock-server`  to start a mock server that serves fake data
 
 Bug reports and contributions are welcome!
