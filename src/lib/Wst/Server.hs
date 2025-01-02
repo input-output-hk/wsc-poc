@@ -36,6 +36,7 @@ import Wst.Server.Types (APIInEra, AddToBlacklistArgs (..), BuildTxAPI,
                          SeizeAssetsArgs (..), SerialiseAddress (..),
                          TextEnvelopeJSON (..),
                          TransferProgrammableTokenArgs (..))
+import SmartTokens.Core.Scripts (ScriptTarget(Production))
 
 data ServerArgs =
   ServerArgs
@@ -91,7 +92,7 @@ queryBlacklistedNodes :: forall era env m.
   -> m [C.Hash C.PaymentKey]
 queryBlacklistedNodes _ (SerialiseAddress addr) = do
   programmableBaseLogicCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
-  let transferLogic = Env.mkTransferLogicEnv programmableBaseLogicCred (paymentKeyHashFromAddress addr)
+  let transferLogic = Env.mkTransferLogicEnv Production programmableBaseLogicCred (paymentKeyHashFromAddress addr)
       getHash =
         either (error "deserialiseFromRawBytes failed") id
         . C.deserialiseFromRawBytes (C.proxyToAsType $ Proxy @(C.Hash C.PaymentKey))
@@ -141,8 +142,9 @@ issueProgrammableTokenEndpoint IssueProgrammableTokenArgs{itaAssetName, itaQuant
   dirEnv <- asks Env.directoryEnv
 
       -- FIXME: Replace alwaysSucceedsArgs with blacklist monetary policy as soon as it is finished
-  let tokenArgs = alwaysSucceedsArgs
-  Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ do
+  let tokenArgs = alwaysSucceedsArgs Production
+  programmableBaseLogicCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
+  Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer (Env.mkTransferLogicEnv Production programmableBaseLogicCred (paymentKeyHashFromAddress itaIssuer)) $ do
     TextEnvelopeJSON <$> Endpoints.issueProgrammableTokenTx tokenArgs itaAssetName itaQuantity
 
 paymentCredentialFromAddress :: C.Address C.ShelleyAddr -> C.PaymentCredential
@@ -168,7 +170,7 @@ transferProgrammableTokenEndpoint TransferProgrammableTokenArgs{ttaSender, ttaRe
   operatorEnv <- Env.loadOperatorEnvFromAddress ttaSender
   dirEnv <- asks Env.directoryEnv
   programmableBaseLogicCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
-  let transferLogic = Env.mkTransferLogicEnv programmableBaseLogicCred (paymentKeyHashFromAddress ttaIssuer)
+  let transferLogic = Env.mkTransferLogicEnv Production programmableBaseLogicCred (paymentKeyHashFromAddress ttaIssuer)
   assetId <- programmableTokenAssetId <$> Env.getGlobalParams <*> pure (fromTransferEnv transferLogic) <*> pure ttaAssetName
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
     TextEnvelopeJSON <$> Endpoints.transferSmartTokensTx assetId ttaQuantity (paymentCredentialFromAddress ttaRecipient)
@@ -188,7 +190,7 @@ addToBlacklistEndpoint AddToBlacklistArgs{atbIssuer, atbBlacklistAddress} = do
   operatorEnv <- Env.loadOperatorEnvFromAddress atbIssuer
   dirEnv <- asks Env.directoryEnv
   programmableBaseLogicCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
-  let transferLogic = Env.mkTransferLogicEnv programmableBaseLogicCred (paymentKeyHashFromAddress atbIssuer)
+  let transferLogic = Env.mkTransferLogicEnv Production programmableBaseLogicCred (paymentKeyHashFromAddress atbIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
     TextEnvelopeJSON <$> Endpoints.blacklistCredentialTx badCred
 
@@ -207,6 +209,6 @@ seizeAssetsEndpoint SeizeAssetsArgs{saIssuer, saTarget} = do
   operatorEnv <- Env.loadOperatorEnvFromAddress saIssuer
   dirEnv <- asks Env.directoryEnv
   programmableBaseLogicCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
-  let transferLogic = Env.mkTransferLogicEnv programmableBaseLogicCred (paymentKeyHashFromAddress saIssuer)
+  let transferLogic = Env.mkTransferLogicEnv Production programmableBaseLogicCred (paymentKeyHashFromAddress saIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
     TextEnvelopeJSON <$> Endpoints.seizeCredentialAssetsTx badCred

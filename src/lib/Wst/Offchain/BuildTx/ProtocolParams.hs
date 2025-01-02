@@ -18,8 +18,7 @@ import SmartTokens.Types.Constants (protocolParamsToken)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import Wst.Offchain.Env (DirectoryEnv (..))
 import Wst.Offchain.Env qualified as Env
-import Wst.Offchain.Scripts (protocolParamsMintingScript,
-                             protocolParamsSpendingScript, scriptPolicyIdV3)
+import Wst.Offchain.Scripts (scriptPolicyIdV3)
 
 protocolParamsTokenC :: C.AssetName
 protocolParamsTokenC = unTransAssetName protocolParamsToken
@@ -28,10 +27,10 @@ protocolParamsTokenC = unTransAssetName protocolParamsToken
 -}
 mintProtocolParams :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => m ()
 mintProtocolParams = Utils.inBabbage @era $ do
-  txIn <- asks (Env.dsTxIn . Env.directoryEnv)
+  txIn <- asks (Env.srTxIn . Env.dsScriptRoot . Env.directoryEnv)
   params <- asks (Env.globalParams . Env.directoryEnv)
   netId <- queryNetworkId
-  DirectoryEnv{dsProtocolParamsMintingScript} <- asks Env.directoryEnv
+  DirectoryEnv{dsProtocolParamsMintingScript, dsProtocolParamsSpendingScript} <- asks Env.directoryEnv
   let policyId = scriptPolicyIdV3 dsProtocolParamsMintingScript
 
       val = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
@@ -41,7 +40,7 @@ mintProtocolParams = Utils.inBabbage @era $ do
         C.makeShelleyAddressInEra
           C.shelleyBasedEra
           netId
-          (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 protocolParamsSpendingScript)
+          (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 dsProtocolParamsSpendingScript)
           C.NoStakeAddress
 
       -- Should contain directoryNodeCS and progLogicCred fields

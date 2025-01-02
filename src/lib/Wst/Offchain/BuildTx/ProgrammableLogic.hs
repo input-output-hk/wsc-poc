@@ -21,6 +21,7 @@ where
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Control.Lens ((^.))
+import Control.Monad (unless)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx, addReference, addWithdrawalWithTxBody,
                        buildScriptWitness, findIndexReference,
@@ -41,6 +42,7 @@ import PlutusLedgerApi.V3 (CurrencySymbol (..))
 import SmartTokens.Contracts.Issuance (SmartTokenMintingAction (MintPToken, RegisterPToken))
 import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedeemer (..),
                                                     TokenProof (..))
+import SmartTokens.Core.Scripts (ScriptTarget)
 import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..),
@@ -59,12 +61,12 @@ data IssueNewTokenArgs = IssueNewTokenArgs
 
 {-| 'IssueNewTokenArgs' for the policy that always succeeds (no checks)
 -}
-alwaysSucceedsArgs :: IssueNewTokenArgs
-alwaysSucceedsArgs =
+alwaysSucceedsArgs :: ScriptTarget -> IssueNewTokenArgs
+alwaysSucceedsArgs target =
   IssueNewTokenArgs
-    { intaMintingLogic = alwaysSucceedsScript
-    , intaTransferLogic = alwaysSucceedsScript
-    , intaIssuerLogic = alwaysSucceedsScript
+    { intaMintingLogic = alwaysSucceedsScript target
+    , intaTransferLogic = alwaysSucceedsScript target
+    , intaIssuerLogic = alwaysSucceedsScript target
     }
 
 {-| 'IssueNewTokenArgs' for the transfer logic
@@ -83,7 +85,7 @@ programmableTokenMintingScript :: ProgrammableLogicGlobalParams -> IssueNewToken
 programmableTokenMintingScript ProgrammableLogicGlobalParams {progLogicCred, directoryNodeCS} IssueNewTokenArgs{intaMintingLogic} =
   let progLogicScriptCredential = fromRight (error "could not parse protocol params") $ unTransCredential progLogicCred
       directoryNodeSymbol       = fromRight (error "could not parse protocol params") $ unTransPolicyId directoryNodeCS
-  in programmableLogicMintingScript progLogicScriptCredential (C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion intaMintingLogic) directoryNodeSymbol
+  in programmableLogicMintingScript (error "programmableTokenMintingScript: scriptTarget") progLogicScriptCredential (C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion intaMintingLogic) directoryNodeSymbol
 
 {-| 'C.AssetId' of the programmable tokens
 -}
@@ -98,8 +100,18 @@ programmableTokenAssetId params inta =
   - If the programmable token is not in the directory, then it is registered
   - If the programmable token is in the directory, then it is minted
 -}
-issueProgrammableToken :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> IssueNewTokenArgs -> [UTxODat era DirectorySetNode] -> m C.PolicyId
-issueProgrammableToken paramsTxOut (an, q) inta@IssueNewTokenArgs{intaTransferLogic, intaIssuerLogic} directoryList = Utils.inBabbage @era $ do
+issueProgrammableToken :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> [UTxODat era DirectorySetNode] -> m C.PolicyId
+issueProgrammableToken paramsTxOut (an, q) directoryList = Utils.inBabbage @era $ do
+  inta@IssueNewTokenArgs{intaTransferLogic, intaIssuerLogic} <- asks (fromTransferEnv . Env.transferLogicEnv)
+  glParams <- asks (Env.globalParams . Env.directoryEnv)
+
+  -- The global params in the UTxO need to match those in our 'DirectoryEnv'.
+  -- If they don't, we get a script error when trying to balance the transaction.
+  -- To avoid this we check for equality here and fail early.
+  unless (glParams == uDatum paramsTxOut) $
+    -- FIXME: Error handling
+    error "Global params do not match"
+
   let mintingScript = programmableTokenMintingScript (uDatum paramsTxOut) inta
       issuedPolicyId = C.scriptPolicyId $ C.PlutusScript C.PlutusScriptV3 mintingScript
       issuedSymbol = transPolicyId issuedPolicyId

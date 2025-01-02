@@ -34,12 +34,10 @@ import PlutusTx qualified
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import SmartTokens.Types.PTokenDirectory (BlacklistNode, DirectorySetNode (..))
 import Wst.AppError (AppError (GlobalParamsNodeNotFound))
-import Wst.Offchain.Env (DirectoryEnv (dsDirectorySpendingScript, dsProgrammableLogicBaseScript),
-                         HasDirectoryEnv (directoryEnv),
+import Wst.Offchain.Env (DirectoryEnv (..), HasDirectoryEnv (directoryEnv),
                          HasTransferLogicEnv (transferLogicEnv),
                          TransferLogicEnv (tleBlacklistSpendingScript),
                          blacklistNodePolicyId, directoryNodePolicyId)
-import Wst.Offchain.Scripts (protocolParamsSpendingScript)
 
 -- TODO: We should probably filter the UTxOs to check that they have the correct NFTs
 
@@ -83,9 +81,10 @@ userProgrammableOutputs userCred = do
 
 {-| Find the UTxO with the global params
 -}
-globalParamsNode :: forall era m. (MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadError (AppError era) m) => m (UTxODat era ProgrammableLogicGlobalParams)
+globalParamsNode :: forall era env m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadError (AppError era) m) => m (UTxODat era ProgrammableLogicGlobalParams)
 globalParamsNode = do
-  let cred = C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 $ protocolParamsSpendingScript
+  DirectoryEnv{dsProtocolParamsSpendingScript} <- asks directoryEnv
+  let cred = C.PaymentCredentialByScript . C.hashScript $ C.PlutusScript C.PlutusScriptV3 dsProtocolParamsSpendingScript
   utxosByPaymentCredential cred
     >>= maybe (throwError GlobalParamsNodeNotFound) pure . listToMaybe . extractUTxO @era
 

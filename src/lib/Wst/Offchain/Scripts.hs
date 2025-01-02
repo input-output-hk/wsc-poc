@@ -61,70 +61,70 @@ protocolParamsMintingScript target txIn =
 
 -- | The spending script for the protocol parameters NFT parameterized by ""
 -- nonce
-protocolParamsSpendingScript :: C.PlutusScript C.PlutusScriptV3
-protocolParamsSpendingScript =
-  let script = Scripts.tryCompile Debug $ alwaysFailScript # pforgetData (pdata (pconstant "" :: ClosedTerm PByteString))
+protocolParamsSpendingScript :: ScriptTarget -> C.PlutusScript C.PlutusScriptV3
+protocolParamsSpendingScript target =
+  let script = Scripts.tryCompile target $ alwaysFailScript # pforgetData (pdata (pconstant "" :: ClosedTerm PByteString))
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- | The minting script for the directory node tokens, takes initial TxIn for
 -- symbol uniqueness across instances
-directoryNodeMintingScript :: C.TxIn -> C.PlutusScript C.PlutusScriptV3
-directoryNodeMintingScript txIn =
-  let script = Scripts.tryCompile Debug $ mkDirectoryNodeMP # pdata (pconstant $ transTxOutRef txIn)
+directoryNodeMintingScript :: ScriptTarget -> C.TxIn -> C.PlutusScript C.PlutusScriptV3
+directoryNodeMintingScript target txIn =
+  let script = Scripts.tryCompile target $ mkDirectoryNodeMP # pdata (pconstant $ transTxOutRef txIn)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- | The spending script for the directory node tokens, parameterized by the
 -- policy id of the protocol parameters NFT.
-directoryNodeSpendingScript :: C.PolicyId -> C.PlutusScript C.PlutusScriptV3
-directoryNodeSpendingScript paramsPolId =
-  let script = Scripts.tryCompile Debug $ pmkDirectorySpending # pdata (pconstant $ transPolicyId paramsPolId)
+directoryNodeSpendingScript :: ScriptTarget -> C.PolicyId -> C.PlutusScript C.PlutusScriptV3
+directoryNodeSpendingScript target paramsPolId =
+  let script = Scripts.tryCompile target $ pmkDirectorySpending # pdata (pconstant $ transPolicyId paramsPolId)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- TODO: can we change the signature to just take the param policy id?
-programmableLogicMintingScript :: C.PaymentCredential -> C.StakeCredential -> C.PolicyId -> C.PlutusScript C.PlutusScriptV3
-programmableLogicMintingScript progLogicBaseSpndingCred mintingCred nodePolId =
-  let script = Scripts.tryCompile Debug
+programmableLogicMintingScript :: ScriptTarget -> C.PaymentCredential -> C.StakeCredential -> C.PolicyId -> C.PlutusScript C.PlutusScriptV3
+programmableLogicMintingScript target progLogicBaseSpndingCred mintingCred nodePolId =
+  let script = Scripts.tryCompile target
                $ mkProgrammableLogicMinting
                   # pdata (pconstant $ transCredential progLogicBaseSpndingCred)
                   # pdata (pconstant $ transPolicyId nodePolId)
                   # pdata (pconstant $ transStakeCredential mintingCred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
-programmableLogicBaseScript :: C.StakeCredential -> C.PlutusScript C.PlutusScriptV3 -- Parameterized by the stake cred of the global script
-programmableLogicBaseScript globalCred =
-  let script = Scripts.tryCompile Debug $ mkProgrammableLogicBase # pdata (pconstant $ transStakeCredential globalCred)
+programmableLogicBaseScript :: ScriptTarget -> C.StakeCredential -> C.PlutusScript C.PlutusScriptV3 -- Parameterized by the stake cred of the global script
+programmableLogicBaseScript target globalCred =
+  let script = Scripts.tryCompile target $ mkProgrammableLogicBase # pdata (pconstant $ transStakeCredential globalCred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
-programmableLogicGlobalScript :: C.PolicyId -> C.PlutusScript C.PlutusScriptV3 -- Parameterized by the CS holding protocol params datum
-programmableLogicGlobalScript paramsPolId =
-  let script = Scripts.tryCompile Debug $ mkProgrammableLogicGlobal # pdata (pconstant $ transPolicyId paramsPolId)
+programmableLogicGlobalScript :: ScriptTarget -> C.PolicyId -> C.PlutusScript C.PlutusScriptV3 -- Parameterized by the CS holding protocol params datum
+programmableLogicGlobalScript target paramsPolId =
+  let script = Scripts.tryCompile target $ mkProgrammableLogicGlobal # pdata (pconstant $ transPolicyId paramsPolId)
   in C.PlutusScriptSerialised $ serialiseScript script
 
-permissionedTransferScript :: C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
-permissionedTransferScript cred =
-  let script = Scripts.tryCompile Debug $ mkPermissionedTransfer # pdata (pconstant $ transPubKeyHash cred)
+permissionedTransferScript :: ScriptTarget -> C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
+permissionedTransferScript target cred =
+  let script = Scripts.tryCompile target $ mkPermissionedTransfer # pdata (pconstant $ transPubKeyHash cred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
-freezeTransferScript :: C.PaymentCredential -> C.PolicyId -> C.PlutusScript C.PlutusScriptV3
-freezeTransferScript progLogicBaseSpndingCred blacklistPolicyId =
-  let script = Scripts.tryCompile Debug $ mkFreezeAndSeizeTransfer # pdata (pconstant $ transCredential progLogicBaseSpndingCred) # pdata (pconstant $ transPolicyId blacklistPolicyId)
+freezeTransferScript :: ScriptTarget -> C.PaymentCredential -> C.PolicyId -> C.PlutusScript C.PlutusScriptV3
+freezeTransferScript target progLogicBaseSpndingCred blacklistPolicyId =
+  let script = Scripts.tryCompile target $ mkFreezeAndSeizeTransfer # pdata (pconstant $ transCredential progLogicBaseSpndingCred) # pdata (pconstant $ transPolicyId blacklistPolicyId)
   in C.PlutusScriptSerialised $ serialiseScript script
 
-blacklistMintingScript :: C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
-blacklistMintingScript cred =
-  let script = Scripts.tryCompile Debug $ mkPermissionedMinting # pdata (pconstant $ transPubKeyHash cred)
+blacklistMintingScript :: ScriptTarget -> C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
+blacklistMintingScript target cred =
+  let script = Scripts.tryCompile target $ mkPermissionedMinting # pdata (pconstant $ transPubKeyHash cred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
-blacklistSpendingScript :: C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
-blacklistSpendingScript cred =
-  let script = Scripts.tryCompile Debug $ mkPermissionedTransfer # pdata (pconstant $ transPubKeyHash cred)
+blacklistSpendingScript :: ScriptTarget -> C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
+blacklistSpendingScript target cred =
+  let script = Scripts.tryCompile target $ mkPermissionedTransfer # pdata (pconstant $ transPubKeyHash cred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 {-| 'C.PlutusScript C.PlutusScriptV3' that always succeeds. Can be used for minting, withdrawal, spending, etc.
 -}
-alwaysSucceedsScript :: C.PlutusScript C.PlutusScriptV3
-alwaysSucceedsScript =
-  C.PlutusScriptSerialised $ serialiseScript $ Scripts.tryCompile Debug palwaysSucceed
+alwaysSucceedsScript :: ScriptTarget -> C.PlutusScript C.PlutusScriptV3
+alwaysSucceedsScript target =
+  C.PlutusScriptSerialised $ serialiseScript $ Scripts.tryCompile target palwaysSucceed
 
 -- Utilities
 scriptPolicyIdV3 :: C.PlutusScript C.PlutusScriptV3 -> C.PolicyId
