@@ -86,6 +86,7 @@ import Data.Map qualified as Map
 import Data.Maybe (listToMaybe)
 import Data.Proxy (Proxy (..))
 import Data.Text qualified as Text
+import SmartTokens.Core.Scripts (ScriptTarget)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 import System.Environment qualified
 import Wst.AppError (AppError (..))
@@ -184,10 +185,10 @@ data DirectoryEnv =
     , dsProgrammableLogicGlobalScript  :: PlutusScript PlutusScriptV3
     }
 
-mkDirectoryEnv :: C.TxIn -> DirectoryEnv
-mkDirectoryEnv dsTxIn =
+mkDirectoryEnv :: ScriptTarget -> C.TxIn -> DirectoryEnv
+mkDirectoryEnv target dsTxIn =
   let dsDirectoryMintingScript        = directoryNodeMintingScript dsTxIn
-      dsProtocolParamsMintingScript   = protocolParamsMintingScript dsTxIn
+      dsProtocolParamsMintingScript   = protocolParamsMintingScript target dsTxIn
       dsDirectorySpendingScript       = directoryNodeSpendingScript (protocolParamsPolicyId result)
       dsProgrammableLogicBaseScript   = programmableLogicBaseScript (programmableLogicStakeCredential result) -- Parameterized by the stake cred of the global script
       dsProgrammableLogicGlobalScript = programmableLogicGlobalScript (protocolParamsPolicyId result) -- Parameterized by the CS holding protocol params datum
@@ -333,8 +334,8 @@ instance HasLogger (CombinedEnv o d t Identity era) where
 
 {-| Add a 'DirectoryEnv' for the 'C.TxIn' in to the environment
 -}
-addDirectoryEnvFor :: C.TxIn -> CombinedEnv o d t r era -> CombinedEnv o Identity t r era
-addDirectoryEnvFor txi = addDirectoryEnv (mkDirectoryEnv txi)
+addDirectoryEnvFor :: ScriptTarget -> C.TxIn -> CombinedEnv o d t r era -> CombinedEnv o Identity t r era
+addDirectoryEnvFor target txi = addDirectoryEnv (mkDirectoryEnv target txi)
 
 {-| Add a 'DirectoryEnv' for the 'C.TxIn' in to the environment
 -}
@@ -347,8 +348,8 @@ withDirectory dir action = do
   asks (addDirectoryEnv dir)
     >>= runReaderT action
 
-withDirectoryFor :: MonadReader (CombinedEnv o d t r era) m => C.TxIn -> ReaderT (CombinedEnv o Identity t r era) m a -> m a
-withDirectoryFor txi = withDirectory (mkDirectoryEnv txi)
+withDirectoryFor :: MonadReader (CombinedEnv o d t r era) m => ScriptTarget -> C.TxIn -> ReaderT (CombinedEnv o Identity t r era) m a -> m a
+withDirectoryFor target txi = withDirectory (mkDirectoryEnv target txi)
 
 {-| Add a 'TransferLogicEnv' for the 'C.Hash C.PaymentKey' corresponding to the
    admin hash

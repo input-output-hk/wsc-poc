@@ -1,3 +1,4 @@
+{-# LANGUAGE NamedFieldPuns #-}
 module Wst.Offchain.BuildTx.ProtocolParams (
   mintProtocolParams,
   getProtocolParamsGlobalInline
@@ -15,6 +16,7 @@ import Convex.Utils qualified as Utils
 import GHC.Exts (IsList (..))
 import SmartTokens.Types.Constants (protocolParamsToken)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
+import Wst.Offchain.Env (DirectoryEnv (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Scripts (protocolParamsMintingScript,
                              protocolParamsSpendingScript, scriptPolicyIdV3)
@@ -29,10 +31,8 @@ mintProtocolParams = Utils.inBabbage @era $ do
   txIn <- asks (Env.dsTxIn . Env.directoryEnv)
   params <- asks (Env.globalParams . Env.directoryEnv)
   netId <- queryNetworkId
-  let
-      mintingScript = protocolParamsMintingScript txIn
-
-      policyId = scriptPolicyIdV3 mintingScript
+  DirectoryEnv{dsProtocolParamsMintingScript} <- asks Env.directoryEnv
+  let policyId = scriptPolicyIdV3 dsProtocolParamsMintingScript
 
       val = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
             $ fromList [(C.AssetId policyId protocolParamsTokenC, 1)]
@@ -51,7 +51,7 @@ mintProtocolParams = Utils.inBabbage @era $ do
       output = C.TxOut addr val dat C.ReferenceScriptNone
 
   spendPublicKeyOutput txIn
-  mintPlutus mintingScript () protocolParamsTokenC 1
+  mintPlutus dsProtocolParamsMintingScript () protocolParamsTokenC 1
   prependTxOut output
 
 getProtocolParamsGlobalInline :: C.InAnyCardanoEra (C.TxOut C.CtxTx) -> Maybe ProgrammableLogicGlobalParams
