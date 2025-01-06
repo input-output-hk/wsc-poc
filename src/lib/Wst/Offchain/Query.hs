@@ -37,7 +37,8 @@ import Wst.AppError (AppError (GlobalParamsNodeNotFound))
 import Wst.Offchain.Env (DirectoryEnv (..), HasDirectoryEnv (directoryEnv),
                          HasTransferLogicEnv (transferLogicEnv),
                          TransferLogicEnv (tleBlacklistSpendingScript),
-                         blacklistNodePolicyId, directoryNodePolicyId)
+                         blacklistNodePolicyId, directoryNodePolicyId,
+                         protocolParamsPolicyId)
 
 -- TODO: We should probably filter the UTxOs to check that they have the correct NFTs
 
@@ -83,10 +84,11 @@ userProgrammableOutputs userCred = do
 -}
 globalParamsNode :: forall era env m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadError (AppError era) m) => m (UTxODat era ProgrammableLogicGlobalParams)
 globalParamsNode = do
-  DirectoryEnv{dsProtocolParamsSpendingScript} <- asks directoryEnv
-  let cred = C.PaymentCredentialByScript . C.hashScript $ C.PlutusScript C.PlutusScriptV3 dsProtocolParamsSpendingScript
+  env@DirectoryEnv{dsProtocolParamsSpendingScript} <- asks directoryEnv
+  let cred   = C.PaymentCredentialByScript . C.hashScript $ C.PlutusScript C.PlutusScriptV3 dsProtocolParamsSpendingScript
+      hasNft = utxoHasPolicyId (protocolParamsPolicyId env)
   utxosByPaymentCredential cred
-    >>= maybe (throwError GlobalParamsNodeNotFound) pure . listToMaybe . extractUTxO @era
+    >>= maybe (throwError GlobalParamsNodeNotFound) pure . listToMaybe . filter hasNft . extractUTxO @era
 
 {-| Outputs that are locked by the programmable logic base script.
 -}
