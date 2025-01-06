@@ -8,6 +8,7 @@ import Control.Monad.IO.Class (MonadIO (..))
 import Convex.Wallet.Operator (OperatorConfigSigning)
 import Convex.Wallet.Operator qualified as Operator
 import Data.Functor.Identity (Identity)
+import Data.Maybe (fromMaybe)
 import Data.Proxy (Proxy)
 import Data.String (IsString (..))
 import Options.Applicative (customExecParser, disambiguate, helper, idm, info,
@@ -55,6 +56,6 @@ deploy config = do
   pure ()
 
 startServer :: (MonadIO m, MonadLogger m) => Env.CombinedEnv Proxy Identity Proxy Identity w -> Server.ServerArgs -> m ()
-startServer env' serverArgs@ServerArgs{saPort} = do
-  logInfo $ "starting server" :# ["port" .= saPort]
+startServer env' serverArgs@ServerArgs{saPort, saStaticFiles} = do
+  logInfo $ "starting server" :# ["port" .= saPort, "static_files" .= fromMaybe "(no static files)" saStaticFiles]
   liftIO (Server.runServer env' serverArgs)

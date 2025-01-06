@@ -6,6 +6,7 @@
 module Wst.Server(
   runServer,
   ServerArgs(..),
+  CombinedAPI,
   defaultServerArgs
   ) where
 
@@ -19,8 +20,9 @@ import Data.Data (Proxy (..))
 import Network.Wai.Handler.Warp qualified as Warp
 import PlutusTx.Prelude qualified as P
 import Servant (Server, ServerT)
-import Servant.API (NoContent (..), (:<|>) (..))
+import Servant.API (NoContent (..), Raw, (:<|>) (..))
 import Servant.Server (hoistServer, serve)
+import Servant.Server.StaticFiles (serveDirectoryWebApp)
 import SmartTokens.Types.PTokenDirectory (blnKey)
 import Wst.App (WstApp, runWstAppServant)
 import Wst.AppError (AppError)
@@ -33,6 +35,12 @@ import Wst.Server.Types (APIInEra, AddToBlacklistArgs (..), BuildTxAPI,
                          SeizeAssetsArgs (..), SerialiseAddress (..),
                          TextEnvelopeJSON (..),
                          TransferProgrammableTokenArgs (..))
+
+-- | Rest API combined with a Raw endpoint
+--   for static files
+type CombinedAPI =
+  APIInEra
+  :<|> Raw
 
 data ServerArgs =
   ServerArgs
@@ -49,8 +57,10 @@ defaultServerArgs =
     }
 
 runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env) => env -> ServerArgs -> IO ()
-runServer env ServerArgs{saPort} = do
-  let app  = serve (Proxy @APIInEra) (server env)
+runServer env ServerArgs{saPort, saStaticFiles} = do
+  let app  = case saStaticFiles of
+        Nothing -> serve (Proxy @APIInEra) (server env)
+        Just fp -> serve (Proxy @CombinedAPI) (server env :<|> serveDirectoryWebApp fp)
       port = saPort
   Warp.run port app
 
