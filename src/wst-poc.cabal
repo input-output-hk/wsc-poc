@@ -178,6 +178,7 @@ test-suite wst-poc-test
     , base                    >=4.14.0
     , cardano-api
     , cardano-ledger-api
+    , cardano-ledger-core
     , cardano-ledger-shelley
     , convex-base
     , convex-coin-selection

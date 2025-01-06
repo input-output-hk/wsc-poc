@@ -6,6 +6,7 @@ module Wst.Test.UnitTest(
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Cardano.Ledger.Api qualified as Ledger
+import Cardano.Ledger.Plutus.ExUnits (ExUnits (..))
 import Cardano.Ledger.Shelley.TxCert qualified as TxCert
 import Control.Lens ((%~), (&), (^.))
 import Control.Monad (void)
@@ -311,7 +312,12 @@ nodeParamsFor :: ScriptTarget -> NodeParams C.ConwayEra
 nodeParamsFor = \case
   -- Run the 'Mockchain' action with modified node parameters to allow larger-than-usual
   -- transactions. This is useful for showing debug output from the scripts and fail if there is an error
-  Debug -> Defaults.nodeParams & ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxSizeL %~ (*10)
+  Debug ->
+    let tenX ExUnits{exUnitsSteps=steps, exUnitsMem=mem} =
+          ExUnits{exUnitsSteps = 10 * steps, exUnitsMem = 10 * mem}
+    in Defaults.nodeParams
+        & ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxSizeL %~ (*10)
+        & ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxExUnitsL %~ tenX
   Production -> Defaults.nodeParams
 
 mockchainSucceedsWithTarget :: ScriptTarget -> ReaderT ScriptTarget (MockchainT C.ConwayEra IO) a -> Assertion
