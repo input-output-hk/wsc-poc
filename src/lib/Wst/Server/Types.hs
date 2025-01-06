@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds          #-}
-{-# LANGUAGE DeriveAnyClass     #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleInstances  #-}
 {-# LANGUAGE OverloadedLists    #-}
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE TypeOperators      #-}
@@ -70,6 +70,10 @@ instance C.HasTextEnvelope a => ToSchema (TextEnvelopeJSON a) where
 
 newtype SerialiseAddress a = SerialiseAddress{unSerialiseAddress :: a }
 
+deriving newtype instance ToJSON (SerialiseAddress (C.Address C.ShelleyAddr))
+deriving newtype instance FromJSON (SerialiseAddress (C.Address C.ShelleyAddr))
+deriving newtype instance ToSchema (SerialiseAddress (C.Address C.ShelleyAddr))
+
 instance ToParamSchema (SerialiseAddress a) where
   toParamSchema _proxy =
     mempty
@@ -94,6 +98,7 @@ type QueryAPI era =
   :<|> "blacklist" :> Description "The list of addresses that have been blacklisted" :> Capture "address" (SerialiseAddress (C.Address C.ShelleyAddr)) :>  Get '[JSON] [C.Hash C.PaymentKey]
   :<|> "user-funds" :> Description "Total value locked in programmable token outputs addressed to the user" :> Capture "address" (SerialiseAddress (C.Address C.ShelleyAddr)) :> Get '[JSON] C.Value
   :<|> "all-funds" :> Description "Total value of all programmable tokens" :> Get '[JSON] C.Value
+  :<|> "address" :> Description "The user's receiving address for programmable tokens" :> Capture "address" (SerialiseAddress (C.Address C.ShelleyAddr)) :> Get '[JSON] (C.Address C.ShelleyAddr)
 
 {-| Arguments for the programmable-token endpoint. The asset name can be something like "USDW" for the regulated stablecoin.
 -}

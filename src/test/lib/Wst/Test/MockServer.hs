@@ -31,6 +31,7 @@ mockQueryApi =
   :<|> (\_ -> liftIO $ QC.generate $ Gen.listOf (hedgehog $ Gen.genVerificationKeyHash (C.proxyToAsType Proxy)))
   :<|> (\_ -> liftIO $ fmap (C.fromLedgerValue C.ShelleyBasedEraConway) $ QC.generate $ hedgehog $ Gen.genValue C.MaryEraOnwardsConway Gen.genAssetId Gen.genPositiveQuantity)
   :<|> liftIO (fmap (C.fromLedgerValue C.ShelleyBasedEraConway) $ QC.generate $ hedgehog $ Gen.genValue C.MaryEraOnwardsConway Gen.genAssetId Gen.genPositiveQuantity)
+  :<|> (\_ -> liftIO $ QC.generate Gen.genAddress)
 
 genTx :: MonadIO m => m (TextEnvelopeJSON (C.Tx C.ConwayEra))
 genTx = liftIO $ fmap TextEnvelopeJSON $ QC.generate $ hedgehog $ Gen.genTx C.shelleyBasedEra

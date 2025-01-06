@@ -226,6 +226,38 @@
                 }
             }
         },
+        "/query/address/{address}": {
+            "get": {
+                "description": "The user's receiving address for programmable tokens",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "address",
+                        "required": true,
+                        "schema": {
+                            "description": "bech32-serialised cardano address",
+                            "example": "addr1q9d42egme33z960rr8vlnt69lpmythdpm7ydk2e6k5nj5ghay9rg60vw49kejfah76sqeh4yshlsntgg007y0wgjlfwju6eksr",
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Address"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "description": "`address` not found"
+                    }
+                }
+            }
+        },
         "/query/all-funds": {
             "get": {
                 "description": "Total value of all programmable tokens",
