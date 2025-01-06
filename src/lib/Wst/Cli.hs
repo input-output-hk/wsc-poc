@@ -12,6 +12,7 @@ import Data.Proxy (Proxy)
 import Data.String (IsString (..))
 import Options.Applicative (customExecParser, disambiguate, helper, idm, info,
                             prefs, showHelpOnEmpty, showHelpOnError)
+import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import Wst.App (runWstApp)
 import Wst.Cli.Command (Command (..), ManageCommand (StartServer, Status),
                         parseCommand)
@@ -32,7 +33,7 @@ runCommand com = do
   result <- case com of
     Deploy config -> runWstApp env (deploy config)
     Manage txIn com_ -> do
-      let env' = Env.addDirectoryEnvFor txIn env
+      let env' = Env.addDirectoryEnvFor (Env.DirectoryScriptRoot txIn Production) env
       runWstApp env' $ case com_ of
         Status -> do
           -- TODO: status check (call the query endpoints and print out a summary of the results)

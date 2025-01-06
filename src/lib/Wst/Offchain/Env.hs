@@ -19,10 +19,13 @@ module Wst.Offchain.Env(
   balanceTxEnv,
   balanceTxEnv_,
 
-  -- * Directory environment
+  -- * On-chain scripts
+
+  -- ** Directory environment
+  DirectoryScriptRoot(..),
+  mkDirectoryEnv,
   HasDirectoryEnv(..),
   DirectoryEnv(..),
-  mkDirectoryEnv,
   programmableLogicStakeCredential,
   programmableLogicBaseCredential,
   directoryNodePolicyId,
@@ -30,14 +33,21 @@ module Wst.Offchain.Env(
   globalParams,
   getGlobalParams,
 
-  -- * Transfer logic environment
-  TransferLogicEnv(..),
-  HasTransferLogicEnv(..),
+  -- ** Transfer logic environment
+  BlacklistTransferLogicScriptRoot(..),
   mkTransferLogicEnv,
+  TransferLogicEnv(..),
+  transferLogicForDirectory,
+  alwaysSucceedsTransferLogic,
+  HasTransferLogicEnv(..),
   addTransferEnv,
   withTransfer,
   withTransferFor,
   withTransferFromOperator,
+
+  -- ** Minting tokens
+  programmableTokenMintingScript,
+  programmableTokenAssetId,
 
   -- * Runtime data
   RuntimeEnv(..),
@@ -76,26 +86,32 @@ import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain, MonadUtxoQuery (..),
                      queryProtocolParameters, utxosByPaymentCredential)
 import Convex.CoinSelection qualified as CoinSelection
-import Convex.PlutusLedger.V1 (transCredential, transPolicyId)
+import Convex.PlutusLedger.V1 (transCredential, transPolicyId,
+                               unTransCredential, unTransPolicyId)
 import Convex.Utils (mapError)
 import Convex.Utxos (BalanceChanges)
 import Convex.Utxos qualified as Utxos
 import Convex.Wallet.Operator (returnOutputFor)
+import Data.Either (fromRight)
 import Data.Functor.Identity (Identity (..))
 import Data.Map qualified as Map
 import Data.Maybe (listToMaybe)
 import Data.Proxy (Proxy (..))
 import Data.Text qualified as Text
+import SmartTokens.Core.Scripts (ScriptTarget)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 import System.Environment qualified
 import Wst.AppError (AppError (..))
-import Wst.Offchain.Scripts (blacklistMintingScript, blacklistSpendingScript,
+import Wst.Offchain.Scripts (alwaysSucceedsScript, blacklistMintingScript,
+                             blacklistSpendingScript,
                              directoryNodeMintingScript,
                              directoryNodeSpendingScript, freezeTransferScript,
                              permissionedTransferScript,
                              programmableLogicBaseScript,
                              programmableLogicGlobalScript,
-                             protocolParamsMintingScript, scriptPolicyIdV3)
+                             programmableLogicMintingScript,
+                             protocolParamsMintingScript,
+                             protocolParamsSpendingScript, scriptPolicyIdV3)
 
 {-| Environments that have an 'OperatorEnv'
 -}
@@ -164,6 +180,16 @@ balanceTxEnv btx = do
   (balBody, balChanges) <- mapError BalancingError (CoinSelection.balanceTx mempty output (Utxos.fromApiUtxo bteOperatorUtxos) txBuilder CoinSelection.TrailingChange)
   pure ((balBody, balChanges), r)
 
+{-| Data that completely determines the on-chain scripts of the programmable
+token directory, and their hashes. Any information that results in different
+script hashes should go in here. We should be able to write a function
+'DirectoryScriptRoot -> script' for all of the directory scripts.
+-}
+data DirectoryScriptRoot =
+  DirectoryScriptRoot
+    { srTxIn :: C.TxIn
+    , srTarget :: ScriptTarget
+    }
 
 class HasDirectoryEnv e where
   directoryEnv :: e -> DirectoryEnv
@@ -176,25 +202,28 @@ All of the scripts and their hashes are determined by the 'TxIn'.
 -}
 data DirectoryEnv =
   DirectoryEnv
-    { dsTxIn :: C.TxIn -- ^ The 'txIn' that we spend when deploying the protocol params and directory set
+    { dsScriptRoot                     :: DirectoryScriptRoot
     , dsDirectoryMintingScript         :: PlutusScript PlutusScriptV3
     , dsDirectorySpendingScript        :: PlutusScript PlutusScriptV3
     , dsProtocolParamsMintingScript    :: PlutusScript PlutusScriptV3
+    , dsProtocolParamsSpendingScript   :: PlutusScript PlutusScriptV3
     , dsProgrammableLogicBaseScript    :: PlutusScript PlutusScriptV3
     , dsProgrammableLogicGlobalScript  :: PlutusScript PlutusScriptV3
     }
 
-mkDirectoryEnv :: C.TxIn -> DirectoryEnv
-mkDirectoryEnv dsTxIn =
-  let dsDirectoryMintingScript        = directoryNodeMintingScript dsTxIn
-      dsProtocolParamsMintingScript   = protocolParamsMintingScript dsTxIn
-      dsDirectorySpendingScript       = directoryNodeSpendingScript (protocolParamsPolicyId result)
-      dsProgrammableLogicBaseScript   = programmableLogicBaseScript (programmableLogicStakeCredential result) -- Parameterized by the stake cred of the global script
-      dsProgrammableLogicGlobalScript = programmableLogicGlobalScript (protocolParamsPolicyId result) -- Parameterized by the CS holding protocol params datum
+mkDirectoryEnv :: DirectoryScriptRoot -> DirectoryEnv
+mkDirectoryEnv dsScriptRoot@DirectoryScriptRoot{srTxIn, srTarget} =
+  let dsDirectoryMintingScript        = directoryNodeMintingScript srTarget srTxIn
+      dsProtocolParamsMintingScript   = protocolParamsMintingScript srTarget srTxIn
+      dsProtocolParamsSpendingScript  = protocolParamsSpendingScript srTarget
+      dsDirectorySpendingScript       = directoryNodeSpendingScript srTarget (protocolParamsPolicyId result)
+      dsProgrammableLogicBaseScript   = programmableLogicBaseScript srTarget (programmableLogicStakeCredential result) -- Parameterized by the stake cred of the global script
+      dsProgrammableLogicGlobalScript = programmableLogicGlobalScript srTarget (protocolParamsPolicyId result) -- Parameterized by the CS holding protocol params datum
       result = DirectoryEnv
-                { dsTxIn
+                { dsScriptRoot
                 , dsDirectoryMintingScript
                 , dsProtocolParamsMintingScript
+                , dsProtocolParamsSpendingScript
                 , dsProgrammableLogicBaseScript
                 , dsProgrammableLogicGlobalScript
                 , dsDirectorySpendingScript
@@ -230,11 +259,23 @@ getGlobalParams = asks (globalParams . directoryEnv)
 
 data TransferLogicEnv =
   TransferLogicEnv
-    { tleBlacklistMintingScript :: PlutusScript PlutusScriptV3
+    { tleBlacklistMintingScript  :: PlutusScript PlutusScriptV3
     , tleBlacklistSpendingScript :: PlutusScript PlutusScriptV3
-    , tleMintingScript :: PlutusScript PlutusScriptV3
-    , tleTransferScript :: PlutusScript PlutusScriptV3
-    , tleIssuerScript :: PlutusScript PlutusScriptV3
+    , tleMintingScript           :: PlutusScript PlutusScriptV3
+    , tleTransferScript          :: PlutusScript PlutusScriptV3
+    , tleIssuerScript            :: PlutusScript PlutusScriptV3
+    }
+
+{-| 'IssueNewTokenArgs' for the policy that always succeeds (no checks)
+-}
+alwaysSucceedsTransferLogic :: ScriptTarget -> TransferLogicEnv
+alwaysSucceedsTransferLogic target =
+  TransferLogicEnv
+    { tleBlacklistMintingScript = alwaysSucceedsScript target
+    , tleBlacklistSpendingScript = alwaysSucceedsScript target
+    , tleMintingScript = alwaysSucceedsScript target
+    , tleTransferScript = alwaysSucceedsScript target
+    , tleIssuerScript = alwaysSucceedsScript target
     }
 
 class HasTransferLogicEnv e where
@@ -243,20 +284,31 @@ class HasTransferLogicEnv e where
 instance HasTransferLogicEnv TransferLogicEnv where
   transferLogicEnv = id
 
-{-| The 'TransferLogicEnv' with scripts that allow the given payment credential
-to manage the blacklist and issue / burn tokens
+{-| Data that completely determines the on-chain scripts of the blacklist
+transfer logic, and their hashes. Any information that results in different
+script hashes should go in here. We should be able to write a function
+'BlacklistTransferLogicScriptRoot -> script' for all of the blacklist transfer
+logic scripts.
 -}
-mkTransferLogicEnv :: C.PaymentCredential -> C.Hash C.PaymentKey -> TransferLogicEnv
-mkTransferLogicEnv progLogicBaseCred cred =
-  let blacklistMinting = blacklistMintingScript cred
+data BlacklistTransferLogicScriptRoot =
+  BlacklistTransferLogicScriptRoot
+    { tlrTarget :: ScriptTarget
+    , tlrDirEnv :: DirectoryEnv
+    , tlrIssuer :: C.Hash C.PaymentKey
+    }
+
+mkTransferLogicEnv :: BlacklistTransferLogicScriptRoot -> TransferLogicEnv
+mkTransferLogicEnv BlacklistTransferLogicScriptRoot{tlrTarget, tlrDirEnv, tlrIssuer} =
+  let blacklistMinting = blacklistMintingScript tlrTarget tlrIssuer
       blacklistPolicy = scriptPolicyIdV3 blacklistMinting
+      progLogicBaseCred = programmableLogicBaseCredential tlrDirEnv
   in
   TransferLogicEnv
     { tleBlacklistMintingScript = blacklistMinting
-    , tleBlacklistSpendingScript = blacklistSpendingScript cred
-    , tleMintingScript =  permissionedTransferScript cred
-    , tleTransferScript = freezeTransferScript progLogicBaseCred blacklistPolicy
-    , tleIssuerScript = permissionedTransferScript cred
+    , tleBlacklistSpendingScript = blacklistSpendingScript tlrTarget tlrIssuer
+    , tleMintingScript =  permissionedTransferScript tlrTarget tlrIssuer
+    , tleTransferScript = freezeTransferScript tlrTarget progLogicBaseCred blacklistPolicy
+    , tleIssuerScript = permissionedTransferScript tlrTarget tlrIssuer
     }
 
 blacklistNodePolicyId :: TransferLogicEnv -> C.PolicyId
@@ -333,8 +385,8 @@ instance HasLogger (CombinedEnv o d t Identity era) where
 
 {-| Add a 'DirectoryEnv' for the 'C.TxIn' in to the environment
 -}
-addDirectoryEnvFor :: C.TxIn -> CombinedEnv o d t r era -> CombinedEnv o Identity t r era
-addDirectoryEnvFor txi = addDirectoryEnv (mkDirectoryEnv txi)
+addDirectoryEnvFor :: DirectoryScriptRoot -> CombinedEnv o d t r era -> CombinedEnv o Identity t r era
+addDirectoryEnvFor = addDirectoryEnv . mkDirectoryEnv
 
 {-| Add a 'DirectoryEnv' for the 'C.TxIn' in to the environment
 -}
@@ -347,8 +399,8 @@ withDirectory dir action = do
   asks (addDirectoryEnv dir)
     >>= runReaderT action
 
-withDirectoryFor :: MonadReader (CombinedEnv o d t r era) m => C.TxIn -> ReaderT (CombinedEnv o Identity t r era) m a -> m a
-withDirectoryFor txi = withDirectory (mkDirectoryEnv txi)
+withDirectoryFor :: MonadReader (CombinedEnv o d t r era) m => DirectoryScriptRoot -> ReaderT (CombinedEnv o Identity t r era) m a -> m a
+withDirectoryFor = withDirectory . mkDirectoryEnv
 
 {-| Add a 'TransferLogicEnv' for the 'C.Hash C.PaymentKey' corresponding to the
    admin hash
@@ -362,15 +414,41 @@ withTransfer dir action = do
   asks (addTransferEnv dir)
     >>= runReaderT action
 
-withTransferFor :: MonadReader (CombinedEnv o Identity t r era) m => C.PaymentCredential -> C.Hash C.PaymentKey -> ReaderT (CombinedEnv o Identity Identity r era) m a -> m a
-withTransferFor plbBaseCred opPKH = withTransfer $ mkTransferLogicEnv plbBaseCred opPKH
+withTransferFor :: MonadReader (CombinedEnv o Identity t r era) m => BlacklistTransferLogicScriptRoot -> ReaderT (CombinedEnv o Identity Identity r era) m a -> m a
+withTransferFor = withTransfer . mkTransferLogicEnv
+
+{-| Transfer logic scripts for the blacklist managed by the given 'C.PaymentKey' hash
+-}
+transferLogicForDirectory :: (HasDirectoryEnv env, MonadReader env m) => C.Hash C.PaymentKey -> m TransferLogicEnv
+transferLogicForDirectory pkh = do
+  env <- ask
+  let dirEnv = directoryEnv env
+  pure (mkTransferLogicEnv $ BlacklistTransferLogicScriptRoot (srTarget $ dsScriptRoot dirEnv) dirEnv pkh)
 
 withTransferFromOperator :: (MonadReader (CombinedEnv Identity Identity t r era) m) => ReaderT (CombinedEnv Identity Identity Identity r era) m a -> m a
 withTransferFromOperator action = do
   env <- ask
   let opPkh = fst . bteOperator . operatorEnv $ env
-      programmableBaseLogicCred = programmableLogicBaseCredential . directoryEnv $ env
-  runReaderT action (addTransferEnv (mkTransferLogicEnv programmableBaseLogicCred opPkh) env)
+  root <- transferLogicForDirectory opPkh
+  runReaderT action (addTransferEnv root env)
+
+{-| The minting script for a programmable token that uses the global parameters
+-}
+programmableTokenMintingScript :: DirectoryEnv -> TransferLogicEnv -> C.PlutusScript C.PlutusScriptV3
+programmableTokenMintingScript dirEnv@DirectoryEnv{dsScriptRoot} TransferLogicEnv{tleMintingScript} =
+  let ProgrammableLogicGlobalParams {progLogicCred, directoryNodeCS} = globalParams dirEnv
+      DirectoryScriptRoot{srTarget} = dsScriptRoot
+      progLogicScriptCredential = fromRight (error "could not parse protocol params") $ unTransCredential progLogicCred
+      directoryNodeSymbol       = fromRight (error "could not parse protocol params") $ unTransPolicyId directoryNodeCS
+  in programmableLogicMintingScript srTarget progLogicScriptCredential (C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleMintingScript) directoryNodeSymbol
+
+{-| 'C.AssetId' of the programmable tokens
+-}
+programmableTokenAssetId :: DirectoryEnv -> TransferLogicEnv -> C.AssetName -> C.AssetId
+programmableTokenAssetId dirEnv inta =
+  C.AssetId
+    (C.scriptPolicyId $ C.PlutusScript C.plutusScriptVersion $ programmableTokenMintingScript dirEnv inta)
+
 
 {-| Add a 'DirectoryEnv' for the 'C.TxIn' in to the environment and run the
 action with the modified environment

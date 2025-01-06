@@ -84,7 +84,6 @@ library
     Wst.Offchain.Query
     Wst.Offchain.Scripts
     Wst.Server
-    Wst.Server.Endpoints
     Wst.Server.Types
 
   hs-source-dirs:  lib
