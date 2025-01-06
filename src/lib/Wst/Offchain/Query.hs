@@ -45,6 +45,7 @@ import Wst.Offchain.Env (DirectoryEnv (..), HasDirectoryEnv (directoryEnv),
                          TransferLogicEnv (tleBlacklistSpendingScript),
                          blacklistNodePolicyId, directoryNodePolicyId,
                          protocolParamsPolicyId)
+import Wst.Orphans ()
 
 -- TODO: We should probably filter the UTxOs to check that they have the correct NFTs
 
@@ -69,7 +70,6 @@ instance (C.IsCardanoEra era, ToJSON a) => ToJSON (UTxODat era a) where
 instance (C.IsCardanoEra era, FromJSON a, C.IsShelleyBasedEra era) => FromJSON (UTxODat era a) where
   parseJSON = JSON.genericParseJSON utxoDatOptions
 
-  -- TODO:
 instance (Typeable a, ToSchema a, Typeable era) => ToSchema (UTxODat era a) where
   declareNamedSchema = Schema.genericDeclareNamedSchema (SchemaOptions.fromAesonOptions utxoDatOptions)
 

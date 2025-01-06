@@ -8,6 +8,9 @@ import System.Environment qualified
 import Wst.Server.Types (APIInEra)
 
 main :: IO ()
-main = do
-  fp:_ <- System.Environment.getArgs
-  BSL.writeFile fp $ encodePretty $ toOpenApi $ Proxy @APIInEra
+main = System.Environment.getArgs >>= \case
+  [fp] -> do
+    putStrLn $ "Writing OpenAPI schema to " <> fp
+    BSL.writeFile fp $ encodePretty $ toOpenApi $ Proxy @APIInEra
+  _    -> putStrLn "usage: write-openapi-schema OUT_FILE_PATH"
+
