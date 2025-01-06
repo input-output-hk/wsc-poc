@@ -29,10 +29,8 @@ import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.AppError (AppError)
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (inaNewKey))
 import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
-import Wst.Offchain.BuildTx.ProgrammableLogic (registerProgrammableGlobalScript)
 import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
 import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
-import Wst.Offchain.BuildTx.TransferLogic (registerTransferScripts)
 import Wst.Offchain.BuildTx.TransferLogic qualified as BuildTx
 import Wst.Offchain.Env (DirectoryScriptRoot (..))
 import Wst.Offchain.Env qualified as Env

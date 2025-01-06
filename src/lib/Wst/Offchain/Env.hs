@@ -106,7 +106,8 @@ import Wst.Offchain.Scripts (alwaysSucceedsScript, blacklistMintingScript,
                              blacklistSpendingScript,
                              directoryNodeMintingScript,
                              directoryNodeSpendingScript, freezeTransferScript,
-                             permissionedTransferScript,
+                             permissionedMintingScript,
+                             permissionedSpendingScript,
                              programmableLogicBaseScript,
                              programmableLogicGlobalScript,
                              programmableLogicMintingScript,
@@ -306,9 +307,9 @@ mkTransferLogicEnv BlacklistTransferLogicScriptRoot{tlrTarget, tlrDirEnv, tlrIss
   TransferLogicEnv
     { tleBlacklistMintingScript = blacklistMinting
     , tleBlacklistSpendingScript = blacklistSpendingScript tlrTarget tlrIssuer
-    , tleMintingScript =  permissionedTransferScript tlrTarget tlrIssuer
+    , tleMintingScript =  permissionedMintingScript tlrTarget tlrIssuer
     , tleTransferScript = freezeTransferScript tlrTarget progLogicBaseCred blacklistPolicy
-    , tleIssuerScript = permissionedTransferScript tlrTarget tlrIssuer
+    , tleIssuerScript = permissionedSpendingScript tlrTarget tlrIssuer
     }
 
 blacklistNodePolicyId :: TransferLogicEnv -> C.PolicyId

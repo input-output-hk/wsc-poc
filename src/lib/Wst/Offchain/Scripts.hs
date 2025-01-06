@@ -13,7 +13,8 @@ module Wst.Offchain.Scripts (
   programmableLogicGlobalScript,
 
   -- * Transfer logic
-  permissionedTransferScript,
+  permissionedMintingScript,
+  permissionedSpendingScript,
   freezeTransferScript,
   blacklistMintingScript,
   blacklistSpendingScript,
@@ -100,24 +101,9 @@ programmableLogicGlobalScript target paramsPolId =
   let script = Scripts.tryCompile target $ mkProgrammableLogicGlobal # pdata (pconstant $ transPolicyId paramsPolId)
   in C.PlutusScriptSerialised $ serialiseScript script
 
-permissionedTransferScript :: ScriptTarget -> C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
-permissionedTransferScript target cred =
-  let script = Scripts.tryCompile target $ mkPermissionedTransfer # pdata (pconstant $ transPubKeyHash cred)
-  in C.PlutusScriptSerialised $ serialiseScript script
-
 freezeTransferScript :: ScriptTarget -> C.PaymentCredential -> C.PolicyId -> C.PlutusScript C.PlutusScriptV3
 freezeTransferScript target progLogicBaseSpndingCred blacklistPolicyId =
   let script = Scripts.tryCompile target $ mkFreezeAndSeizeTransfer # pdata (pconstant $ transCredential progLogicBaseSpndingCred) # pdata (pconstant $ transPolicyId blacklistPolicyId)
-  in C.PlutusScriptSerialised $ serialiseScript script
-
-blacklistMintingScript :: ScriptTarget -> C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
-blacklistMintingScript target cred =
-  let script = Scripts.tryCompile target $ mkPermissionedMinting # pdata (pconstant $ transPubKeyHash cred)
-  in C.PlutusScriptSerialised $ serialiseScript script
-
-blacklistSpendingScript :: ScriptTarget -> C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
-blacklistSpendingScript target cred =
-  let script = Scripts.tryCompile target $ mkPermissionedTransfer # pdata (pconstant $ transPubKeyHash cred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 {-| 'C.PlutusScript C.PlutusScriptV3' that always succeeds. Can be used for minting, withdrawal, spending, etc.
@@ -125,6 +111,28 @@ blacklistSpendingScript target cred =
 alwaysSucceedsScript :: ScriptTarget -> C.PlutusScript C.PlutusScriptV3
 alwaysSucceedsScript target =
   C.PlutusScriptSerialised $ serialiseScript $ Scripts.tryCompile target palwaysSucceed
+
+-- All the scripts below are essentially nonced permissioned validators
+permissionedMintingScript :: ScriptTarget -> C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
+permissionedMintingScript target cred =
+  let script = Scripts.tryCompile target $ mkPermissionedMinting # pforgetData (pdata (pconstant "permissioned minting" :: ClosedTerm PByteString)) # pdata (pconstant $ transPubKeyHash cred)
+  in C.PlutusScriptSerialised $ serialiseScript script
+
+permissionedSpendingScript :: ScriptTarget -> C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
+permissionedSpendingScript target cred =
+  let script = Scripts.tryCompile target $ mkPermissionedTransfer # pforgetData (pdata (pconstant "permissioned spending" :: ClosedTerm PByteString)) # pdata (pconstant $ transPubKeyHash cred)
+  in C.PlutusScriptSerialised $ serialiseScript script
+
+blacklistMintingScript :: ScriptTarget -> C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
+blacklistMintingScript target cred =
+  let script = Scripts.tryCompile target $ mkPermissionedMinting # pforgetData (pdata (pconstant "blacklist minting" :: ClosedTerm PByteString)) # pdata (pconstant $ transPubKeyHash cred)
+  in C.PlutusScriptSerialised $ serialiseScript script
+
+blacklistSpendingScript :: ScriptTarget -> C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
+blacklistSpendingScript target cred =
+  let script = Scripts.tryCompile target $ mkPermissionedTransfer # pforgetData (pdata (pconstant "blacklist spending" :: ClosedTerm PByteString)) # pdata (pconstant $ transPubKeyHash cred)
+  in C.PlutusScriptSerialised $ serialiseScript script
+
 
 -- Utilities
 scriptPolicyIdV3 :: C.PlutusScript C.PlutusScriptV3 -> C.PolicyId
