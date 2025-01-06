@@ -1,4 +1,4 @@
-name: ci-linux
+name: ci-check-generated-code
 on:
   push:
     branches:
