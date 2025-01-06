@@ -9,6 +9,7 @@ module Wst.Offchain.BuildTx.ProgrammableLogic
   ( issueProgrammableToken,
     transferProgrammableToken,
     seizeProgrammableToken,
+    registerProgrammableGlobalScript,
   )
 where
 
@@ -38,6 +39,7 @@ import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..),
                                           insertDirectoryNode)
+import Wst.Offchain.BuildTx.Utils (addConwayStakeCredentialCertificate)
 import Wst.Offchain.Env (TransferLogicEnv (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
@@ -206,12 +208,19 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} UTxODat{uIn = seizingTxIn, uOut
   addReference paramsTxIn -- Protocol Params TxIn
   addReference dirNodeRef -- Directory Node TxIn
   spendPlutusInlineDatum seizingTxIn baseSpendingScript () -- Redeemer is ignored in programmableLogicBase
-  -- QUESTION: why do we have to spend an issuer output?
-  -- spendPlutusInlineDatum issuerTxIn baseSpendingScript () -- Redeemer is ignored in programmableLogicBase
   addWithdrawalWithTxBody -- Add the global script witness to the transaction
     (C.makeStakeAddress nid globalStakeCred)
     (C.Quantity 0)
     $ C.ScriptWitness C.ScriptWitnessForStakeAddr . programmableGlobalWitness
+
+registerProgrammableGlobalScript :: forall env era m. (MonadReader env m, C.IsBabbageBasedEra era, MonadBuildTx era m, Env.HasDirectoryEnv env) => m ()
+registerProgrammableGlobalScript = case C.babbageBasedEra @era of
+  C.BabbageEraOnwardsBabbage -> error "babbage era registration not implemented"
+  C.BabbageEraOnwardsConway  -> Utils.inConway @era $ do
+    programmableGlobalScript <- asks (Env.dsProgrammableLogicGlobalScript . Env.directoryEnv)
+    let hshGlobal = C.hashScript $ C.PlutusScript C.plutusScriptVersion programmableGlobalScript
+        credGlobal = C.StakeCredentialByScript hshGlobal
+    addConwayStakeCredentialCertificate credGlobal
 
   -- TODO: check that the issuerTxOut is at a programmable logic payment credential
 _checkIssuerAddressIsProgLogicCred :: forall era ctx m. ( MonadBuildTx era m) => C.PaymentCredential -> C.TxOut ctx era -> m ()

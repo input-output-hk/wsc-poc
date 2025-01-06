@@ -28,11 +28,13 @@ import Convex.Wallet.Operator (signTxOperator)
 import Convex.Wallet.Operator qualified as Operator
 import Data.List (isPrefixOf)
 import Data.String (IsString (..))
+import Debug.Trace (traceM)
 import GHC.Exception (SomeException, throw)
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, testCase)
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..))
+import Wst.Offchain.BuildTx.Utils (addConwayStakeCredentialCertificate)
 import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Env (DirectoryScriptRoot)
 import Wst.Offchain.Env qualified as Env
@@ -58,8 +60,22 @@ scriptTargetTests target =
         , testCase "blacklist credential" (mockchainSucceedsWithTarget target $ void $ deployDirectorySet >>= blacklistCredential)
         , testCase "blacklisted transfer" (mockchainFails blacklistTransfer assertBlacklistedAddressException)
         , testCase "seize user output" (mockchainSucceedsWithTarget target $ deployDirectorySet >>= seizeUserOutput)
+        , testCase "deploy all" (mockchainSucceedsWithTarget target deployAll)
         ]
     ]
+
+deployAll :: (MonadReader ScriptTarget m, MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => m ()
+deployAll = do
+  target <- ask
+  failOnError $ Env.withEnv $ asAdmin @C.ConwayEra $ do
+    (tx, scriptRoot) <- Endpoints.deployTxAll target
+    void $ sendTx $ signTxOperator admin tx
+    traceM $ show tx
+    Env.withDirectoryFor scriptRoot $ do
+      Query.registryNodes @C.ConwayEra
+        >>= void . expectSingleton "registry output"
+      void $ Query.globalParamsNode @C.ConwayEra
+
 
 deployDirectorySet :: (MonadReader ScriptTarget m, MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => m DirectoryScriptRoot
 deployDirectorySet = do
@@ -250,9 +266,9 @@ registerAlwaysSucceedsStakingCert = failOnError $ do
     BuildTx.addConwayStakeCredentialRegistrationCertificate cred (pp ^. Ledger.ppKeyDepositL)
   void (tryBalanceAndSubmit mempty Wallet.w1 txBody TrailingChange [])
 
+-- TODO: registration to be moved to the endpoints
 registerTransferScripts :: (MonadFail m, MonadReader env m, Env.HasDirectoryEnv env, Env.HasTransferLogicEnv env, MonadMockchain C.ConwayEra m) => C.Hash C.PaymentKey -> m C.TxId
 registerTransferScripts pkh = failOnError $ do
-  pp <- fmap C.unLedgerProtocolParameters queryProtocolParameters
   transferMintingScript <- asks (Env.tleMintingScript . Env.transferLogicEnv)
   transferSpendingScript <- asks (Env.tleTransferScript . Env.transferLogicEnv)
   transferGlobalScript <- asks (Env.dsProgrammableLogicGlobalScript . Env.directoryEnv)
@@ -267,23 +283,18 @@ registerTransferScripts pkh = failOnError $ do
       credGlobal = C.StakeCredentialByScript hshGlobal
 
   txBody <- BuildTx.execBuildTxT $ do
-    BuildTx.addStakeScriptWitness credMinting transferMintingScript ()
-    BuildTx.addConwayStakeCredentialRegistrationCertificate credMinting (pp ^. Ledger.ppKeyDepositL)
+    -- pp <- fmap C.unLedgerProtocolParameters queryProtocolParameters
+    -- BuildTx.addStakeScriptWitness credMinting transferMintingScript ()
+    -- BuildTx.addConwayStakeCredentialRegistrationCertificate credMinting (pp ^. Ledger.ppKeyDepositL)
 
-    addStakeCredentialCertificate credSpending
-    addStakeCredentialCertificate credGlobal
+    addConwayStakeCredentialCertificate credSpending
+    addConwayStakeCredentialCertificate credMinting
+    addConwayStakeCredentialCertificate credGlobal
 
     BuildTx.addRequiredSignature pkh
 
   x <- tryBalanceAndSubmit mempty Wallet.w1 txBody TrailingChange []
   pure $ C.getTxId $ C.getTxBody x
-
-{-| Add a 'C.StakeCredential' as a certificate to the transaction
--}
-addStakeCredentialCertificate :: forall era m. C.IsConwayBasedEra era => MonadBuildTx era m => C.StakeCredential -> m ()
-addStakeCredentialCertificate stk =
-  C.conwayEraOnwardsConstraints @era C.conwayBasedEra $
-  addCertificate $ C.ConwayCertificate C.conwayBasedEra $ TxCert.RegTxCert $ C.toShelleyStakeCredential stk
 
 expectSingleton :: MonadFail m => String -> [a] -> m a
 expectSingleton msg = \case

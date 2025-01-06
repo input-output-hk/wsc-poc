@@ -3,6 +3,7 @@
 -}
 module Wst.Offchain.Endpoints.Deployment(
   deployTx,
+  deployTxAll,
   deployBlacklistTx,
   insertNodeTx,
   issueProgrammableTokenTx,
@@ -28,13 +29,17 @@ import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.AppError (AppError)
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (inaNewKey))
 import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
+import Wst.Offchain.BuildTx.ProgrammableLogic (registerProgrammableGlobalScript)
 import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
 import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
+import Wst.Offchain.BuildTx.TransferLogic (registerTransferScripts)
 import Wst.Offchain.BuildTx.TransferLogic qualified as BuildTx
 import Wst.Offchain.Env (DirectoryScriptRoot (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Query qualified as Query
+
+
 
 {-| Build a transaction that deploys the directory and global params. Returns the
 transaction and the 'TxIn' that was selected for the one-shot NFTs.
@@ -47,6 +52,24 @@ deployTx target = do
   (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectoryFor root
               $ Env.balanceTxEnv_
               $ BuildTx.mintProtocolParams >> BuildTx.initDirectorySet
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx, root)
+
+{-| Build a transaction that deploys the directory and global params. Returns the
+transaction and the 'TxIn' that was selected for the one-shot NFTs.
+-}
+deployTxAll :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => ScriptTarget -> m (C.Tx era, DirectoryScriptRoot)
+deployTxAll target = do
+  (txi, _) <- Env.selectOperatorOutput
+  opEnv <- asks Env.operatorEnv
+  let root = DirectoryScriptRoot txi target
+  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectoryFor root $ Env.withTransferFromOperator
+              $ Env.balanceTxEnv_
+              $ BuildTx.mintProtocolParams
+                >> BuildTx.initDirectorySet
+                >> BuildTx.initBlacklist
+                >> BuildTx.registerProgrammableGlobalScript
+                >> BuildTx.registerTransferScripts
+
   pure (Convex.CoinSelection.signBalancedTxBody [] tx, root)
 
 {-| Build a transaction that inserts a node into the directory

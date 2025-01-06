@@ -79,6 +79,7 @@ library
     Wst.Offchain.BuildTx.ProgrammableLogic
     Wst.Offchain.BuildTx.ProtocolParams
     Wst.Offchain.BuildTx.TransferLogic
+    Wst.Offchain.BuildTx.Utils
     Wst.Offchain.Endpoints.Deployment
     Wst.Offchain.Env
     Wst.Offchain.Query
@@ -95,6 +96,7 @@ library
     , blockfrost-api
     , blockfrost-client-core
     , cardano-api
+    , cardano-ledger-shelley
     , containers
     , convex-base
     , convex-blockfrost
