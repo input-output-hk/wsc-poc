@@ -1,4 +1,4 @@
-# Front-End Starter Template
+# Front-End Guide
 
 This is a front-end web application for the Cardano Wyoming stable token poc that was built using [Next.js](https://nextjs.org/), TypeScript, MUI, and Zustand. 
 
