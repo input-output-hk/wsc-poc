@@ -119,6 +119,7 @@ library
     , servant-client-core
     , servant-server
     , text
+    , wai-cors
     , warp
 
   hs-source-dirs:  lib
@@ -165,6 +166,7 @@ library test-lib
     , QuickCheck
     , servant
     , servant-server
+    , wai-cors
     , warp
     , wst-poc
 

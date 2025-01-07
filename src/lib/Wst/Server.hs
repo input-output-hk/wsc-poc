@@ -18,6 +18,7 @@ import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Data.Data (Proxy (..))
 import Network.Wai.Handler.Warp qualified as Warp
+import Network.Wai.Middleware.Cors
 import PlutusTx.Prelude qualified as P
 import Servant (Server, ServerT)
 import Servant.API (NoContent (..), Raw, (:<|>) (..))
@@ -58,7 +59,7 @@ defaultServerArgs =
 
 runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env) => env -> ServerArgs -> IO ()
 runServer env ServerArgs{saPort, saStaticFiles} = do
-  let app  = case saStaticFiles of
+  let app  = cors (const $ Just simpleCorsResourcePolicy) $ case saStaticFiles of
         Nothing -> serve (Proxy @APIInEra) (server env)
         Just fp -> serve (Proxy @CombinedAPI) (server env :<|> serveDirectoryWebApp fp)
       port = saPort

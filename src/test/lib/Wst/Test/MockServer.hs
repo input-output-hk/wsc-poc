@@ -9,6 +9,7 @@ import Cardano.Api qualified as C
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Proxy (Proxy (..))
 import Network.Wai.Handler.Warp qualified as Warp
+import Network.Wai.Middleware.Cors
 import Servant (Server)
 import Servant.API (NoContent (..), (:<|>) (..))
 import Servant.Server (serve)
@@ -46,7 +47,7 @@ mockTxApi =
 -- | Start the mock server
 runMockServer :: IO ()
 runMockServer = do
-  let app = serve (Proxy @APIInEra) mockServer
+  let app = simpleCors $ serve (Proxy @APIInEra) mockServer
       port = 8080
   putStrLn $ "Starting mock server on port " <> show port
   Warp.run port app
