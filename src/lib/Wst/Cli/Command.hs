@@ -15,6 +15,7 @@ import Options.Applicative (CommandFields, Mod, Parser, ReadM, argument, auto,
                             command, eitherReader, fullDesc, help, info, long,
                             metavar, option, optional, progDesc, short,
                             subparser, value)
+import Options.Applicative.Builder (strOption)
 import Text.Read (readMaybe)
 import Wst.Server (ServerArgs (..))
 
@@ -64,7 +65,7 @@ parseServerArgs :: Parser ServerArgs
 parseServerArgs =
   ServerArgs
     <$> option auto (help "The port" <> value 8080 <> long "port" <> short 'p')
-    <*> optional (option auto (help "Folder to serve static files from" <> long "static-files"))
+    <*> optional (strOption (help "Folder to serve static files from" <> long "static-files"))
 
 parseTxIn :: Parser TxIn
 parseTxIn =
