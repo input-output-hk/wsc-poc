@@ -7,7 +7,8 @@ const nextConfig =
         destination: 'http://localhost:8080/:path*' // Proxy to Backend
       }
     ]
-  }
+  },
+  output: 'export'
   };
 
 export default nextConfig;
