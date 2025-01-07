@@ -134,14 +134,8 @@ addressed to the payment credential
 -}
 paySmartTokensToDestination :: forall era env m. (MonadBuildTx era m, MonadReader env m, Env.HasDirectoryEnv env, MonadBlockchain era m, C.IsBabbageBasedEra era) => (C.AssetName, C.Quantity) -> C.PolicyId -> C.PaymentCredential -> m ()
 paySmartTokensToDestination (an, q) issuedPolicyId destinationCred = Utils.inBabbage @era $ do
-  nid <- queryNetworkId
-  -- TODO: check if there is a better way to achieve: C.PaymentCredential -> C.StakeCredential
-  stakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential destinationCred
-  directoryEnv <- asks Env.directoryEnv
-  let progLogicBaseCred = Env.programmableLogicBaseCredential directoryEnv
   let value = fromList [(C.AssetId issuedPolicyId an, q)]
-      addr = C.makeShelleyAddressInEra C.shelleyBasedEra nid progLogicBaseCred (C.StakeAddressByValue stakeCred)
-
+  addr <- Env.programmableTokenReceivingAddress destinationCred
   payToAddress addr value
 
 issueSmartTokens :: forall era env m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> [UTxODat era DirectorySetNode] -> C.PaymentCredential -> m C.AssetId

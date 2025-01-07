@@ -69,6 +69,7 @@ queryApi =
   :<|> queryBlacklistedNodes (Proxy @C.ConwayEra)
   :<|> queryUserFunds @C.ConwayEra @env (Proxy @C.ConwayEra)
   :<|> queryAllFunds @C.ConwayEra @env (Proxy @C.ConwayEra)
+  :<|> computeUserAddress (Proxy @C.ConwayEra)
 
 txApi :: forall env. (Env.HasDirectoryEnv env) => ServerT (BuildTxAPI C.ConwayEra) (WstApp env C.ConwayEra)
 txApi =
@@ -76,6 +77,24 @@ txApi =
   :<|> transferProgrammableTokenEndpoint @C.ConwayEra @env
   :<|> addToBlacklistEndpoint
   :<|> seizeAssetsEndpoint
+
+computeUserAddress :: forall era env m.
+  ( MonadReader env m
+  , Env.HasDirectoryEnv env
+  , C.IsShelleyBasedEra era
+  , MonadBlockchain era m
+  )
+  => Proxy era
+  -> SerialiseAddress (C.Address C.ShelleyAddr)
+  -> m (C.Address C.ShelleyAddr)
+computeUserAddress _ (SerialiseAddress addr) = do
+  let C.ShelleyAddress _ paymentCredential _stakeCredential  = addr
+  Env.programmableTokenReceivingAddress @era (C.fromShelleyPaymentCredential paymentCredential) >>= \case
+    C.AddressInEra (C.ShelleyAddressInEra _) addr_ -> pure addr_
+
+    -- This is impossible as we construct the address with makeShelleyAddressInEra
+    -- But the compiler doesn't realise that.
+    C.AddressInEra C.ByronAddressInAnyEra _ -> error "Unexpected byron address"
 
 queryBlacklistedNodes :: forall era env m.
   ( MonadUtxoQuery m

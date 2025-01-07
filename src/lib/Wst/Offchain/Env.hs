@@ -48,6 +48,7 @@ module Wst.Offchain.Env(
   -- ** Minting tokens
   programmableTokenMintingScript,
   programmableTokenAssetId,
+  programmableTokenReceivingAddress,
 
   -- * Runtime data
   RuntimeEnv(..),
@@ -83,11 +84,12 @@ import Control.Monad.Except (MonadError, throwError)
 import Control.Monad.Reader (MonadReader, ReaderT, ask, asks, runReaderT)
 import Convex.BuildTx (BuildTxT)
 import Convex.BuildTx qualified as BuildTx
-import Convex.Class (MonadBlockchain, MonadUtxoQuery (..),
+import Convex.Class (MonadBlockchain (queryNetworkId), MonadUtxoQuery (..),
                      queryProtocolParameters, utxosByPaymentCredential)
 import Convex.CoinSelection qualified as CoinSelection
 import Convex.PlutusLedger.V1 (transCredential, transPolicyId,
-                               unTransCredential, unTransPolicyId)
+                               unTransCredential, unTransPolicyId,
+                               unTransStakeCredential)
 import Convex.Utils (mapError)
 import Convex.Utxos (BalanceChanges)
 import Convex.Utxos qualified as Utxos
@@ -253,6 +255,16 @@ globalParams scripts =
 
 getGlobalParams :: (MonadReader e m, HasDirectoryEnv e) => m ProgrammableLogicGlobalParams
 getGlobalParams = asks (globalParams . directoryEnv)
+
+{-| Compute the receiving address for a payment credential and network ID
+-}
+programmableTokenReceivingAddress :: forall era env m. (MonadReader env m, HasDirectoryEnv env, C.IsShelleyBasedEra era, MonadBlockchain era m) => C.PaymentCredential -> m (C.AddressInEra era)
+programmableTokenReceivingAddress destinationCred = do
+  nid <- queryNetworkId
+  -- TODO: check if there is a better way to achieve: C.PaymentCredential -> C.StakeCredential
+  stakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential destinationCred
+  progLogicBaseCred <- asks (programmableLogicBaseCredential . directoryEnv)
+  return $ C.makeShelleyAddressInEra C.shelleyBasedEra nid progLogicBaseCred (C.StakeAddressByValue stakeCred)
 
 {-| Scripts related to managing the specific transfer logic
 -}
