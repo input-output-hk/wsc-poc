@@ -46,7 +46,7 @@ import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import Wst.JSON.Utils qualified as JSON
 import Wst.Offchain.Query (UTxODat (..))
 
-type APIInEra = API C.ConwayEra
+type APIInEra = "api" >: "v1" :> API C.ConwayEra
 
 newtype TextEnvelopeJSON a = TextEnvelopeJSON{ unTextEnvelopeJSON :: a }
 
