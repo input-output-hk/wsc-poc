@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds          #-}
 {-# LANGUAGE DeriveAnyClass     #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedLists    #-}
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE TypeOperators      #-}
 
@@ -26,13 +27,23 @@ module Wst.Server.Types (
 
 import Cardano.Api (AssetName, Quantity)
 import Cardano.Api qualified as C
+import Control.Lens ((&), (.~), (?~))
 import Data.Aeson (FromJSON (..), ToJSON (..))
+import Data.Aeson qualified as JSON
+import Data.OpenApi (NamedSchema (..), OpenApiType (OpenApiObject),
+                     Referenced (Inline), ToSchema (..))
+import Data.OpenApi.Internal (OpenApiType (OpenApiString))
+import Data.OpenApi.Lens qualified as L
+import Data.OpenApi.ParamSchema (ToParamSchema (..))
+import Data.OpenApi.Schema qualified as Schema
+import Data.OpenApi.SchemaOptions qualified as SchemaOptions
 import Data.Proxy (Proxy (..))
 import GHC.Generics (Generic)
 import Servant (FromHttpApiData (..), ToHttpApiData (toUrlPiece))
 import Servant.API (Capture, Description, Get, JSON, NoContent, Post, ReqBody,
                     type (:>), (:<|>) (..))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
+import Wst.JSON.Utils qualified as JSON
 import Wst.Offchain.Query (UTxODat (..))
 
 type APIInEra = API C.ConwayEra
@@ -45,7 +56,26 @@ instance C.HasTextEnvelope a => ToJSON (TextEnvelopeJSON a) where
 instance C.HasTextEnvelope a => FromJSON (TextEnvelopeJSON a) where
   parseJSON val = parseJSON val >>= either (fail . show) (pure . TextEnvelopeJSON) . C.deserialiseFromTextEnvelope (C.proxyToAsType Proxy)
 
+instance C.HasTextEnvelope a => ToSchema (TextEnvelopeJSON a) where
+  declareNamedSchema _ = pure
+    $ NamedSchema (Just "TextEnvelopeJSON")
+    $ mempty
+        & L.type_ ?~ OpenApiObject
+        & L.description ?~ "Text envelope"
+        & L.properties .~
+          [ ("cborHex", Inline $ mempty & L.type_ ?~ OpenApiString & L.description ?~ "The CBOR-serialised value, base-16 encoded")
+          , ("description", Inline $ mempty & L.type_ ?~ OpenApiString & L.description ?~ "Description of the serialised value")
+          , ("type", Inline $ mempty & L.type_ ?~ OpenApiString & L.description ?~ "Type of the serialised value")
+          ]
+
 newtype SerialiseAddress a = SerialiseAddress{unSerialiseAddress :: a }
+
+instance ToParamSchema (SerialiseAddress a) where
+  toParamSchema _proxy =
+    mempty
+      & L.type_ ?~ OpenApiString
+      & L.description ?~ "bech32-serialised cardano address"
+      & L.example ?~ "addr1q9d42egme33z960rr8vlnt69lpmythdpm7ydk2e6k5nj5ghay9rg60vw49kejfah76sqeh4yshlsntgg007y0wgjlfwju6eksr"
 
 instance C.SerialiseAddress a => FromHttpApiData (SerialiseAddress a) where
   parseUrlPiece =
@@ -74,7 +104,22 @@ data IssueProgrammableTokenArgs =
     , itaQuantity  :: Quantity
     }
     deriving stock (Eq, Show, Generic)
-    deriving anyclass (ToJSON, FromJSON)
+
+jsonOptions3 :: JSON.Options
+jsonOptions3 = JSON.customJsonOptions 3
+
+jsonOptions2 :: JSON.Options
+jsonOptions2 = JSON.customJsonOptions 2
+
+instance ToJSON IssueProgrammableTokenArgs where
+  toJSON = JSON.genericToJSON jsonOptions3
+  toEncoding = JSON.genericToEncoding jsonOptions3
+
+instance FromJSON IssueProgrammableTokenArgs where
+  parseJSON = JSON.genericParseJSON jsonOptions3
+
+instance ToSchema IssueProgrammableTokenArgs where
+  declareNamedSchema = Schema.genericDeclareNamedSchema (SchemaOptions.fromAesonOptions jsonOptions3)
 
 data TransferProgrammableTokenArgs =
   TransferProgrammableTokenArgs
@@ -85,7 +130,16 @@ data TransferProgrammableTokenArgs =
     , ttaQuantity  :: Quantity
     }
     deriving stock (Eq, Show, Generic)
-    deriving anyclass (ToJSON, FromJSON)
+
+instance ToJSON TransferProgrammableTokenArgs where
+  toJSON = JSON.genericToJSON jsonOptions3
+  toEncoding = JSON.genericToEncoding jsonOptions3
+
+instance FromJSON TransferProgrammableTokenArgs where
+  parseJSON = JSON.genericParseJSON jsonOptions3
+
+instance ToSchema TransferProgrammableTokenArgs where
+  declareNamedSchema = Schema.genericDeclareNamedSchema (SchemaOptions.fromAesonOptions jsonOptions3)
 
 data AddToBlacklistArgs =
   AddToBlacklistArgs
@@ -93,7 +147,16 @@ data AddToBlacklistArgs =
     , atbBlacklistAddress :: C.Address C.ShelleyAddr
     }
     deriving stock (Eq, Show, Generic)
-    deriving anyclass (ToJSON, FromJSON)
+
+instance ToJSON AddToBlacklistArgs where
+  toJSON = JSON.genericToJSON jsonOptions3
+  toEncoding = JSON.genericToEncoding jsonOptions3
+
+instance FromJSON AddToBlacklistArgs where
+  parseJSON = JSON.genericParseJSON jsonOptions3
+
+instance ToSchema AddToBlacklistArgs where
+  declareNamedSchema = Schema.genericDeclareNamedSchema (SchemaOptions.fromAesonOptions jsonOptions3)
 
 data SeizeAssetsArgs =
   SeizeAssetsArgs
@@ -101,7 +164,16 @@ data SeizeAssetsArgs =
     , saTarget  :: C.Address C.ShelleyAddr
     }
     deriving stock (Eq, Show, Generic)
-    deriving anyclass (ToJSON, FromJSON)
+
+instance ToJSON SeizeAssetsArgs where
+  toJSON = JSON.genericToJSON jsonOptions2
+  toEncoding = JSON.genericToEncoding jsonOptions2
+
+instance FromJSON SeizeAssetsArgs where
+  parseJSON = JSON.genericParseJSON jsonOptions2
+
+instance ToSchema SeizeAssetsArgs where
+  declareNamedSchema = Schema.genericDeclareNamedSchema (SchemaOptions.fromAesonOptions jsonOptions2)
 
 type BuildTxAPI era =
   "programmable-token" :>
