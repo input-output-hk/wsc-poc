@@ -74,5 +74,14 @@ in rec {
   #   sourceUrl = "https://github.com/input-output-hk/wsc-poc";
   # };
 
+  mockserver = lib.iogx.mkContainerFromCabalExe {
+    exe = inputs.self.packages.wst-poc-mock-server;
+    name = "wst-poc-mock-server";
+    description = "WST mockserver";
+    packages = [ ];
+    sourceUrl = "https://github.com/input-output-hk/wsc-poc";
+  };
+
+
 }
 
