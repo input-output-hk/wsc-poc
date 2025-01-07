@@ -45,4 +45,5 @@ jobs:
         # git diff --quiet implies --exit-code
         run: |
           cabal run export-smart-tokens
+          cabal run write-openapi-schema -- generated/openapi/schema.json
           git diff --quiet

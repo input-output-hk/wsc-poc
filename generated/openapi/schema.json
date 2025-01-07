@@ -213,7 +213,7 @@
     },
     "openapi": "3.0.0",
     "paths": {
-        "/healthcheck": {
+        "/api/v1/healthcheck": {
             "get": {
                 "description": "Is the server alive?",
                 "responses": {
@@ -226,7 +226,7 @@
                 }
             }
         },
-        "/query/address/{address}": {
+        "/api/v1/query/address/{address}": {
             "get": {
                 "description": "The user's receiving address for programmable tokens",
                 "parameters": [
@@ -258,7 +258,7 @@
                 }
             }
         },
-        "/query/all-funds": {
+        "/api/v1/query/all-funds": {
             "get": {
                 "description": "Total value of all programmable tokens",
                 "responses": {
@@ -275,7 +275,7 @@
                 }
             }
         },
-        "/query/blacklist/{address}": {
+        "/api/v1/query/blacklist/{address}": {
             "get": {
                 "description": "The list of addresses that have been blacklisted",
                 "parameters": [
@@ -310,7 +310,7 @@
                 }
             }
         },
-        "/query/global-params": {
+        "/api/v1/query/global-params": {
             "get": {
                 "description": "The UTxO with the global parameters",
                 "responses": {
@@ -327,7 +327,7 @@
                 }
             }
         },
-        "/query/user-funds/{address}": {
+        "/api/v1/query/user-funds/{address}": {
             "get": {
                 "description": "Total value locked in programmable token outputs addressed to the user",
                 "parameters": [
@@ -359,7 +359,7 @@
                 }
             }
         },
-        "/tx/programmable-token/blacklist": {
+        "/api/v1/tx/programmable-token/blacklist": {
             "post": {
                 "description": "Add a credential to the blacklist",
                 "requestBody": {
@@ -388,7 +388,7 @@
                 }
             }
         },
-        "/tx/programmable-token/issue": {
+        "/api/v1/tx/programmable-token/issue": {
             "post": {
                 "description": "Create some programmable tokens",
                 "requestBody": {
@@ -417,7 +417,7 @@
                 }
             }
         },
-        "/tx/programmable-token/seize": {
+        "/api/v1/tx/programmable-token/seize": {
             "post": {
                 "description": "Seize a user's funds",
                 "requestBody": {
@@ -446,7 +446,7 @@
                 }
             }
         },
-        "/tx/programmable-token/transfer": {
+        "/api/v1/tx/programmable-token/transfer": {
             "post": {
                 "description": "Transfer programmable tokens from one address to another",
                 "requestBody": {
