@@ -33,6 +33,11 @@
     plutarch = {
       url = "github:colll78/plutarch-plutus/b2379767c7f1c70acf28206bf922f128adc02f28";
     };
+
+    n2c = {
+      url = "github:nlewo/nix2container";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = inputs: inputs.iogx.lib.mkFlake {
