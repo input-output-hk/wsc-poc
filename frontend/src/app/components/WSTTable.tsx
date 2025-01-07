@@ -6,10 +6,6 @@ import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import Paper from "@mui/material/Paper";
-import PanToolOutlinedIcon from '@mui/icons-material/PanToolOutlined';
-
-//Local imports
-import WSTCommonButton from "./WSTCommonButton";
 
 const Field = [
     {
@@ -49,7 +45,6 @@ export default function WSTTable() {
           <TableCell>Address</TableCell>
           <TableCell>Account Status</TableCell>
           <TableCell align="right">Account Balance</TableCell>
-            <TableCell align="right">Actions</TableCell>
         </TableRow>
       </TableHead>
       <TableBody>
@@ -63,9 +58,6 @@ export default function WSTTable() {
                 </TableCell>
                 <TableCell align="right">
                     {`${field.balance} WST`}
-                </TableCell>
-                <TableCell align="right">
-                    <WSTCommonButton variant='text' size="small" text='Seize Funds' startIcon={<PanToolOutlinedIcon />} />
                 </TableCell>
             </TableRow>
         ))}

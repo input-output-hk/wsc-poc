@@ -13,16 +13,19 @@ import Tooltip from '@mui/material/Tooltip';
 import IconButton from './WSTIconButton';
 
 interface PHATextFieldProps {
-    defaultValue: TextFieldProps['defaultValue'];
+    value: TextFieldProps['value'];
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) => void; 
     error?: TextFieldProps['error'];
     fullWidth?: TextFieldProps['fullWidth'];
     helperText?: TextFieldProps['helperText'];
     label: TextFieldProps['label'];
+    multiline?: TextFieldProps['multiline'];
+    minRows?: number;
+    maxRows?: number;
 }
 
-export default function WSTTextField({defaultValue, error, fullWidth, helperText, label}: PHATextFieldProps) {
+export default function WSTTextField({value, onChange, error, fullWidth, multiline, minRows, maxRows, helperText, label}: PHATextFieldProps) {
   const [isFocused, setIsFocused] = React.useState(false);
-  const [value, setValue] = React.useState(defaultValue);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   const handleFocus = () => {
@@ -34,7 +37,7 @@ export default function WSTTextField({defaultValue, error, fullWidth, helperText
   };
 
   const handleClear = () => {
-    setValue('');
+    onChange({ target: { value: '' } } as React.ChangeEvent<HTMLInputElement>);
     setTimeout(() => {
       if (inputRef.current) {
         inputRef.current.focus();
@@ -47,9 +50,12 @@ export default function WSTTextField({defaultValue, error, fullWidth, helperText
           sx={{marginBottom: '24px'}}
           inputRef={inputRef}
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onChange={onChange}
           error={error}
           fullWidth={fullWidth}
+          multiline={multiline}
+          minRows={minRows}
+          maxRows={maxRows}
           helperText={helperText}
           label={label}
           size="small"

@@ -5,6 +5,7 @@ import { create } from "zustand";
 import { UserName, MenuTab } from "./types";
 
 export type State = {
+  mintAccount: string;
   currentUser: UserName;
   selectedTab: MenuTab;
   alertOpen: boolean;
@@ -18,6 +19,7 @@ export type Actions = {
 };
 
 const useStore = create<State & Actions>((set) => ({
+    mintAccount: 'addr_test1qpju2uhn72ur6j5alln6nz7dqcgcjal7xjaw7lwdjdaex4qhr3xpz63fjwvlpsnu8efnhfdja78d3vkv8ks6ac09g3usemu2yl',
     currentUser: 'Mint Authority',
     selectedTab: 'Mint Actions',
     alertOpen: false,

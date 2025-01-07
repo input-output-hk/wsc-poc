@@ -1,6 +1,7 @@
 'use client';
 //React imports
 import React, { useState } from 'react';
+import axios from 'axios';
 
 //Mui imports
 import { Box, Typography } from '@mui/material';
@@ -16,21 +17,48 @@ import WSTTable from './components/WSTTable';
 import AlertBar from './components/AlertBar';
 
 export default function Home() {
-  const { selectedTab, errorMessage, setAlertStatus } = useStore();
-  const mintNavOpt = ['Mint', 'Freeze'];
-  const walletNavOpt = ['Send', 'Receive'];
-  const walletBttnLabel = ['Send'];
+  const { mintAccount, selectedTab, errorMessage, setAlertStatus } = useStore();
   const [addressCleared, setAddressCleared] = useState(false);
+
+  // temp state for each text field
+  const [mintTokens, setMintTokens] = useState(36);
+  const [recipientAddress, setRecipientAddress] = useState('addr_sdfah35gd808xxx');
+  const [accountNumber, setAccountNumber] = useState('addr_sdfah35gd808xxx');
+  const [reason, setReason] = useState('Enter reason here');
 
   const handleAddressClearedChange = (event: { target: { checked: boolean | ((prevState: boolean) => boolean); }; }) => {
     setAddressCleared(event.target.checked);
   };
 
-  const onMint = () => {
-    console.log('mint a token');
+  const onMint = async () => {
+    const requestData = {
+      asset_name: 'WST',
+      issuer: mintAccount,
+      amount: mintTokens,
+    };
+
+    try {
+      const response = await axios.post(
+        'http://localhost:9000/api/tx/programmable-token/issue', 
+        requestData, 
+        {
+          headers: {
+            'Content-Type': 'application/json;charset=utf-8', 
+          },
+        }
+      );
+  
+      console.log('Mint response:', response.data);
+    } catch (error) {
+      console.error('Minting failed:', error);
+    }
   };
 
   const onFreeze = () => {
+    console.log('freeze an account');
+  };
+
+  const onSeize = () => {
     console.log('freeze an account');
   };
 
@@ -41,12 +69,14 @@ export default function Home() {
 
   const mintContent =  <Box>
   <WSTTextField 
-      defaultValue={36} 
+      value={mintTokens}
+      onChange={(e) => setMintTokens(Number(e.target.value))}
       label="Number of Tokens to Mint"
       fullWidth={true}
   />
   <WSTTextField 
-      defaultValue='addr_sdfah35gd808xxx' 
+      value={recipientAddress}
+      onChange={(e) => setRecipientAddress(e.target.value)}
       label="Recipient’s Address"
       fullWidth={true}
   />
@@ -59,20 +89,50 @@ export default function Home() {
 
   const freezeContent =  <Box>
   <WSTTextField 
-  defaultValue='addr_sdfah35gd808xxx'
+  value={accountNumber}
+  onChange={(e) => setAccountNumber(e.target.value)}
   label="Account Number"
   fullWidth={true}
   />
+  <WSTTextField 
+  value={reason}
+  onChange={(e) => setReason(e.target.value)}
+  label="Reason"
+  fullWidth={true}
+  multiline={true}
+  minRows={2}
+  maxRows={3}
+  />
   </Box>
+
+const seizeContent =  <Box>
+<WSTTextField 
+value={accountNumber}
+onChange={(e) => setAccountNumber(e.target.value)}
+label="Account Number"
+fullWidth={true}
+/>
+<WSTTextField 
+value={reason}
+onChange={(e) => setReason(e.target.value)}
+label="Reason"
+fullWidth={true}
+multiline={true}
+minRows={2}
+maxRows={3}
+/>
+</Box>
   
   const sendContent =  <Box>
   <WSTTextField 
-      defaultValue={36} 
+      value={mintTokens}
+      onChange={(e) => setMintTokens(Number(e.target.value))}
       label="Number of Tokens to Mint"
       fullWidth={true}
   />
   <WSTTextField 
-      defaultValue='addr_sdfah35gd808xxx' 
+      value={recipientAddress}
+      onChange={(e) => setRecipientAddress(e.target.value)}
       label="Recipient’s Address"
       fullWidth={true}
   />
@@ -98,8 +158,38 @@ export default function Home() {
           <Typography variant='h5'>UserID: xxxxxxx7850</Typography>
           </Box>
           <div className="cardWrapperParent">
-            <WalletCard tabLabels={mintNavOpt} cardContentSection1={mintContent} cardContentSection2={freezeContent} bttnLabels={mintNavOpt} onAction1={onMint} onAction2={onFreeze}/>
-            <WalletCard tabLabels={walletNavOpt} cardContentSection1={sendContent} cardContentSection2={receiveContent} bttnLabels={walletBttnLabel} onAction1={onSend}/>
+            <WalletCard tabs={[
+          {
+            label: 'Mint',
+            content: mintContent,
+            buttonLabel: 'Mint',
+            onAction: onMint
+          },
+          {
+            label: 'Freeze',
+            content: freezeContent,
+            buttonLabel: 'Freeze',
+            onAction: onFreeze
+          },
+          {
+            label: 'Seize',
+            content: seizeContent,
+            buttonLabel: 'Seize',
+            onAction: onSeize
+          }
+        ]}></WalletCard>
+            <WalletCard tabs={[
+              {
+                label: 'Send',
+                content: sendContent,
+                buttonLabel: 'Send',
+                onAction: onSend
+              },
+              {
+                label: 'Receive',
+                content: receiveContent
+              }
+            ]}/>
           </div>
         </>;
       case 'Accounts':
@@ -119,7 +209,18 @@ export default function Home() {
         <Typography variant='h5'>UserID: xxxxxxx7850</Typography>
         </Box>
         <div className="cardWrapperParent">
-          <WalletCard tabLabels={walletNavOpt} cardContentSection1={sendContent} cardContentSection2={receiveContent} bttnLabels={walletBttnLabel} onAction1={onSend}/>
+          <WalletCard tabs={[
+                {
+                  label: 'Send',
+                  content: sendContent,
+                  buttonLabel: 'Send',
+                  onAction: onSend
+                },
+                {
+                  label: 'Receive',
+                  content: receiveContent
+                }
+          ]}/>
         </div>
       </>;
     }
