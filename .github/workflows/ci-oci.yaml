@@ -6,8 +6,8 @@ name: "ci-oci"
 on:
   pull_request:
   push:
-    branches:
-      - main
+    tags:
+      - "v*"
 
 permissions:
   packages: write
@@ -23,8 +23,24 @@ concurrency:
 
 jobs:
   tests:
+    strategy:
+      matrix:
+        image: [wst, wst-poc-mock-server]
     runs-on: ubuntu-latest
     steps:
+
+    - name: Determine image tag for git tag
+      if: ${{ github.event_name == 'push' }}
+      run: |
+        IMAGE_TAG=$(git rev-parse --abbrev-ref "${{ github.event.push.ref }}")
+        echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+
+    - name: Determine image tag for PR
+      if: ${{ github.event_name == 'pull_request' }}
+      run: |
+        IMAGE_TAG=pr-${{ github.event.pull_request.number }}
+        echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+
     - name: Log in to ghcr.io
       uses: redhat-actions/podman-login@v1
       with:
@@ -60,11 +76,12 @@ jobs:
 
     # TODO: matrix build for two images (mock server and wst)
     - name: Build image with nix
-      run: nix build --accept-flake-config .#containers.x86_64-linux.wst.copyTo
-    - name: Publish image with podman
+      run: nix build --accept-flake-config .#containers.x86_64-linux.${{ matrix.image }}.copyTo
+    - name: Publish tagged image with podman
       run: |
+        IMAGE_NAME=ghcr.io/${{github.repository_owner}}/${{ matrix.image }}:$IMAGE_TAG
         ./result/bin/copy-to oci-archive:oci.tar
-        podman import oci.tar ghcr.io/input-output-hk/wst-test:unstable
-        podman push ghcr.io/input-output-hk/wst-test:unstable
+        podman import oci.tar $IMAGE_NAME
+        podman push $IMAGE_NAME
 
 
