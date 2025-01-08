@@ -32,14 +32,14 @@ export default function Home() {
 
   const onMint = async () => {
     const requestData = {
-      asset_name: 'WST',
+      asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
       issuer: mintAccount,
-      amount: mintTokens,
+      quantity: mintTokens,
     };
 
     try {
       const response = await axios.post(
-        'http://localhost:9000/api/tx/programmable-token/issue', 
+        '/api/v1/tx/programmable-token/issue', 
         requestData, 
         {
           headers: {
@@ -47,7 +47,6 @@ export default function Home() {
           },
         }
       );
-  
       console.log('Mint response:', response.data);
     } catch (error) {
       console.error('Minting failed:', error);
