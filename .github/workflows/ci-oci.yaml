@@ -63,7 +63,8 @@ jobs:
       run: nix build --accept-flake-config .#containers.x86_64-linux.wst.copyTo
     - name: Publish image with podman
       run: |
-        ./result/bin/copy-to containers-storage:ghcr.io/input-output-hk/wst-test
+        ./result/bin/copy-to oci-archive:oci.tar
+        podman save oci.tar ghcr.io/input-output-hk/wst-test
         podman push ghcr.io/input-output-hk/wst-test
 
 

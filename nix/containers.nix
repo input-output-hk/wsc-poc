@@ -50,6 +50,10 @@ in rec {
     name = "wst";
     config = {
       Entrypoint = lib.singleton (lib.getExe inputs.self.packages.wst-poc-cli);
+      Labels = {
+        "org.opencontainers.image.source"      = "https://github.com/input-output-hk/wsc-poc";
+        "org.opencontainers.image.description" = "Programmable token and regulated stablecoin proof-of-concept";
+      };
     };
     layers = [
       (inputs.n2c.packages.nix2container.buildLayer {
