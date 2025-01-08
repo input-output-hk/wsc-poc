@@ -9,6 +9,14 @@ on:
     branches:
       - main
 
+permissions:
+  packages: write
+
+env:
+  REGISTRY_USER: ${{ github.actor }}
+  REGISTRY_PASSWORD: ${{ github.token }}
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+
 concurrency:
   group: "ci-oci-${{ github.ref }}"
   cancel-in-progress: true
@@ -17,6 +25,12 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     steps:
+      - name: Log in to ghcr.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          username: ${{ env.REGISTRY_USER }}
+          password: ${{ env.REGISTRY_PASSWORD }}
+          registry: ${{ env.IMAGE_REGISTRY }}
 
     - uses: actions/checkout@v4
 
