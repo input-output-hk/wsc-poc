@@ -64,7 +64,7 @@ jobs:
     - name: Publish image with podman
       run: |
         ./result/bin/copy-to oci-archive:oci.tar
-        podman save oci.tar ghcr.io/input-output-hk/wst-test
-        podman push ghcr.io/input-output-hk/wst-test
+        podman import oci.tar ghcr.io/input-output-hk/wst-test:unstable
+        podman push ghcr.io/input-output-hk/wst-test:unstable
 
 
