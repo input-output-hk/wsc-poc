@@ -25,12 +25,12 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     steps:
-      - name: Log in to ghcr.io
-        uses: redhat-actions/podman-login@v1
-        with:
-          username: ${{ env.REGISTRY_USER }}
-          password: ${{ env.REGISTRY_PASSWORD }}
-          registry: ${{ env.IMAGE_REGISTRY }}
+    - name: Log in to ghcr.io
+      uses: redhat-actions/podman-login@v1
+      with:
+        username: ${{ env.REGISTRY_USER }}
+        password: ${{ env.REGISTRY_PASSWORD }}
+        registry: ${{ env.IMAGE_REGISTRY }}
 
     - uses: actions/checkout@v4
 
