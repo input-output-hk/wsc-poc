@@ -18,8 +18,10 @@ staticFiles = pkgs.buildEnv {
     # the actual payload we want
     staticFilesDerivation
     # allow interactivity with the image
-    pkgs.bashInteractive
-    pkgs.coreutils
+    # NOTE: Uncomment the lines below if you need a shell inside the image
+    # (for example when debugging the image contents)
+    # pkgs.bashInteractive
+    # pkgs.coreutils
   ];
   pathsToLink = [ "/html" "/bin" ];
   extraOutputsToInstall = [ "/html" ];
@@ -50,6 +52,10 @@ in rec {
     name = "wst";
     config = {
       Entrypoint = lib.singleton (lib.getExe inputs.self.packages.wst-poc-cli);
+      Labels = {
+        "org.opencontainers.image.source"      = "https://github.com/input-output-hk/wsc-poc";
+        "org.opencontainers.image.description" = "Programmable token and regulated stablecoin proof-of-concept";
+      };
     };
     layers = [
       (inputs.n2c.packages.nix2container.buildLayer {
@@ -74,7 +80,7 @@ in rec {
   #   sourceUrl = "https://github.com/input-output-hk/wsc-poc";
   # };
 
-  mockserver = lib.iogx.mkContainerFromCabalExe {
+  wst-poc-mock-server = lib.iogx.mkContainerFromCabalExe {
     exe = inputs.self.packages.wst-poc-mock-server;
     name = "wst-poc-mock-server";
     description = "WST mockserver";
