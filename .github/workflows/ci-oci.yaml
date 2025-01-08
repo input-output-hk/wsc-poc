@@ -58,7 +58,12 @@ jobs:
         # except the version with the `primary-key`, if it exists
         purge-primary-key: never
 
-    - run: nix build --accept-flake-config .#containers.x86_64-linux.wst.copyTo
-    - run: ./result/bin/copy-to oci-archive:oci.tar
-    - run: ls -alh oci.tar
+    # TODO: matrix build for two images (mock server and wst)
+    - name: Build image with nix
+      run: nix build --accept-flake-config .#containers.x86_64-linux.wst.copyTo
+    - name: Publish image with podman
+      run: |
+        ./result/bin/copy-to containers-storage:ghcr.io/input-output-hk/wst-test
+        podman push ghcr.io/input-output-hk/wst-test
+
 
