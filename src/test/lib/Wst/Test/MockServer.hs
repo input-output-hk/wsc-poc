@@ -9,6 +9,7 @@ import Cardano.Api qualified as C
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Proxy (Proxy (..))
 import Network.Wai.Handler.Warp qualified as Warp
+import Network.Wai.Middleware.Cors
 import Servant (Server)
 import Servant.API (NoContent (..), (:<|>) (..))
 import Servant.Server (serve)
@@ -31,6 +32,7 @@ mockQueryApi =
   :<|> (\_ -> liftIO $ QC.generate $ Gen.listOf (hedgehog $ Gen.genVerificationKeyHash (C.proxyToAsType Proxy)))
   :<|> (\_ -> liftIO $ fmap (C.fromLedgerValue C.ShelleyBasedEraConway) $ QC.generate $ hedgehog $ Gen.genValue C.MaryEraOnwardsConway Gen.genAssetId Gen.genPositiveQuantity)
   :<|> liftIO (fmap (C.fromLedgerValue C.ShelleyBasedEraConway) $ QC.generate $ hedgehog $ Gen.genValue C.MaryEraOnwardsConway Gen.genAssetId Gen.genPositiveQuantity)
+  :<|> (\_ -> liftIO $ QC.generate Gen.genAddress)
 
 genTx :: MonadIO m => m (TextEnvelopeJSON (C.Tx C.ConwayEra))
 genTx = liftIO $ fmap TextEnvelopeJSON $ QC.generate $ hedgehog $ Gen.genTx C.shelleyBasedEra
@@ -45,7 +47,7 @@ mockTxApi =
 -- | Start the mock server
 runMockServer :: IO ()
 runMockServer = do
-  let app = serve (Proxy @APIInEra) mockServer
+  let app = simpleCors $ serve (Proxy @APIInEra) mockServer
       port = 8080
   putStrLn $ "Starting mock server on port " <> show port
   Warp.run port app

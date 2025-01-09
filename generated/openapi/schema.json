@@ -1,0 +1,479 @@
+{
+    "components": {
+        "schemas": {
+            "AddToBlacklistArgs": {
+                "properties": {
+                    "blacklist_address": {
+                        "$ref": "#/components/schemas/Address"
+                    },
+                    "issuer": {
+                        "$ref": "#/components/schemas/Address"
+                    }
+                },
+                "required": [
+                    "issuer",
+                    "blacklist_address"
+                ],
+                "type": "object"
+            },
+            "Address": {
+                "description": "bech32-encoded cardano address",
+                "example": "addr_test1qpju2uhn72ur6j5alln6nz7dqcgcjal7xjaw7lwdjdaex4qhr3xpz63fjwvlpsnu8efnhfdja78d3vkv8ks6ac09g3usemu2yl",
+                "type": "string"
+            },
+            "Asset name": {
+                "type": "string"
+            },
+            "Hash PaymentKey": {
+                "description": "Hash of a payment key",
+                "example": "f6ac5676b58d8ce280c1f09af4a2e82dd58c1aa2fb075aa005afa1da",
+                "type": "string"
+            },
+            "IssueProgrammableTokenArgs": {
+                "properties": {
+                    "asset_name": {
+                        "$ref": "#/components/schemas/Asset name"
+                    },
+                    "issuer": {
+                        "$ref": "#/components/schemas/Address"
+                    },
+                    "quantity": {
+                        "$ref": "#/components/schemas/Quantity"
+                    }
+                },
+                "required": [
+                    "issuer",
+                    "asset_name",
+                    "quantity"
+                ],
+                "type": "object"
+            },
+            "ProgrammableLogicGlobalParams": {
+                "description": "Global parameters of the programmable token directory",
+                "properties": {
+                    "directory_node_currency_symbol": {
+                        "description": "base16-encoded script payment credential of the programmable logic script",
+                        "example": "0xc0000000000000000000000000000000000000000000000000000000",
+                        "type": "string"
+                    },
+                    "programmable_logic_credential": {
+                        "description": "plutus-data-encoded payment credential of the programmable logic",
+                        "example": [
+                            0,
+                            [
+                                "0x0a0eb28fbaec9e61d20e9fe4c6ac5e5ee4520bb274b1e3292721d26f"
+                            ]
+                        ],
+                        "type": "array"
+                    }
+                },
+                "type": "object"
+            },
+            "Quantity": {
+                "type": "integer"
+            },
+            "SeizeAssetsArgs": {
+                "properties": {
+                    "issuer": {
+                        "$ref": "#/components/schemas/Address"
+                    },
+                    "target": {
+                        "$ref": "#/components/schemas/Address"
+                    }
+                },
+                "required": [
+                    "issuer",
+                    "target"
+                ],
+                "type": "object"
+            },
+            "TextEnvelopeJSON": {
+                "description": "Text envelope",
+                "properties": {
+                    "cborHex": {
+                        "description": "The CBOR-serialised value, base-16 encoded",
+                        "type": "string"
+                    },
+                    "description": {
+                        "description": "Description of the serialised value",
+                        "type": "string"
+                    },
+                    "type": {
+                        "description": "Type of the serialised value",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "TransferProgrammableTokenArgs": {
+                "properties": {
+                    "asset_name": {
+                        "$ref": "#/components/schemas/Asset name"
+                    },
+                    "issuer": {
+                        "$ref": "#/components/schemas/Address"
+                    },
+                    "quantity": {
+                        "$ref": "#/components/schemas/Quantity"
+                    },
+                    "recipient": {
+                        "$ref": "#/components/schemas/Address"
+                    },
+                    "sender": {
+                        "$ref": "#/components/schemas/Address"
+                    }
+                },
+                "required": [
+                    "sender",
+                    "recipient",
+                    "issuer",
+                    "asset_name",
+                    "quantity"
+                ],
+                "type": "object"
+            },
+            "TxIn": {
+                "description": "TxIn consisting of (Transaction hash + # + index)",
+                "example": "01f4b788593d4f70de2a45c2e1e87088bfbdfa29577ae1b62aba60e095e3ab53#2",
+                "type": "string"
+            },
+            "TxOut": {
+                "description": "Global parameters of the programmable token directory",
+                "properties": {
+                    "address": {
+                        "description": "bech32-encoded cardano address",
+                        "example": "addr_test1qpju2uhn72ur6j5alln6nz7dqcgcjal7xjaw7lwdjdaex4qhr3xpz63fjwvlpsnu8efnhfdja78d3vkv8ks6ac09g3usemu2yl",
+                        "type": "string"
+                    },
+                    "datum": {
+                        "description": "the datum of the output (if any)",
+                        "type": "object"
+                    },
+                    "inlineDatum": {
+                        "description": "the inline datum of the output (if any)",
+                        "type": "object"
+                    },
+                    "inlineDatumRaw": {
+                        "description": "the inline datum of the output (if any), CBOR serialised and base-16 encoded",
+                        "type": "object"
+                    },
+                    "inlineDatumhash": {
+                        "description": "hash of the inline datum of the output (if it exists)",
+                        "type": "string"
+                    },
+                    "referenceScript": {
+                        "description": "reference script (if any), text envelope format",
+                        "type": "object"
+                    },
+                    "value": {
+                        "description": "Value locked in the output. Always includes a 'lovelace' key, may include other keys if non-Ada assets are present.",
+                        "properties": {
+                            "lovelace": {
+                                "type": "integer"
+                            }
+                        },
+                        "type": "object"
+                    }
+                },
+                "type": "object"
+            },
+            "UTxODat_ConwayEra_ProgrammableLogicGlobalParams": {
+                "properties": {
+                    "atum": {
+                        "$ref": "#/components/schemas/ProgrammableLogicGlobalParams"
+                    },
+                    "n": {
+                        "$ref": "#/components/schemas/TxIn"
+                    },
+                    "ut": {
+                        "$ref": "#/components/schemas/TxOut"
+                    }
+                },
+                "required": [
+                    "n",
+                    "ut",
+                    "atum"
+                ],
+                "type": "object"
+            },
+            "Value": {
+                "description": "Value locked in the output. Always includes a 'lovelace' key, may include other keys if non-Ada assets are present.",
+                "properties": {
+                    "lovelace": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            }
+        }
+    },
+    "info": {
+        "title": "",
+        "version": ""
+    },
+    "openapi": "3.0.0",
+    "paths": {
+        "/api/v1/healthcheck": {
+            "get": {
+                "description": "Is the server alive?",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {}
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/query/address/{address}": {
+            "get": {
+                "description": "The user's receiving address for programmable tokens",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "address",
+                        "required": true,
+                        "schema": {
+                            "description": "bech32-serialised cardano address",
+                            "example": "addr1q9d42egme33z960rr8vlnt69lpmythdpm7ydk2e6k5nj5ghay9rg60vw49kejfah76sqeh4yshlsntgg007y0wgjlfwju6eksr",
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Address"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "description": "`address` not found"
+                    }
+                }
+            }
+        },
+        "/api/v1/query/all-funds": {
+            "get": {
+                "description": "Total value of all programmable tokens",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Value"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/query/blacklist/{address}": {
+            "get": {
+                "description": "The list of addresses that have been blacklisted",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "address",
+                        "required": true,
+                        "schema": {
+                            "description": "bech32-serialised cardano address",
+                            "example": "addr1q9d42egme33z960rr8vlnt69lpmythdpm7ydk2e6k5nj5ghay9rg60vw49kejfah76sqeh4yshlsntgg007y0wgjlfwju6eksr",
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/Hash PaymentKey"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "description": "`address` not found"
+                    }
+                }
+            }
+        },
+        "/api/v1/query/global-params": {
+            "get": {
+                "description": "The UTxO with the global parameters",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UTxODat_ConwayEra_ProgrammableLogicGlobalParams"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/query/user-funds/{address}": {
+            "get": {
+                "description": "Total value locked in programmable token outputs addressed to the user",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "address",
+                        "required": true,
+                        "schema": {
+                            "description": "bech32-serialised cardano address",
+                            "example": "addr1q9d42egme33z960rr8vlnt69lpmythdpm7ydk2e6k5nj5ghay9rg60vw49kejfah76sqeh4yshlsntgg007y0wgjlfwju6eksr",
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Value"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "description": "`address` not found"
+                    }
+                }
+            }
+        },
+        "/api/v1/tx/programmable-token/blacklist": {
+            "post": {
+                "description": "Add a credential to the blacklist",
+                "requestBody": {
+                    "content": {
+                        "application/json;charset=utf-8": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AddToBlacklistArgs"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TextEnvelopeJSON"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/api/v1/tx/programmable-token/issue": {
+            "post": {
+                "description": "Create some programmable tokens",
+                "requestBody": {
+                    "content": {
+                        "application/json;charset=utf-8": {
+                            "schema": {
+                                "$ref": "#/components/schemas/IssueProgrammableTokenArgs"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TextEnvelopeJSON"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/api/v1/tx/programmable-token/seize": {
+            "post": {
+                "description": "Seize a user's funds",
+                "requestBody": {
+                    "content": {
+                        "application/json;charset=utf-8": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SeizeAssetsArgs"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TextEnvelopeJSON"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/api/v1/tx/programmable-token/transfer": {
+            "post": {
+                "description": "Transfer programmable tokens from one address to another",
+                "requestBody": {
+                    "content": {
+                        "application/json;charset=utf-8": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TransferProgrammableTokenArgs"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TextEnvelopeJSON"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        }
+    }
+}

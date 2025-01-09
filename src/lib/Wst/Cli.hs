@@ -20,7 +20,8 @@ import Convex.Wallet.Operator (Operator (Operator, oPaymentKey),
                                verificationKey)
 import Convex.Wallet.Operator qualified as Operator
 import Data.Functor.Identity (Identity)
-import Data.Proxy (Proxy (Proxy))
+import Data.Maybe (fromMaybe)
+import Data.Proxy (Proxy (..))
 import Data.String (IsString (..))
 import Options.Applicative (customExecParser, disambiguate, helper, idm, info,
                             prefs, showHelpOnEmpty, showHelpOnError)
@@ -95,6 +96,6 @@ deploy config = do
       (liftIO $ C.writeFileJSON "deployment-root.json" root) >>= either (error . show) pure
 
 startServer :: (MonadIO m, MonadLogger m) => Env.CombinedEnv Proxy Identity Proxy Identity w -> Server.ServerArgs -> m ()
-startServer env' serverArgs@ServerArgs{saPort} = do
-  logInfo $ "starting server" :# ["port" .= saPort]
+startServer env' serverArgs@ServerArgs{saPort, saStaticFiles} = do
+  logInfo $ "starting server" :# ["port" .= saPort, "static_files" .= fromMaybe "(no static files)" saStaticFiles]
   liftIO (Server.runServer env' serverArgs)

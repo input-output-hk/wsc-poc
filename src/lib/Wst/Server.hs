@@ -6,6 +6,7 @@
 module Wst.Server(
   runServer,
   ServerArgs(..),
+  CombinedAPI,
   defaultServerArgs
   ) where
 
@@ -18,10 +19,12 @@ import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Convex.CoinSelection qualified
 import Data.Data (Proxy (..))
 import Network.Wai.Handler.Warp qualified as Warp
+import Network.Wai.Middleware.Cors
 import PlutusTx.Prelude qualified as P
 import Servant (Server, ServerT)
-import Servant.API (NoContent (..), (:<|>) (..))
+import Servant.API (NoContent (..), Raw, (:<|>) (..))
 import Servant.Server (hoistServer, serve)
+import Servant.Server.StaticFiles (serveDirectoryWebApp)
 import SmartTokens.Types.PTokenDirectory (blnKey)
 import Wst.App (WstApp, runWstAppServant)
 import Wst.AppError (AppError)
@@ -34,6 +37,12 @@ import Wst.Server.Types (APIInEra, AddToBlacklistArgs (..), BuildTxAPI,
                          SeizeAssetsArgs (..), SerialiseAddress (..),
                          TextEnvelopeJSON (..),
                          TransferProgrammableTokenArgs (..))
+
+-- | Rest API combined with a Raw endpoint
+--   for static files
+type CombinedAPI =
+  APIInEra
+  :<|> Raw
 
 data ServerArgs =
   ServerArgs
@@ -50,8 +59,10 @@ defaultServerArgs =
     }
 
 runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env) => env -> ServerArgs -> IO ()
-runServer env ServerArgs{saPort} = do
-  let app  = serve (Proxy @APIInEra) (server env)
+runServer env ServerArgs{saPort, saStaticFiles} = do
+  let app  = cors (const $ Just simpleCorsResourcePolicy) $ case saStaticFiles of
+        Nothing -> serve (Proxy @APIInEra) (server env)
+        Just fp -> serve (Proxy @CombinedAPI) (server env :<|> serveDirectoryWebApp fp)
       port = saPort
   Warp.run port app
 
@@ -70,6 +81,7 @@ queryApi =
   :<|> queryBlacklistedNodes (Proxy @C.ConwayEra)
   :<|> queryUserFunds @C.ConwayEra @env (Proxy @C.ConwayEra)
   :<|> queryAllFunds @C.ConwayEra @env (Proxy @C.ConwayEra)
+  :<|> computeUserAddress (Proxy @C.ConwayEra)
 
 txApi :: forall env. (Env.HasDirectoryEnv env) => ServerT (BuildTxAPI C.ConwayEra) (WstApp env C.ConwayEra)
 txApi =
@@ -77,6 +89,24 @@ txApi =
   :<|> transferProgrammableTokenEndpoint @C.ConwayEra @env
   :<|> addToBlacklistEndpoint
   :<|> seizeAssetsEndpoint
+
+computeUserAddress :: forall era env m.
+  ( MonadReader env m
+  , Env.HasDirectoryEnv env
+  , C.IsShelleyBasedEra era
+  , MonadBlockchain era m
+  )
+  => Proxy era
+  -> SerialiseAddress (C.Address C.ShelleyAddr)
+  -> m (C.Address C.ShelleyAddr)
+computeUserAddress _ (SerialiseAddress addr) = do
+  let C.ShelleyAddress _ paymentCredential _stakeCredential  = addr
+  Env.programmableTokenReceivingAddress @era (C.fromShelleyPaymentCredential paymentCredential) >>= \case
+    C.AddressInEra (C.ShelleyAddressInEra _) addr_ -> pure addr_
+
+    -- This is impossible as we construct the address with makeShelleyAddressInEra
+    -- But the compiler doesn't realise that.
+    C.AddressInEra C.ByronAddressInAnyEra _ -> error "Unexpected byron address"
 
 queryBlacklistedNodes :: forall era env m.
   ( MonadUtxoQuery m

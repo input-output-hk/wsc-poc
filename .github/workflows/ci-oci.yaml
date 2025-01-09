@@ -6,8 +6,16 @@ name: "ci-oci"
 on:
   pull_request:
   push:
-    branches:
-      - main
+    tags:
+      - "v*"
+
+permissions:
+  packages: write
+
+env:
+  REGISTRY_USER: ${{ github.actor }}
+  REGISTRY_PASSWORD: ${{ github.token }}
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
 
 concurrency:
   group: "ci-oci-${{ github.ref }}"
@@ -15,8 +23,30 @@ concurrency:
 
 jobs:
   tests:
+    strategy:
+      matrix:
+        image: [wst, wst-poc-mock-server]
     runs-on: ubuntu-latest
     steps:
+
+    - name: Determine image tag for git tag
+      if: ${{ github.event_name == 'push' }}
+      run: |
+        IMAGE_TAG=$(git rev-parse --abbrev-ref "${{ github.event.push.ref }}")
+        echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+
+    - name: Determine image tag for PR
+      if: ${{ github.event_name == 'pull_request' }}
+      run: |
+        IMAGE_TAG=pr-${{ github.event.pull_request.number }}
+        echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+
+    - name: Log in to ghcr.io
+      uses: redhat-actions/podman-login@v1
+      with:
+        username: ${{ env.REGISTRY_USER }}
+        password: ${{ env.REGISTRY_PASSWORD }}
+        registry: ${{ env.IMAGE_REGISTRY }}
 
     - uses: actions/checkout@v4
 
@@ -44,7 +74,15 @@ jobs:
         # except the version with the `primary-key`, if it exists
         purge-primary-key: never
 
-    - run: nix build --accept-flake-config .#containers.x86_64-linux.wst.copyTo
-    - run: ./result/bin/copy-to oci-archive:oci.tar
-    - run: ls -alh oci.tar
+    # TODO: matrix build for two images (mock server and wst)
+    - name: Build image with nix
+      run: nix build --accept-flake-config .#containers.x86_64-linux.${{ matrix.image }}.copyTo
+    - name: Publish tagged image with podman
+      run: |
+        IMAGE_NAME=ghcr.io/${{github.repository_owner}}/${{ matrix.image }}:$IMAGE_TAG
+        ./result/bin/copy-to oci-archive:oci.tar
+        IMAGE_HASH=$(podman load --quiet -i oci.tar | sed 's/.*sha256://')
+        podman tag $IMAGE_HASH $IMAGE_NAME
+        podman push $IMAGE_NAME
+
 

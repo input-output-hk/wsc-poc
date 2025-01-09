@@ -112,7 +112,8 @@ alwaysSucceedsScript :: ScriptTarget -> C.PlutusScript C.PlutusScriptV3
 alwaysSucceedsScript target =
   C.PlutusScriptSerialised $ serialiseScript $ Scripts.tryCompile target palwaysSucceed
 
--- All the scripts below are essentially nonced permissioned validators
+-- All the scripts below are nonced permissioned validators
+
 permissionedMintingScript :: ScriptTarget -> C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
 permissionedMintingScript target cred =
   let script = Scripts.tryCompile target $ mkPermissionedMinting # pforgetData (pdata (pconstant "permissioned minting" :: ClosedTerm PByteString)) # pdata (pconstant $ transPubKeyHash cred)
@@ -132,7 +133,6 @@ blacklistSpendingScript :: ScriptTarget -> C.Hash C.PaymentKey -> C.PlutusScript
 blacklistSpendingScript target cred =
   let script = Scripts.tryCompile target $ mkPermissionedTransfer # pforgetData (pdata (pconstant "blacklist spending" :: ClosedTerm PByteString)) # pdata (pconstant $ transPubKeyHash cred)
   in C.PlutusScriptSerialised $ serialiseScript script
-
 
 -- Utilities
 scriptPolicyIdV3 :: C.PlutusScript C.PlutusScriptV3 -> C.PolicyId

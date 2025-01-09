@@ -327,4 +327,3 @@ nodeParamsFor = \case
 mockchainSucceedsWithTarget :: ScriptTarget -> ReaderT ScriptTarget (MockchainT C.ConwayEra IO) a -> Assertion
 mockchainSucceedsWithTarget target =
   mockchainSucceedsWith (nodeParamsFor target) . flip runReaderT target
-
