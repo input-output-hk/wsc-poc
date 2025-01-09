@@ -12,12 +12,18 @@ import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
 
 export default function Profile() {
-  const { setAlertStatus } = useStore();
+  const { currentUser, userA, userB, setAlertStatus } = useStore();
+
+  const getUserAccountDetails = () => {
+    switch (currentUser) {
+      case "User A": return userA;
+      case "User B": return userB;
+    };
+  };
 
   // temp state for each text field
   const [mintTokens, setMintTokens] = useState(36);
   const [recipientAddress, setRecipientAddress] = useState('addr_sdfah35gd808xxx');
-
 
   const onSend = () => {
     console.log('send tokens');
@@ -41,7 +47,7 @@ export default function Profile() {
 
   const receiveContent =  <Box>
     <CopyTextField 
-      value="addr_sdfah35gd808xxx"
+      value={getUserAccountDetails()?.address}
       fullWidth={true}
       label="Your Address"
       />
@@ -52,9 +58,9 @@ export default function Profile() {
     <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'end', marginBottom: '16px'}}>
         <Box>
           <Typography variant='h4'>Account Balance</Typography>
-          <Typography variant='h1'>3,478 WST</Typography>
+          <Typography variant='h1'>{getUserAccountDetails()?.balance} WST</Typography>
         </Box>
-        <Typography variant='h5'>UserID: xxxxxxx7850</Typography>
+        <Typography variant='h5'>{getUserAccountDetails()?.address.slice(0,15)}</Typography>
         </Box>
         <div className="cardWrapperParent">
           <WalletCard tabs={[

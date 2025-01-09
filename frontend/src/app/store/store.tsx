@@ -2,10 +2,12 @@
 import { create } from "zustand";
 
 //Local Imports
-import { UserName, MenuTab } from "./types";
+import { UserName, AccountInfo, MenuTab } from "./types";
 
 export type State = {
-  mintAccount: string;
+  mintAccount: AccountInfo;
+  userA: AccountInfo;
+  userB: AccountInfo;
   currentUser: UserName;
   selectedTab: MenuTab;
   alertOpen: boolean;
@@ -13,17 +15,57 @@ export type State = {
 };
 
 export type Actions = {
+  changeMintAccountDetails: (newAccountInfo: AccountInfo) => void;
+  changeWalletAAccountDetails: (newAccountInfo: AccountInfo) => void;
+  changeWalletBAccountDetails: (newAccountInfo: AccountInfo) => void;
   changeUserAccount: (newUser: UserName) => void;
   selectTab: (tab: MenuTab) => void;
   setAlertStatus: (status: boolean) => void;
 };
 
 const useStore = create<State & Actions>((set) => ({
-    mintAccount: 'addr_test1qpju2uhn72ur6j5alln6nz7dqcgcjal7xjaw7lwdjdaex4qhr3xpz63fjwvlpsnu8efnhfdja78d3vkv8ks6ac09g3usemu2yl',
+    mintAccount: {
+      keyAgent: undefined,
+      address: 'addr_test1qq986m3uel86pl674mkzneqtycyg7csrdgdxj6uf7v7kd857kquweuh5kmrj28zs8czrwkl692jm67vna2rf7xtafhpqk3hecm',
+      mnemonic: ['problem', 'alert', 'infant', 'glance', 'toss', 'gospel', 'tonight', 'sheriff', 'match', 'else', 'hover', 'upset', 'chicken', 'desert', 'anxiety', 'cliff', 'moment', 'song', 'large', 'seed', 'purpose', 'chalk', 'loan', 'onion'],
+      balance: 5
+    },
+    userA: {
+      keyAgent: undefined,
+      address: '',
+      mnemonic: [],
+      balance: 0,
+      status: 'Active',
+    },
+    userB: {
+      keyAgent: undefined,
+      address: '',
+      mnemonic: [],
+      balance: 0,
+      status: 'Active',
+    },
     currentUser: 'Mint Authority',
     selectedTab: 'Mint Actions',
     alertOpen: false,
     errorMessage: false,
+
+    changeMintAccountDetails: (newAccountInfo: AccountInfo) => {
+      set(() => {
+        return { mintAccount: newAccountInfo };
+      });
+    },
+
+    changeWalletAAccountDetails: (newAccountInfo: AccountInfo) => {
+      set(() => {
+        return { userA: newAccountInfo };
+      });
+    },
+    
+    changeWalletBAccountDetails: (newAccountInfo: AccountInfo) => {
+      set(() => {
+        return { userB: newAccountInfo };
+      });
+    },
 
     changeUserAccount: (newUser: UserName) => {
         let firstAccessibleTab: MenuTab;

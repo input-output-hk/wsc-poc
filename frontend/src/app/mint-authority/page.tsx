@@ -3,15 +3,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
-//Cardano-sdk imports
-import * as Crypto from '@cardano-sdk/crypto';
-import { AddressType, GroupedAddress, InMemoryKeyAgent } from '@cardano-sdk/key-management';
-import { Cardano } from '@cardano-sdk/core';
-import { dummyLogger } from 'ts-log';
-
-//Lucid imports
-// import { Lucid, Blockfrost } from "@lucid-evolution/lucid";
-
 //Mui imports
 import { Box, Typography } from '@mui/material';
 import Checkbox from '@mui/material/Checkbox';
@@ -34,47 +25,6 @@ export default function Home() {
   const [recipientAddress, setRecipientAddress] = useState('addr_sdfah35gd808xxx');
   const [accountNumber, setAccountNumber] = useState('addr_sdfah35gd808xxx');
   const [reason, setReason] = useState('Enter reason here');
-  const [keyAgent, setKeyAgent] = useState<InMemoryKeyAgent | null>(null);
-  const [walletInfo, setWalletInfo] = useState<GroupedAddress | null>(null);
-
-  const mnemonic = [
-    'problem', 'alert', 'infant', 'glance', 'toss', 'gospel', 'tonight', 'sheriff', 'match', 'else', 'hover', 'upset', 'chicken', 'desert', 'anxiety', 'cliff', 'moment', 'song', 'large', 'seed', 'purpose', 'chalk', 'loan', 'onion'
-  ];
-
-  // useEffect(() => {
-  //   const initalizeWallet = async () => {
-  //     const lucid = await Lucid(
-  //       new Blockfrost("https://cardano-preview.blockfrost.io/api/v0", "previewYl4KaKw8ZMiHP11GBXqpkBU15DHYwP0E"),
-  //       "Preview"
-  //     );
-  //     const seedPhrase = "problem alert infant glance toss gospel tonight sheriff match else hover upset chicken desert anxiety cliff moment song large seed purpose chalk loan onion";
-  //     lucid.selectWallet.fromSeed(seedPhrase);
-  //     const address = await lucid.wallet().address();
-  //         console.log('KeyAgent initialized:', address);
-  //   };
-  //   initalizeWallet();
-  // });
-  //Initialize the InMemoryKeyAgent
-  useEffect(() => {
-    const bip32Ed25519 = new Crypto.SodiumBip32Ed25519();
-    const initializeKeyAgent = async () => {
-      try {
-        const agent = await InMemoryKeyAgent.fromBip39MnemonicWords({
-          chainId: Cardano.ChainIds.Preview, 
-          getPassphrase: async () => Buffer.from(''),
-          mnemonicWords: mnemonic,         
-        }, { bip32Ed25519, logger: dummyLogger });
-        setKeyAgent(agent);
-        const address = await agent.deriveAddress({ index: 0, type: 0 }, 0);
-        setWalletInfo(address);
-        console.log('KeyAgent initialized:', agent);
-        console.log('Derived Address:', address);
-      } catch (error) {
-        console.error('Failed to initialize KeyAgent:', error);
-      }
-    };
-    initializeKeyAgent();
-  }, []);
 
   const handleAddressClearedChange = (event: { target: { checked: boolean | ((prevState: boolean) => boolean); }; }) => {
     setAddressCleared(event.target.checked);
@@ -189,7 +139,7 @@ maxRows={3}
 
   const receiveContent =  <Box>
     <CopyTextField 
-      value="addr_sdfah35gd808xxx"
+      value={mintAccount.address}
       fullWidth={true}
       label="Your Address"
       />
@@ -202,9 +152,9 @@ maxRows={3}
           <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'end', marginBottom: '16px'}}>
           <Box>
             <Typography variant='h4'>Mint Balance</Typography>
-            <Typography variant='h1'>1,000,000 WST</Typography>
+            <Typography variant='h1'>{mintAccount.balance} WST</Typography>
           </Box>
-          <Typography variant='h5'>UserID: xxxxxxx7850</Typography>
+          <Typography variant='h5'>UserID: {mintAccount.address.slice(0,15)}</Typography>
           </Box>
           <div className="cardWrapperParent">
             <WalletCard tabs={[
