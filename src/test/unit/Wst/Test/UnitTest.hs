@@ -28,7 +28,6 @@ import Convex.Wallet.Operator (signTxOperator)
 import Convex.Wallet.Operator qualified as Operator
 import Data.List (isPrefixOf)
 import Data.String (IsString (..))
-import Debug.Trace (traceM)
 import GHC.Exception (SomeException, throw)
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import Test.Tasty (TestTree, testGroup)
@@ -68,9 +67,8 @@ deployAll :: (MonadReader ScriptTarget m, MonadUtxoQuery m, MonadBlockchain C.Co
 deployAll = do
   target <- ask
   failOnError $ Env.withEnv $ asAdmin @C.ConwayEra $ do
-    (tx, scriptRoot) <- Endpoints.deployTxAll target
+    (tx, scriptRoot) <- Endpoints.deployFullTx target
     void $ sendTx $ signTxOperator admin tx
-    traceM $ show tx
     Env.withDirectoryFor scriptRoot $ do
       Query.registryNodes @C.ConwayEra
         >>= void . expectSingleton "registry output"
@@ -271,16 +269,12 @@ registerTransferScripts :: (MonadFail m, MonadReader env m, Env.HasDirectoryEnv 
 registerTransferScripts pkh = failOnError $ do
   transferMintingScript <- asks (Env.tleMintingScript . Env.transferLogicEnv)
   transferSpendingScript <- asks (Env.tleTransferScript . Env.transferLogicEnv)
-  transferGlobalScript <- asks (Env.dsProgrammableLogicGlobalScript . Env.directoryEnv)
   let
       hshMinting = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferMintingScript
       credMinting = C.StakeCredentialByScript hshMinting
 
       hshSpending = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferSpendingScript
       credSpending = C.StakeCredentialByScript hshSpending
-
-      hshGlobal = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferGlobalScript
-      credGlobal = C.StakeCredentialByScript hshGlobal
 
   txBody <- BuildTx.execBuildTxT $ do
     -- pp <- fmap C.unLedgerProtocolParameters queryProtocolParameters
@@ -289,7 +283,6 @@ registerTransferScripts pkh = failOnError $ do
 
     addConwayStakeCredentialCertificate credSpending
     addConwayStakeCredentialCertificate credMinting
-    addConwayStakeCredentialCertificate credGlobal
 
     BuildTx.addRequiredSignature pkh
 

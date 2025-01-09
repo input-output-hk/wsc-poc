@@ -15,6 +15,7 @@ import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain, MonadUtxoQuery)
+import Convex.CoinSelection qualified
 import Data.Data (Proxy (..))
 import Network.Wai.Handler.Warp qualified as Warp
 import PlutusTx.Prelude qualified as P
@@ -133,11 +134,13 @@ issueProgrammableTokenEndpoint :: forall era env m.
   )
   => IssueProgrammableTokenArgs -> m (TextEnvelopeJSON (C.Tx era))
 issueProgrammableTokenEndpoint IssueProgrammableTokenArgs{itaAssetName, itaQuantity, itaIssuer} = do
+  let C.ShelleyAddress _network cred _stake = itaIssuer
+      destinationCredential = C.fromShelleyPaymentCredential cred
   operatorEnv <- Env.loadOperatorEnvFromAddress itaIssuer
   dirEnv <- asks Env.directoryEnv
   logic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress itaIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer logic $ do
-    TextEnvelopeJSON <$> Endpoints.issueProgrammableTokenTx itaAssetName itaQuantity
+    TextEnvelopeJSON . fst <$> Endpoints.issueSmartTokensTx itaAssetName itaQuantity destinationCredential
 
 paymentCredentialFromAddress :: C.Address C.ShelleyAddr -> C.PaymentCredential
 paymentCredentialFromAddress = \case

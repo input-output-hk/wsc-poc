@@ -33,6 +33,12 @@
     plutarch = {
       url = "github:colll78/plutarch-plutus/b2379767c7f1c70acf28206bf922f128adc02f28";
     };
+    
+    # Must use a version compatible with the pinned `cardano-node` version.
+    # Check release notes of `cardano-node` version for correct `cardano-cli` version.
+    cardano-cli = {
+      url = "github:intersectmbo/cardano-cli?ref=cardano-cli-10.1.0.0";
+    };
   };
 
   outputs = inputs: inputs.iogx.lib.mkFlake {

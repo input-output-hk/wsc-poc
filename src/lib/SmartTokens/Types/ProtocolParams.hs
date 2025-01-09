@@ -2,7 +2,6 @@
 {-# LANGUAGE OverloadedStrings    #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-deferred-type-errors #-}
-{-# LANGUAGE InstanceSigs         #-}
 
 module SmartTokens.Types.ProtocolParams (
   ProgrammableLogicGlobalParams (..),

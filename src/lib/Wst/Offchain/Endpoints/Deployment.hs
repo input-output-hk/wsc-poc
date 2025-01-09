@@ -3,7 +3,7 @@
 -}
 module Wst.Offchain.Endpoints.Deployment(
   deployTx,
-  deployTxAll,
+  deployFullTx,
   deployBlacklistTx,
   insertNodeTx,
   issueProgrammableTokenTx,
@@ -49,14 +49,17 @@ deployTx target = do
   let root = DirectoryScriptRoot txi target
   (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectoryFor root
               $ Env.balanceTxEnv_
-              $ BuildTx.mintProtocolParams >> BuildTx.initDirectorySet
+              $ BuildTx.mintProtocolParams
+                >> BuildTx.initDirectorySet
+                >> BuildTx.registerProgrammableGlobalScript
   pure (Convex.CoinSelection.signBalancedTxBody [] tx, root)
 
-{-| Build a transaction that deploys the directory and global params. Returns the
+{-| Build a transaction that deploys the directory and global params as well as
+the relevant stablecoin transfer logic scripts and registrations. Returns the
 transaction and the 'TxIn' that was selected for the one-shot NFTs.
 -}
-deployTxAll :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => ScriptTarget -> m (C.Tx era, DirectoryScriptRoot)
-deployTxAll target = do
+deployFullTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => ScriptTarget -> m (C.Tx era, DirectoryScriptRoot)
+deployFullTx target = do
   (txi, _) <- Env.selectOperatorOutput
   opEnv <- asks Env.operatorEnv
   let root = DirectoryScriptRoot txi target
