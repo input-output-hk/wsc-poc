@@ -12,7 +12,6 @@ import ProfileSwitcher from './ProfileSwitcher';
 
 export default function WSTAppBar() {
   return (
-    <>
       <AppBar position="fixed" sx={{marginBottom: '20px', ml: `200px`, zIndex: 1201}}>
         <Toolbar disableGutters={true}>
             <Box sx={{display: 'flex', alignItems: 'center'}}>
@@ -27,6 +26,5 @@ export default function WSTAppBar() {
             <ProfileSwitcher />
         </Toolbar>
       </AppBar>
-    </>
   );
 };

@@ -1,5 +1,9 @@
+'use client'
 //React Imports
 import * as React from 'react';
+
+//Next.js Imports
+import { useRouter } from 'next/navigation';
 
 //MUI Imports
 import Chip from '@mui/material/Chip';
@@ -15,6 +19,7 @@ export default function ProfileSwitcher() {
   const [anchorEl, setAnchorEl] = React.useState<HTMLElement | null>(null);
   const currentUser = useStore(state => state.currentUser);
   const changeUserAccount = useStore(state => state.changeUserAccount);
+  const router = useRouter();
 
   const handleClick = (event: React.MouseEvent<HTMLDivElement>) => {
     setAnchorEl(event.currentTarget as HTMLElement);
@@ -26,6 +31,15 @@ export default function ProfileSwitcher() {
 
   const handleSelect = (user: UserName) => {
     changeUserAccount(user);
+
+    // Determine the URL
+    const newUrl =
+    user === 'Mint Authority'
+      ? '/mint-authority'
+      : `/${user.toLowerCase().replace(/\s+/g, '-')}`;
+
+    router.push(newUrl);
+
     handleClose();
   };
 
