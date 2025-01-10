@@ -22,8 +22,8 @@ export default function Profile() {
   };
 
   // temp state for each text field
-  const [mintTokens, setMintTokens] = useState(36);
-  const [recipientAddress, setRecipientAddress] = useState('addr_sdfah35gd808xxx');
+  const [mintTokens, setMintTokens] = useState(0);
+  const [recipientAddress, setRecipientAddress] = useState('address');
 
   const onSend = () => {
     console.log('send tokens');
@@ -32,12 +32,14 @@ export default function Profile() {
   
   const sendContent =  <Box>
   <WSTTextField 
+      placeholder='0.0000'
       value={mintTokens}
       onChange={(e) => setMintTokens(Number(e.target.value))}
       label="Number of Tokens to Send"
       fullWidth={true}
   />
   <WSTTextField 
+      placeholder="address"
       value={recipientAddress}
       onChange={(e) => setRecipientAddress(e.target.value)}
       label="Recipient’s Address"

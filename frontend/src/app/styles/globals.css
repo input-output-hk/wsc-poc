@@ -48,4 +48,38 @@ a {
   height: 100%;
 }
 
+  /* App loader styles */
+.mainLoadingContainer {
+  font-size: 50px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh; 
+}
+
+.mainLoader {
+  border: .15em solid currentcolor;
+  border-radius: 50%;
+  animation: mainLoader 1.5s ease-out infinite;
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  color: #3952CD;
+  vertical-align: middle;
+  pointer-events: none;
+}
+
+@keyframes mainLoader {
+    0% {
+        transform: scale(0);
+        opacity: 0;
+    }
+    50% {
+        opacity: 1;
+    }
+    100% {
+        transform: scale(1);
+        opacity: 0;
+    }
+}
 

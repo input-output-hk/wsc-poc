@@ -21,6 +21,19 @@ export default function ProfileSwitcher() {
   const changeUserAccount = useStore(state => state.changeUserAccount);
   const router = useRouter();
 
+  React.useEffect(() => {
+    // Check the current path and redirect if the currentUser doesn't match
+    const expectedPath =
+      currentUser === 'Mint Authority'
+        ? '/mint-authority'
+        : `/${currentUser.toLowerCase().replace(/\s+/g, '-')}`;
+    const currentPath = window.location.pathname;
+
+    if (currentPath !== expectedPath) {
+      router.push(expectedPath);
+    }
+  }, [currentUser, router]);
+
   const handleClick = (event: React.MouseEvent<HTMLDivElement>) => {
     setAnchorEl(event.currentTarget as HTMLElement);
   };
@@ -31,7 +44,6 @@ export default function ProfileSwitcher() {
 
   const handleSelect = (user: UserName) => {
     changeUserAccount(user);
-
     // Determine the URL
     const newUrl =
     user === 'Mint Authority'
@@ -39,7 +51,6 @@ export default function ProfileSwitcher() {
       : `/${user.toLowerCase().replace(/\s+/g, '-')}`;
 
     router.push(newUrl);
-
     handleClose();
   };
 

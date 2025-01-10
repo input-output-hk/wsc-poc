@@ -47,6 +47,12 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         fetchKeyAgent();
       },[]);
 
+  if(userB.address === '') {
+    return <div className="mainLoadingContainer">
+    <div className="mainLoader" />
+  </div>;
+  };
+
   return (
     <AppRouterCacheProvider>
       <ThemeModeProvider>
