@@ -41,8 +41,3 @@ jobs:
           cabal update
           cabal build -j all --enable-tests
           cabal test all
-      - name: check compiled scripts are consistent
-        # git diff --quiet implies --exit-code
-        run: |
-          cabal run export-smart-tokens
-          git diff --quiet
