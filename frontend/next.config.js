@@ -1,7 +1,12 @@
+const pkg = require('next')
 const TsconfigPathsPlugin = require('tsconfig-paths-webpack-plugin');
+
 
   /** @type {import('next').NextConfig} */
 const nextConfig = {
+  serverExternalPackages: [
+    "@lucid-evolution/lucid",
+  ],
   async headers() {
     return [
       {
@@ -45,6 +50,16 @@ const nextConfig = {
       }),
     ];
 
+    config.experiments = {
+      ...config.experiments,
+      asyncWebAssembly: true, // Enable async WebAssembly
+      topLevelAwait: true,
+      layers: true
+    };
+    if (!isServer) {
+      config.output.environment = { ...config.output.environment, asyncFunction: true };
+    }
+
     // Add fallback and resolve configurations for browser compatibility
     config.resolve = {
       ...config.resolve,
@@ -69,14 +84,13 @@ const nextConfig = {
         child_process: false,
       },
     };
-
-    config.experiments = {
-      ...config.experiments,
-      asyncWebAssembly: true, // Enable async WebAssembly
-    };
-
+    
     return config;
   },
+  env:{
+    API_KEY: process.env.BLOCKFROST_KEY,
+    NETWORK: process.env.NETWORK
+  }
 };
 
 module.exports = nextConfig;

@@ -15,11 +15,12 @@ import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
 import WSTTable from '../components/WSTTable';
 import AlertBar from '../components/AlertBar';
+import { Lucid } from "@lucid-evolution/lucid";
 
 export default function Home() {
   const { mintAccount, selectedTab, errorMessage, setAlertStatus } = useStore();
   const [addressCleared, setAddressCleared] = useState(false);
-
+  const [lucid, setLucid] = useState<typeof Lucid>();
   // Temporary state for each text field
   const [mintTokens, setMintTokens] = useState(36);
   const [recipientAddress, setRecipientAddress] = useState('addr_sdfah35gd808xxx');
@@ -33,7 +34,7 @@ export default function Home() {
   const onMint = async () => {
     const requestData = {
       asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
-      issuer: mintAccount,
+      issuer: mintAccount.address,
       quantity: mintTokens,
     };
 

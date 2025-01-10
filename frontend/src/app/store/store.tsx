@@ -3,21 +3,26 @@ import { create } from "zustand";
 
 //Local Imports
 import { UserName, AccountInfo, MenuTab } from "./types";
+import { Lucid, LucidEvolution } from "@lucid-evolution/lucid";
+import { makeLucid } from "../utils/walletUtils";
 
 export type State = {
   mintAccount: AccountInfo;
   userA: AccountInfo;
   userB: AccountInfo;
+  walletUser: AccountInfo;
   currentUser: UserName;
   selectedTab: MenuTab;
   alertOpen: boolean;
   errorMessage: boolean;
+  lucid: LucidEvolution;
 };
 
 export type Actions = {
   changeMintAccountDetails: (newAccountInfo: AccountInfo) => void;
   changeWalletAAccountDetails: (newAccountInfo: AccountInfo) => void;
   changeWalletBAccountDetails: (newAccountInfo: AccountInfo) => void;
+  //changeToLaceWallet: () => void; 
   changeUserAccount: (newUser: UserName) => void;
   selectTab: (tab: MenuTab) => void;
   setAlertStatus: (status: boolean) => void;
@@ -44,10 +49,19 @@ const useStore = create<State & Actions>((set) => ({
       balance: 0,
       status: 'Active',
     },
+    walletUser:
+    {
+      keyAgent: undefined,
+      address: '',
+      mnemonic: [],
+      balance: 0,
+      status: 'Active',
+    },
     currentUser: 'Mint Authority',
     selectedTab: 'Mint Actions',
     alertOpen: false,
     errorMessage: false,
+    lucid: {} as LucidEvolution,
 
     changeMintAccountDetails: (newAccountInfo: AccountInfo) => {
       set(() => {
@@ -67,6 +81,19 @@ const useStore = create<State & Actions>((set) => ({
       });
     },
 
+    // changeToLaceWallet: async () => {
+    //   const userInfo = {
+    //     keyAgent: undefined,
+    //     address: '',
+    //     mnemonic: [],
+    //     balance: 0,
+    //     status: 'Active',
+    //   }
+    //   set(() => {
+    //    return { walletUser: userInfo }
+    //   });
+    // },
+
     changeUserAccount: (newUser: UserName) => {
         let firstAccessibleTab: MenuTab;
         switch (newUser) {
@@ -81,7 +108,7 @@ const useStore = create<State & Actions>((set) => ({
             firstAccessibleTab = 'Mint Actions';
         }
         set({ currentUser: newUser, selectedTab: firstAccessibleTab });
-      },
+    },
 
     selectTab: (tab: MenuTab) => {
         set({ selectedTab: tab });
@@ -91,5 +118,9 @@ const useStore = create<State & Actions>((set) => ({
         set({ alertOpen: status });
     },
 }));
+
+makeLucid("Preview").then((lucid) => {
+  useStore.setState({ lucid });
+});
 
 export default useStore;

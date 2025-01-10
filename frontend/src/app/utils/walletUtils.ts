@@ -3,7 +3,11 @@ import { Cardano } from '@cardano-sdk/core';
 import { dummyLogger } from 'ts-log';
 import * as Crypto from '@cardano-sdk/crypto';
 import * as bip39 from 'bip39';
-
+import {
+  Blockfrost,
+  Lucid,
+  LucidEvolution,
+} from "@lucid-evolution/lucid";
 
 export async function initializeMintWallet(mnemonic: string[]) {
   const bip32Ed25519 = new Crypto.SodiumBip32Ed25519();
@@ -57,3 +61,38 @@ export async function createNewWallet() {
       throw error; 
     }
   }
+
+export type Network = "Mainnet" | "Preprod" | "Preview" | "Custom";
+
+export const NETWORK = (process.env.NETWORK as Network) || "Preview";
+
+export async function makeLucid(network: Network) {
+        const API_KEY = "previewzwnjcGmHgYLFmLppEWCrmbhapNtCq4H7";
+
+        if (!API_KEY) {
+            throw new Error(
+                "Missing required environment variables for Blockfrost context.",
+            );
+        }
+
+        if (network === "Custom") {
+            throw new Error(
+                "Cannot create Blockfrost context with 'Custom' network.",
+            );
+        }
+
+        // https://cardano-preprod.blockfrost.io/api/v0/
+        let blockfrostURL = "https://cardano-" + network.toLowerCase() + ".blockfrost.io/api/v0/";
+        const blockfrost = new Blockfrost(blockfrostURL, API_KEY);
+
+        const lucid = await Lucid(blockfrost, network);
+
+        return lucid;
+}
+
+export type WalletType = "Lace" | "Eternl" | "Nami" | "Yoroi";
+
+export const selectWallet = async (lucid : LucidEvolution, wallet : WalletType) => {
+  const api = (await window.cardano[wallet.toLowerCase()].enable());
+  lucid.selectWallet.fromAPI(api);
+}
