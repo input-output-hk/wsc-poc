@@ -61,7 +61,7 @@ data UTxODat era a =
 
 -- | Aeson options for the UTxODat type. Used to derive JSON instances and ToSchema
 utxoDatOptions :: JSON.Options
-utxoDatOptions = JSON.customJsonOptions 2
+utxoDatOptions = JSON.customJsonOptions 1
 
 instance (C.IsCardanoEra era, ToJSON a) => ToJSON (UTxODat era a) where
   toJSON = JSON.genericToJSON utxoDatOptions

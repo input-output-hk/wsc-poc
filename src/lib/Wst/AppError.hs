@@ -5,6 +5,7 @@ module Wst.AppError(
 ) where
 
 import Blockfrost.Client.Core (BlockfrostError)
+import Convex.Class (ValidationError)
 import Convex.CoinSelection qualified as CoinSelection
 import PlutusLedgerApi.Data.V3 (Credential)
 
@@ -14,4 +15,5 @@ data AppError era =
   | BalancingError (CoinSelection.BalanceTxError era)
   | BlockfrostErr BlockfrostError
   | TransferBlacklistedCredential Credential -- ^ Attempting to transfer funds from a blacklisted address
+  | SubmitError (ValidationError era)
   deriving stock (Show)
