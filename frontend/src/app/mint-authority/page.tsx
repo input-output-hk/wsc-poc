@@ -1,6 +1,6 @@
 'use client';
 //React imports
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import axios from 'axios';
 
 //Mui imports
@@ -10,6 +10,7 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 
 //Local components
 import useStore from '../store/store'; 
+import { signTX } from '../utils/walletUtils';
 import WalletCard from '../components/Card';
 import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
@@ -33,7 +34,7 @@ export default function Home() {
   const onMint = async () => {
     const requestData = {
       asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
-      issuer: mintAccount,
+      issuer: mintAccount.address,
       quantity: mintTokens,
     };
 
@@ -47,6 +48,7 @@ export default function Home() {
           },
         }
       );
+      signTX(response.data.cborHex, mintAccount.keyAgent);
       console.log('Mint response:', response.data);
     } catch (error) {
       console.error('Minting failed:', error);
