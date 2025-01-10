@@ -179,20 +179,20 @@
             },
             "UTxODat_ConwayEra_ProgrammableLogicGlobalParams": {
                 "properties": {
-                    "atum": {
+                    "datum": {
                         "$ref": "#/components/schemas/ProgrammableLogicGlobalParams"
                     },
-                    "n": {
+                    "in": {
                         "$ref": "#/components/schemas/TxIn"
                     },
-                    "ut": {
+                    "out": {
                         "$ref": "#/components/schemas/TxOut"
                     }
                 },
                 "required": [
-                    "n",
-                    "ut",
-                    "atum"
+                    "in",
+                    "out",
+                    "datum"
                 ],
                 "type": "object"
             },
