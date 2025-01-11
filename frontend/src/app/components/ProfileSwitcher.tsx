@@ -14,10 +14,15 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 //Local Imports
 import useStore from '../store/store'; 
 import { UserName } from '../store/types';
+import { selectLucidWallet } from '../utils/walletUtils';
 
 export default function ProfileSwitcher() {
   const [anchorEl, setAnchorEl] = React.useState<HTMLElement | null>(null);
   const currentUser = useStore(state => state.currentUser);
+  const mintAuthority = useStore(state => state.mintAccount);
+  const walletUser = useStore(state => state.walletUser);
+  const changeToLaceWallet = useStore(state => state.changeToLaceWallet);
+  const lucid = useStore(state => state.lucid);
   const changeUserAccount = useStore(state => state.changeUserAccount);
   const router = useRouter();
 
@@ -44,6 +49,10 @@ export default function ProfileSwitcher() {
 
   const handleSelect = (user: UserName) => {
     changeUserAccount(user);
+    if (user === 'Mint Authority') {
+      const seedPhrase = mintAuthority.mnemonic.join(' ');
+      lucid.selectWallet.fromSeed(seedPhrase);
+    }
     // Determine the URL
     const newUrl =
     user === 'Mint Authority'
@@ -51,6 +60,26 @@ export default function ProfileSwitcher() {
       : `/${user.toLowerCase().replace(/\s+/g, '-')}`;
 
     router.push(newUrl);
+    handleClose();
+  };
+
+  
+  const handleWalletConnect = async () => {
+    changeUserAccount('Connected Wallet');
+    await selectLucidWallet(lucid, "Lace")
+    const userAddress = await lucid.wallet().address();
+    changeToLaceWallet({
+      ...walletUser,
+      address: userAddress,
+    });
+    const newUrl = userAddress === mintAuthority.address ? '/mint-authority' : '/wallet';
+    // Determine the URL
+    // const newUrl =
+    // user === 'Mint Authority'
+    //   ? '/mint-authority'
+    //   : `/${user.toLowerCase().replace(/\s+/g, '-')}`;
+
+    // router.push(newUrl);
     handleClose();
   };
 
@@ -71,6 +100,7 @@ export default function ProfileSwitcher() {
         <MenuItem onClick={() => handleSelect('Mint Authority')}>Mint Authority</MenuItem>
         <MenuItem onClick={() => handleSelect('User A')}>User A</MenuItem>
         <MenuItem onClick={() => handleSelect('User B')}>User B</MenuItem>
+        <MenuItem onClick={() => handleWalletConnect()}>Lace</MenuItem>
       </Menu>
     </>
   );

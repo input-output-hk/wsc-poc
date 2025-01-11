@@ -18,9 +18,8 @@ import AlertBar from '../components/AlertBar';
 import { Lucid } from "@lucid-evolution/lucid";
 
 export default function Home() {
-  const { mintAccount, selectedTab, errorMessage, setAlertStatus } = useStore();
+  const { lucid, mintAccount, selectedTab, errorMessage, setAlertStatus } = useStore();
   const [addressCleared, setAddressCleared] = useState(false);
-  const [lucid, setLucid] = useState<typeof Lucid>();
   // Temporary state for each text field
   const [mintTokens, setMintTokens] = useState(36);
   const [recipientAddress, setRecipientAddress] = useState('addr_sdfah35gd808xxx');
@@ -49,6 +48,9 @@ export default function Home() {
         }
       );
       console.log('Mint response:', response.data);
+      const tx = await lucid.fromTx(response.data.cborHex);
+      const signed = await tx.sign.withWallet().complete();
+      const txId = await signed.submit();
     } catch (error) {
       console.error('Minting failed:', error);
     }

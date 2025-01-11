@@ -22,7 +22,7 @@ export type Actions = {
   changeMintAccountDetails: (newAccountInfo: AccountInfo) => void;
   changeWalletAAccountDetails: (newAccountInfo: AccountInfo) => void;
   changeWalletBAccountDetails: (newAccountInfo: AccountInfo) => void;
-  //changeToLaceWallet: () => void; 
+  changeToLaceWallet: (newAccountInfo: AccountInfo) => void;
   changeUserAccount: (newUser: UserName) => void;
   selectTab: (tab: MenuTab) => void;
   setAlertStatus: (status: boolean) => void;
@@ -81,18 +81,11 @@ const useStore = create<State & Actions>((set) => ({
       });
     },
 
-    // changeToLaceWallet: async () => {
-    //   const userInfo = {
-    //     keyAgent: undefined,
-    //     address: '',
-    //     mnemonic: [],
-    //     balance: 0,
-    //     status: 'Active',
-    //   }
-    //   set(() => {
-    //    return { walletUser: userInfo }
-    //   });
-    // },
+    changeToLaceWallet: (newAccountInfo: AccountInfo) => {
+      set(() => {
+       return { walletUser: newAccountInfo }
+      });
+    },
 
     changeUserAccount: (newUser: UserName) => {
         let firstAccessibleTab: MenuTab;
@@ -104,6 +97,12 @@ const useStore = create<State & Actions>((set) => ({
           case 'User B':
             firstAccessibleTab = 'Wallet'; 
             break;
+          case 'Connected Wallet':
+            if (useStore.getState().walletUser.address === useStore.getState().mintAccount.address)
+              firstAccessibleTab = 'Mint Actions';
+            else
+              firstAccessibleTab = 'Wallet';
+            break
           default:
             firstAccessibleTab = 'Mint Actions';
         }
@@ -117,7 +116,8 @@ const useStore = create<State & Actions>((set) => ({
     setAlertStatus: (status: boolean) => {
         set({ alertOpen: status });
     },
-}));
+}));  
+
 
 makeLucid("Preview").then((lucid) => {
   useStore.setState({ lucid });

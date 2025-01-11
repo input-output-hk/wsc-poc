@@ -92,7 +92,7 @@ export async function makeLucid(network: Network) {
 
 export type WalletType = "Lace" | "Eternl" | "Nami" | "Yoroi";
 
-export const selectWallet = async (lucid : LucidEvolution, wallet : WalletType) => {
+export async function selectLucidWallet(lucid : LucidEvolution, wallet : WalletType) {
   const api = (await window.cardano[wallet.toLowerCase()].enable());
   lucid.selectWallet.fromAPI(api);
 }
