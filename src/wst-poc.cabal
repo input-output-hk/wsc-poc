@@ -182,11 +182,10 @@ test-suite wst-poc-test
     Wst.Test.UnitTest
 
   build-depends:
-    , base                    >=4.14.0
+    , base                   >=4.14.0
     , cardano-api
     , cardano-ledger-api
     , cardano-ledger-core
-    , cardano-ledger-shelley
     , convex-base
     , convex-coin-selection
     , convex-mockchain

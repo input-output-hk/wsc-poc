@@ -13,7 +13,6 @@ module Wst.Server(
 import Cardano.Api.Shelley qualified as C
 import Control.Lens qualified as L
 import Control.Monad.Error.Class (MonadError (throwError))
-import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain (sendTx), MonadUtxoQuery)

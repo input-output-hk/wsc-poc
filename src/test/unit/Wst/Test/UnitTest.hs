@@ -7,11 +7,9 @@ import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Plutus.ExUnits (ExUnits (..))
-import Cardano.Ledger.Shelley.TxCert qualified as TxCert
 import Control.Lens ((%~), (&), (^.))
 import Control.Monad (void)
 import Control.Monad.Reader (MonadReader (ask), ReaderT (runReaderT), asks)
-import Convex.BuildTx (MonadBuildTx, addCertificate)
 import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain (queryProtocolParameters, sendTx),
                      MonadMockchain, MonadUtxoQuery)
@@ -265,7 +263,7 @@ registerAlwaysSucceedsStakingCert = failOnError $ do
   void (tryBalanceAndSubmit mempty Wallet.w1 txBody TrailingChange [])
 
 -- TODO: registration to be moved to the endpoints
-registerTransferScripts :: (MonadFail m, MonadReader env m, Env.HasDirectoryEnv env, Env.HasTransferLogicEnv env, MonadMockchain C.ConwayEra m) => C.Hash C.PaymentKey -> m C.TxId
+registerTransferScripts :: (MonadFail m, MonadReader env m, Env.HasTransferLogicEnv env, MonadMockchain C.ConwayEra m) => C.Hash C.PaymentKey -> m C.TxId
 registerTransferScripts pkh = failOnError $ do
   transferMintingScript <- asks (Env.tleMintingScript . Env.transferLogicEnv)
   transferSpendingScript <- asks (Env.tleTransferScript . Env.transferLogicEnv)

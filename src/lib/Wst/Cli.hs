@@ -7,16 +7,13 @@ module Wst.Cli(runMain) where
 import Blammo.Logging.Simple (Message ((:#)), MonadLogger, logDebug, logError,
                               logInfo, runLoggerLoggingT, (.=))
 import Cardano.Api qualified as C
-import Control.Monad.Except (ExceptT (..), MonadError, liftEither, throwError)
+import Control.Monad.Except (MonadError, liftEither)
 import Control.Monad.IO.Class (MonadIO (..))
-import Control.Monad.Reader (MonadReader, ask, asks)
-import Convex.Blockfrost (evalBlockfrostT, runBlockfrostT)
-import Convex.Blockfrost.MonadBlockchain (sendTxBlockfrost)
+import Control.Monad.Reader (MonadReader, asks)
 import Convex.Class (MonadBlockchain (sendTx), MonadUtxoQuery)
 import Convex.Wallet.Operator (Operator (Operator, oPaymentKey),
                                OperatorConfigSigning,
-                               PaymentExtendedKey (PESigningEx),
-                               operatorPaymentCredential, signTxOperator,
+                               PaymentExtendedKey (PESigningEx), signTxOperator,
                                verificationKey)
 import Convex.Wallet.Operator qualified as Operator
 import Data.Functor.Identity (Identity)
@@ -31,7 +28,6 @@ import Wst.AppError (AppError)
 import Wst.Cli.Command (Command (..), ManageCommand (StartServer, Status),
                         parseCommand)
 import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
-import Wst.Offchain.Env (addOperatorEnv)
 import Wst.Offchain.Env qualified as Env
 import Wst.Server (ServerArgs (..))
 import Wst.Server qualified as Server

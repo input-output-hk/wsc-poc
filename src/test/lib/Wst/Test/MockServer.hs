@@ -10,9 +10,10 @@ import Control.Monad.IO.Class (MonadIO (..))
 import Data.Proxy (Proxy (..))
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors
-import Servant (Server)
+import Servant (Server, throwError)
 import Servant.API (NoContent (..), (:<|>) (..))
 import Servant.Server (serve)
+import Servant.Server qualified as Server
 import Test.Gen.Cardano.Api.Typed qualified as Gen
 import Test.QuickCheck qualified as QC
 import Test.QuickCheck.Gen qualified as Gen
@@ -39,10 +40,12 @@ genTx = liftIO $ fmap TextEnvelopeJSON $ QC.generate $ hedgehog $ Gen.genTx C.sh
 
 mockTxApi :: Server (BuildTxAPI C.ConwayEra)
 mockTxApi =
-  const genTx
+  (const genTx
   :<|> const genTx
   :<|> const genTx
-  :<|> const genTx
+  :<|> const genTx)
+  :<|> const (throwError Server.err501)
+  :<|> const (throwError Server.err501)
 
 -- | Start the mock server
 runMockServer :: IO ()
