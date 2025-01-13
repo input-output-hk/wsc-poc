@@ -50,7 +50,7 @@ export default function ProfileSwitcher() {
   const handleSelect = (user: UserName) => {
     changeUserAccount(user);
     if (user === 'Mint Authority') {
-      const seedPhrase = mintAuthority.mnemonic.join(' ');
+      const seedPhrase = mintAuthority.mnemonic;
       lucid.selectWallet.fromSeed(seedPhrase);
     }
     // Determine the URL
@@ -65,15 +65,15 @@ export default function ProfileSwitcher() {
 
   
   const handleWalletConnect = async () => {
-    changeUserAccount('Connected Wallet');
-    await selectLucidWallet(lucid, "Lace")
-    const userAddress = await lucid.wallet().address();
-    changeToLaceWallet({
-      ...walletUser,
-      address: userAddress,
-    });
-    const newUrl = userAddress === mintAuthority.address ? '/mint-authority' : '/wallet';
-    // Determine the URL
+    // changeUserAccount('Connected Wallet');
+    // await selectLucidWallet(lucid, "Lace")
+    // const userAddress = await lucid.wallet().address();
+    // changeToLaceWallet({
+    //   ...walletUser,
+    //   address: userAddress,
+    // });
+    // const newUrl = userAddress === mintAuthority.address ? '/mint-authority' : '/wallet';
+    // // Determine the URL
     // const newUrl =
     // user === 'Mint Authority'
     //   ? '/mint-authority'

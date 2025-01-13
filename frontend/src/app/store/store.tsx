@@ -3,8 +3,8 @@ import { create } from "zustand";
 
 //Local Imports
 import { UserName, AccountInfo, MenuTab } from "./types";
-import { Lucid, LucidEvolution } from "@lucid-evolution/lucid";
-import { makeLucid } from "../utils/walletUtils";
+import { LucidEvolution } from "@lucid-evolution/lucid";
+// import { makeLucid } from "../utils/walletUtils";
 
 export type State = {
   mintAccount: AccountInfo;
@@ -26,34 +26,31 @@ export type Actions = {
   changeUserAccount: (newUser: UserName) => void;
   selectTab: (tab: MenuTab) => void;
   setAlertStatus: (status: boolean) => void;
+  setLucidInstance: (lucid: LucidEvolution) => void;
 };
 
 const useStore = create<State & Actions>((set) => ({
     mintAccount: {
-      keyAgent: undefined,
       address: 'addr_test1qq986m3uel86pl674mkzneqtycyg7csrdgdxj6uf7v7kd857kquweuh5kmrj28zs8czrwkl692jm67vna2rf7xtafhpqk3hecm',
-      mnemonic: ['problem', 'alert', 'infant', 'glance', 'toss', 'gospel', 'tonight', 'sheriff', 'match', 'else', 'hover', 'upset', 'chicken', 'desert', 'anxiety', 'cliff', 'moment', 'song', 'large', 'seed', 'purpose', 'chalk', 'loan', 'onion'],
+      mnemonic: 'problem alert infant glance toss gospel tonight sheriff match else hover upset chicken desert anxiety cliff moment song large seed purpose chalk loan onion',
       balance: 5
     },
     userA: {
-      keyAgent: undefined,
       address: '',
-      mnemonic: [],
+      mnemonic: 'during dolphin crop lend pizza guilt hen earn easy direct inhale deputy detect season army inject exhaust apple hard front bubble emotion short portion',
       balance: 0,
       status: 'Active',
     },
     userB: {
-      keyAgent: undefined,
       address: '',
-      mnemonic: [],
+      mnemonic: 'tooth benefit wish capable stock inner motor cover diamond crash work amount foot help shell glad friend front degree pudding inflict filter twice resource',
       balance: 0,
       status: 'Active',
     },
     walletUser:
     {
-      keyAgent: undefined,
       address: '',
-      mnemonic: [],
+      mnemonic: '',
       balance: 0,
       status: 'Active',
     },
@@ -116,11 +113,10 @@ const useStore = create<State & Actions>((set) => ({
     setAlertStatus: (status: boolean) => {
         set({ alertOpen: status });
     },
+
+    setLucidInstance: async (lucid) => {
+      set({ lucid: lucid });
+    }
 }));  
-
-
-makeLucid("Preview").then((lucid) => {
-  useStore.setState({ lucid });
-});
 
 export default useStore;

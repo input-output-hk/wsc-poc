@@ -9,7 +9,7 @@ import NavDrawer from './components/NavDrawer';
 //Local file
 import { ThemeModeProvider } from "./styles/themeContext";
 import "./styles/globals.css";
-import { initializeMintWallet, createNewWallet } from "./utils/walletUtils";
+import { getWalletFromSeed } from "./utils/walletUtils";
 import useStore from './store/store'; 
 import WSTAppBar from "./components/WSTAppBar";
 
@@ -17,26 +17,17 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     const { mintAccount, userA, userB, changeMintAccountDetails, changeWalletAAccountDetails, changeWalletBAccountDetails } = useStore();
 
     useEffect(() => {
-        const fetchKeyAgent = async () => {
+        const fetchUserWallets = async () => {
           try {
-            const agent = await initializeMintWallet(mintAccount.mnemonic);
-            const walletA = await createNewWallet();
-            const walletB = await createNewWallet();
+            // retrieve wallet info
+            const mintAuthorityWallet = await getWalletFromSeed(mintAccount.mnemonic);
+            const walletA = await getWalletFromSeed(userA.mnemonic);
+            const walletB = await getWalletFromSeed(userB.mnemonic);
     
             // Update Zustand store with the initialized wallet information
-            changeMintAccountDetails({ ...mintAccount, keyAgent: agent });
-            changeWalletAAccountDetails({
-                ...userA,
-                keyAgent: walletA.agent,
-                address: walletA.address,
-                mnemonic: walletA.mnemonic,
-            });
-            changeWalletBAccountDetails({
-                ...userB,
-                keyAgent: walletB.agent,
-                address: walletB.address,
-                mnemonic: walletB.mnemonic,
-            });
+            changeMintAccountDetails({ ...mintAccount, address: mintAuthorityWallet.address});
+            changeWalletAAccountDetails({ ...userA, address: walletA.address});
+            changeWalletBAccountDetails({ ...userB, address: walletB.address,});
     
             console.log('Wallets initialized');
           } catch (error) {
@@ -44,7 +35,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
           }
         };
     
-        fetchKeyAgent();
+        fetchUserWallets();
       },[]);
 
   if(userB.address === '') {

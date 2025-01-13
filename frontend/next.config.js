@@ -1,4 +1,3 @@
-const pkg = require('next')
 const TsconfigPathsPlugin = require('tsconfig-paths-webpack-plugin');
 
 
@@ -87,10 +86,6 @@ const nextConfig = {
     
     return config;
   },
-  env:{
-    API_KEY: process.env.BLOCKFROST_KEY,
-    NETWORK: process.env.NETWORK
-  }
 };
 
 module.exports = nextConfig;

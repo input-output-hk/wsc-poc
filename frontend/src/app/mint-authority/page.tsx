@@ -15,7 +15,6 @@ import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
 import WSTTable from '../components/WSTTable';
 import AlertBar from '../components/AlertBar';
-import { Lucid } from "@lucid-evolution/lucid";
 
 export default function Home() {
   const { lucid, mintAccount, selectedTab, errorMessage, setAlertStatus } = useStore();
@@ -48,9 +47,10 @@ export default function Home() {
         }
       );
       console.log('Mint response:', response.data);
-      const tx = await lucid.fromTx(response.data.cborHex);
-      const signed = await tx.sign.withWallet().complete();
-      const txId = await signed.submit();
+      // const tx = await lucid.fromTx(response.data.cborHex);
+      // const signed = await tx.sign.withWallet().complete();
+      // const txId = await signed.submit();
+      // await lucid.awaitTx(txId);
     } catch (error) {
       console.error('Minting failed:', error);
     }
