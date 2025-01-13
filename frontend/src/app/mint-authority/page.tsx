@@ -15,6 +15,7 @@ import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
 import WSTTable from '../components/WSTTable';
 import AlertBar from '../components/AlertBar';
+import { CML } from '@lucid-evolution/lucid';
 
 export default function Home() {
   const { lucid, mintAccount, selectedTab, errorMessage, setAlertStatus } = useStore();
@@ -46,11 +47,18 @@ export default function Home() {
           },
         }
       );
-      console.log('Mint response:', response.data);
-      // const tx = await lucid.fromTx(response.data.cborHex);
-      // const signed = await tx.sign.withWallet().complete();
-      // const txId = await signed.submit();
-      // await lucid.awaitTx(txId);
+      console.log('Request sent:', response.data, lucid.config().costModels!);
+      lucid.selectWallet.fromSeed(mintAccount.mnemonic);
+      const tx = await lucid.fromTx(response.data.cborHex);
+      const signedTx = await tx.sign.withWallet().complete();
+      CML.calc_script_data_hash_from_witness(
+        signedTx.toTransaction().witness_set(),
+        lucid.config().costModels!
+      );
+      console.log("Script Integrity Hash:" );
+      const txId = await signedTx.submit();
+      const finalTx = await lucid.awaitTx(txId);
+      console.log('Transaction submitted', txId, finalTx);
     } catch (error) {
       console.error('Minting failed:', error);
     }

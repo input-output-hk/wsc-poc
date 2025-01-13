@@ -5,22 +5,22 @@ import {
   walletFromSeed,
 } from "@lucid-evolution/lucid";
 
-// export async function makeLucid() {
-//         const API_KEY = process.env.NEXT_PUBLIC_BLOCKFROST_API_KEY;
+export async function makeLucid() {
+        const API_KEY = process.env.NEXT_PUBLIC_BLOCKFROST_API_KEY;
 
-//         if (!API_KEY) {
-//             throw new Error(
-//                 "Missing required environment variables for Blockfrost context.",
-//             );
-//         }
+        if (!API_KEY) {
+            throw new Error(
+                "Missing required environment variables for Blockfrost context.",
+            );
+        }
 
-//         let blockfrostURL = "https://cardano-preview.blockfrost.io/api/v0";
-//         const blockfrost = new Blockfrost(blockfrostURL, API_KEY);
+        let blockfrostURL = "https://cardano-preview.blockfrost.io/api/v0";
+        const blockfrost = new Blockfrost(blockfrostURL, API_KEY);
 
-//         const lucid = await Lucid(blockfrost, "Preview");
+        const lucid = await Lucid(blockfrost, "Preview");
 
-//         return lucid;
-// }
+        return lucid;
+}
 
 export async function getWalletFromSeed(mnemonic: string) {
   try {

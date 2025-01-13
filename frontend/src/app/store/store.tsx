@@ -4,7 +4,6 @@ import { create } from "zustand";
 //Local Imports
 import { UserName, AccountInfo, MenuTab } from "./types";
 import { LucidEvolution } from "@lucid-evolution/lucid";
-// import { makeLucid } from "../utils/walletUtils";
 
 export type State = {
   mintAccount: AccountInfo;
@@ -114,7 +113,7 @@ const useStore = create<State & Actions>((set) => ({
         set({ alertOpen: status });
     },
 
-    setLucidInstance: async (lucid) => {
+    setLucidInstance: (lucid) => {
       set({ lucid: lucid });
     }
 }));  

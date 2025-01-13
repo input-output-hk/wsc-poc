@@ -9,12 +9,12 @@ import NavDrawer from './components/NavDrawer';
 //Local file
 import { ThemeModeProvider } from "./styles/themeContext";
 import "./styles/globals.css";
-import { getWalletFromSeed } from "./utils/walletUtils";
+import { makeLucid, getWalletFromSeed } from "./utils/walletUtils";
 import useStore from './store/store'; 
 import WSTAppBar from "./components/WSTAppBar";
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
-    const { mintAccount, userA, userB, changeMintAccountDetails, changeWalletAAccountDetails, changeWalletBAccountDetails } = useStore();
+    const { mintAccount, userA, userB, lucid, changeMintAccountDetails, changeWalletAAccountDetails, changeWalletBAccountDetails, setLucidInstance } = useStore();
 
     useEffect(() => {
         const fetchUserWallets = async () => {
@@ -29,6 +29,8 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             changeWalletAAccountDetails({ ...userA, address: walletA.address});
             changeWalletBAccountDetails({ ...userB, address: walletB.address,});
     
+            const initialLucid = await makeLucid();
+            setLucidInstance(initialLucid);
             console.log('Wallets initialized');
           } catch (error) {
             console.error('Error initializing KeyAgent:', error);
