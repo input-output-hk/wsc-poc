@@ -195,14 +195,6 @@ test-suite wst-poc-test
     , tasty-hunit
     , wst-poc
 
-executable wst-poc-mock-server
-  import:         lang
-  main-is:        Main.hs
-  hs-source-dirs: exe/wst-poc-mock-server
-  build-depends:
-    , base
-    , wst-poc:test-lib
-
 executable write-openapi-schema
   import:         lang
   main-is:        Main.hs
