@@ -121,6 +121,7 @@ const useStore = create<State & Actions>((set) => ({
 
 makeLucid("Preview").then((lucid) => {
   useStore.setState({ lucid });
+  lucid.selectWallet.fromSeed(useStore.getState().mintAccount.mnemonic.join(' '));
 });
 
 export default useStore;

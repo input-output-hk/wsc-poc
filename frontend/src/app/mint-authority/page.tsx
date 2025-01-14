@@ -37,8 +37,6 @@ export default function Home() {
       issuer: mintAccount.address,
       quantity: mintTokens,
     };
-    let cmlSignedTx;
-    let cmlTx;
     try {
       const response = await axios.post(
         '/api/v1/tx/programmable-token/issue', 
@@ -51,19 +49,16 @@ export default function Home() {
       );
       console.log('Mint response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
-      const tx_2 = await lucid.fromTx(response.data.cborHex);
-      const signedTx_2 = await makeTxSignBuilder(lucid.wallet(), tx_2.toTransaction()).sign.withWallet().complete();
-      cmlTx = tx.toTransaction()
-      const witnessSet = signedTx_2.toTransaction().witness_set()
+      const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
+      const cmlTx = txBuilder.toTransaction()
+      const witnessSet = txBuilder.toTransaction().witness_set()
       const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
-      //const expectedScriptDataHashFromWitness = CML.calc_script_data_hash_from_witness(witnessSet, lucid.config().costModels!);
       console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
       const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());
       console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
       cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash!);
       console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
       const cmlClonedTx = CML.Transaction.new(cmlTxBodyClone, cmlTx!.witness_set(), true, cmlTx!.auxiliary_data());
-    
       const cmlClonedSignedTx = await makeTxSignBuilder(lucid.wallet(), cmlClonedTx).sign.withWallet().complete();
 
       const txId = await cmlClonedSignedTx.submit();
