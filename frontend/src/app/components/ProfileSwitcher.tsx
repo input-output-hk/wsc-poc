@@ -19,7 +19,6 @@ import { selectLucidWallet } from '../utils/walletUtils';
 export default function ProfileSwitcher() {
   const [anchorEl, setAnchorEl] = React.useState<HTMLElement | null>(null);
   const currentUser = useStore(state => state.currentUser);
-  const mintAuthority = useStore(state => state.mintAccount);
   const walletUser = useStore(state => state.walletUser);
   const changeToLaceWallet = useStore(state => state.changeToLaceWallet);
   const lucid = useStore(state => state.lucid);
@@ -61,14 +60,13 @@ export default function ProfileSwitcher() {
   };
 
   
-  const handleWalletConnect = (user: UserName) => {
-    
-    //selectLucidWallet(lucid, "Lace");
-    // const userAddress = await lucid.wallet().address();
-    // changeToLaceWallet({
-    //   ...walletUser,
-    //   address: userAddress,
-    // });
+  const handleWalletConnect = async (user: UserName) => {
+    await selectLucidWallet(lucid, "Lace");
+    const userAddress = await lucid.wallet().address();
+    changeToLaceWallet({
+      ...walletUser,
+      address: userAddress,
+    });
     handleSelect(user);
   };
 

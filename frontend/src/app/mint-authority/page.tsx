@@ -53,8 +53,8 @@ export default function Home() {
       console.log('Mint response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
-      const cmlTx = txBuilder.toTransaction()
-      const witnessSet = txBuilder.toTransaction().witness_set()
+      const cmlTx = txBuilder.toTransaction();
+      const witnessSet = txBuilder.toTransaction().witness_set();
       const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
       console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
       const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());

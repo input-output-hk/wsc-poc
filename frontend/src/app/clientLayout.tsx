@@ -14,7 +14,7 @@ import useStore from './store/store';
 import WSTAppBar from "./components/WSTAppBar";
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
-    const { mintAccount, userA, userB, lucid, changeMintAccountDetails, changeWalletAAccountDetails, changeWalletBAccountDetails, setLucidInstance } = useStore();
+    const { mintAccount, userA, userB, changeMintAccountDetails, changeWalletAAccountDetails, changeWalletBAccountDetails, setLucidInstance } = useStore();
 
     useEffect(() => {
         const fetchUserWallets = async () => {
