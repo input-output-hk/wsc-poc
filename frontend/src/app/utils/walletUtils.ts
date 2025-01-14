@@ -5,8 +5,10 @@ import * as Crypto from '@cardano-sdk/crypto';
 import * as bip39 from 'bip39';
 import {
   Blockfrost,
+  CML,
   Lucid,
   LucidEvolution,
+  TxSigned,
 } from "@lucid-evolution/lucid";
 
 export async function initializeMintWallet(mnemonic: string[]) {
@@ -95,4 +97,22 @@ export type WalletType = "Lace" | "Eternl" | "Nami" | "Yoroi";
 export async function selectLucidWallet(lucid : LucidEvolution, wallet : WalletType) {
   const api = (await window.cardano[wallet.toLowerCase()].enable());
   lucid.selectWallet.fromAPI(api);
+}
+
+export function setScriptDataHash(tx: CML.Transaction, newScriptDataHash: CML.ScriptDataHash) : CML.Transaction {
+  const txBodyClone = CML.TransactionBody.from_cbor_hex(tx.body().to_cbor_hex());
+  txBodyClone.set_script_data_hash(newScriptDataHash);
+  const clonedTx = CML.Transaction.new(txBodyClone, tx.witness_set(), true, tx.auxiliary_data());
+  tx.free();
+  return clonedTx;
+}
+
+export function adjustScriptDataHash(tx: TxSigned, costModel: CML.CostModels) : CML.Transaction {
+  const cmlTx = tx.toTransaction();
+  const witnessSet = cmlTx.witness_set()
+  const plutusDatumsI = witnessSet.plutus_datums()
+  const plutusDatums : CML.PlutusDataList = (plutusDatumsI !== undefined) ? plutusDatumsI : CML.PlutusDataList.new();
+  const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, plutusDatums, costModel, witnessSet.languages());
+  const fixedTx = setScriptDataHash(cmlTx, expectedScriptDataHash!);
+  return fixedTx
 }

@@ -15,15 +15,16 @@ import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
 import WSTTable from '../components/WSTTable';
 import AlertBar from '../components/AlertBar';
-import { Lucid } from "@lucid-evolution/lucid";
+import { CML, getAddressDetails, Lucid, makeSubmit, makeTxSignBuilder, TransactionWitnesses, TxSigned } from "@lucid-evolution/lucid";
+import { Transaction } from '@cardano-sdk/core/dist/cjs/Serialization';
 
 export default function Home() {
   const { lucid, mintAccount, selectedTab, errorMessage, setAlertStatus } = useStore();
   const [addressCleared, setAddressCleared] = useState(false);
   // Temporary state for each text field
   const [mintTokens, setMintTokens] = useState(36);
-  const [recipientAddress, setRecipientAddress] = useState('addr_sdfah35gd808xxx');
-  const [accountNumber, setAccountNumber] = useState('addr_sdfah35gd808xxx');
+  const [recipientAddress, setRecipientAddress] = useState('addr_test1qpynxme7c0tcmmvgk2tjuv63aw7zk9tk6yqkaqd48ulhkyl5f6v47dp5rc7286z5f57339d0c79khw4y3lwxzm8ywkzsvudp69');
+  const [accountNumber, setAccountNumber] = useState('addr_test1qpynxme7c0tcmmvgk2tjuv63aw7zk9tk6yqkaqd48ulhkyl5f6v47dp5rc7286z5f57339d0c79khw4y3lwxzm8ywkzsvudp69');
   const [reason, setReason] = useState('Enter reason here');
 
   const handleAddressClearedChange = (event: { target: { checked: boolean | ((prevState: boolean) => boolean); }; }) => {
@@ -36,7 +37,8 @@ export default function Home() {
       issuer: mintAccount.address,
       quantity: mintTokens,
     };
-
+    let cmlSignedTx;
+    let cmlTx;
     try {
       const response = await axios.post(
         '/api/v1/tx/programmable-token/issue', 
@@ -49,9 +51,24 @@ export default function Home() {
       );
       console.log('Mint response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
-      const signed = await tx.sign.withWallet().complete();
-      const txId = await signed.submit();
-    } catch (error) {
+      const tx_2 = await lucid.fromTx(response.data.cborHex);
+      const signedTx_2 = await makeTxSignBuilder(lucid.wallet(), tx_2.toTransaction()).sign.withWallet().complete();
+      cmlTx = tx.toTransaction()
+      const witnessSet = signedTx_2.toTransaction().witness_set()
+      const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
+      //const expectedScriptDataHashFromWitness = CML.calc_script_data_hash_from_witness(witnessSet, lucid.config().costModels!);
+      console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
+      const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());
+      console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
+      cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash!);
+      console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
+      const cmlClonedTx = CML.Transaction.new(cmlTxBodyClone, cmlTx!.witness_set(), true, cmlTx!.auxiliary_data());
+    
+      const cmlClonedSignedTx = await makeTxSignBuilder(lucid.wallet(), cmlClonedTx).sign.withWallet().complete();
+
+      const txId = await cmlClonedSignedTx.submit();
+      await lucid.awaitTx(txId);
+    } catch (error : any) {
       console.error('Minting failed:', error);
     }
   };
