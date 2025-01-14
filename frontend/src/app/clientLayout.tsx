@@ -9,7 +9,7 @@ import NavDrawer from './components/NavDrawer';
 //Local file
 import { ThemeModeProvider } from "./styles/themeContext";
 import "./styles/globals.css";
-import { makeLucid, getWalletFromSeed } from "./utils/walletUtils";
+import { makeLucid, getWalletFromSeed, getWalletBalance } from "./utils/walletUtils";
 import useStore from './store/store'; 
 import WSTAppBar from "./components/WSTAppBar";
 
@@ -24,8 +24,9 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             const walletA = await getWalletFromSeed(userA.mnemonic);
             const walletB = await getWalletFromSeed(userB.mnemonic);
     
+            const mintStartBalance = await getWalletBalance(mintAuthorityWallet.address);
             // Update Zustand store with the initialized wallet information
-            changeMintAccountDetails({ ...mintAccount, address: mintAuthorityWallet.address});
+            changeMintAccountDetails({ ...mintAccount, address: mintAuthorityWallet.address, balance: mintStartBalance});
             changeWalletAAccountDetails({ ...userA, address: walletA.address});
             changeWalletBAccountDetails({ ...userB, address: walletB.address,});
     
@@ -33,7 +34,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             setLucidInstance(initialLucid);
             console.log('Wallets initialized');
           } catch (error) {
-            console.error('Error initializing KeyAgent:', error);
+            console.error('Error initializing wallets:', error);
           }
         };
     

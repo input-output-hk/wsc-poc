@@ -14,7 +14,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 //Local Imports
 import useStore from '../store/store'; 
 import { UserName } from '../store/types';
-import { selectLucidWallet } from '../utils/walletUtils';
+import { selectLucidWallet, getWalletBalance } from '../utils/walletUtils';
 
 export default function ProfileSwitcher() {
   const [anchorEl, setAnchorEl] = React.useState<HTMLElement | null>(null);
@@ -63,9 +63,11 @@ export default function ProfileSwitcher() {
   const handleWalletConnect = async (user: UserName) => {
     await selectLucidWallet(lucid, "Lace");
     const userAddress = await lucid.wallet().address();
+    const userBalance = await getWalletBalance(userAddress);
     changeToLaceWallet({
       ...walletUser,
       address: userAddress,
+      balance: userBalance,
     });
     handleSelect(user);
   };

@@ -32,7 +32,7 @@ const useStore = create<State & Actions>((set) => ({
     mintAccount: {
       address: 'addr_test1qq986m3uel86pl674mkzneqtycyg7csrdgdxj6uf7v7kd857kquweuh5kmrj28zs8czrwkl692jm67vna2rf7xtafhpqk3hecm',
       mnemonic: 'problem alert infant glance toss gospel tonight sheriff match else hover upset chicken desert anxiety cliff moment song large seed purpose chalk loan onion',
-      balance: 5
+      balance: 0,
     },
     userA: {
       address: '',
