@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 //Lucis imports
-import { Blockfrost, CML, Lucid, LucidEvolution, TxSigned, walletFromSeed } from "@lucid-evolution/lucid";
+import { Assets, Blockfrost, CML, Lucid, LucidEvolution, makeTxSignBuilder, TxBuilder, TxSignBuilder, TxSigned, walletFromSeed } from "@lucid-evolution/lucid";
 
 export async function makeLucid() {
         const API_KEY = process.env.NEXT_PUBLIC_BLOCKFROST_API_KEY;
@@ -55,22 +55,20 @@ export async function getWalletBalance(address: string){
   }
 }
 
-export function setScriptDataHash(tx: CML.Transaction, newScriptDataHash: CML.ScriptDataHash) : CML.Transaction {
-  const txBodyClone = CML.TransactionBody.from_cbor_hex(tx.body().to_cbor_hex());
-  txBodyClone.set_script_data_hash(newScriptDataHash);
-  const clonedTx = CML.Transaction.new(txBodyClone, tx.witness_set(), true, tx.auxiliary_data());
-  tx.free();
-  return clonedTx;
-}
-
-export function adjustScriptDataHash(tx: TxSigned, costModel: CML.CostModels) : CML.Transaction {
-  const cmlTx = tx.toTransaction();
-  const witnessSet = cmlTx.witness_set()
-  const plutusDatumsI = witnessSet.plutus_datums()
-  const plutusDatums : CML.PlutusDataList = (plutusDatumsI !== undefined) ? plutusDatumsI : CML.PlutusDataList.new();
-  const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, plutusDatums, costModel, witnessSet.languages());
-  const fixedTx = setScriptDataHash(cmlTx, expectedScriptDataHash!);
-  return fixedTx
+export async function signAndSentTx(lucid: LucidEvolution, tx: TxSignBuilder) {
+  const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
+  const cmlTx = txBuilder.toTransaction();
+  const witnessSet = txBuilder.toTransaction().witness_set();
+  const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
+  console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
+  const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());
+  console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
+  cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash!);
+  console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
+  const cmlClonedTx = CML.Transaction.new(cmlTxBodyClone, cmlTx!.witness_set(), true, cmlTx!.auxiliary_data());
+  const cmlClonedSignedTx = await makeTxSignBuilder(lucid.wallet(), cmlClonedTx).sign.withWallet().complete();
+  const txId = await cmlClonedSignedTx.submit();
+  await lucid.awaitTx(txId);
 }
 
 export type WalletType = "Lace" | "Eternl" | "Nami" | "Yoroi";

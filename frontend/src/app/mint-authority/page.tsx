@@ -10,9 +10,6 @@ import { Box, Typography } from '@mui/material';
 import Checkbox from '@mui/material/Checkbox';
 import FormControlLabel from '@mui/material/FormControlLabel';
 
-//Lucid imports
-import { CML, makeTxSignBuilder } from "@lucid-evolution/lucid";
-
 //Local components
 import useStore from '../store/store'; 
 import WalletCard from '../components/Card';
@@ -20,25 +17,31 @@ import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
 import WSTTable from '../components/WSTTable';
 import AlertBar from '../components/AlertBar';
+import { getWalletBalance, signAndSentTx } from '../utils/walletUtils';
 
 export default function Home() {
   const { lucid, mintAccount, selectedTab, errorMessage, setAlertStatus } = useStore();
   const [addressCleared, setAddressCleared] = useState(false);
   // Temporary state for each text field
-  const [mintTokens, setMintTokens] = useState(36);
-  const [recipientAddress, setRecipientAddress] = useState('addr_test1qpynxme7c0tcmmvgk2tjuv63aw7zk9tk6yqkaqd48ulhkyl5f6v47dp5rc7286z5f57339d0c79khw4y3lwxzm8ywkzsvudp69');
-  const [accountNumber, setAccountNumber] = useState('addr_test1qpynxme7c0tcmmvgk2tjuv63aw7zk9tk6yqkaqd48ulhkyl5f6v47dp5rc7286z5f57339d0c79khw4y3lwxzm8ywkzsvudp69');
-  const [reason, setReason] = useState('Enter reason here');
+  const [mintTokensAmount, setMintTokens] = useState(0);
+  const [sendTokensAmount, setSendTokens] = useState(0);
+  const [mintRecipientAddress, setMintRecipientAddress] = useState('mint recipient address');
+  const [sendRecipientAddress, setsendRecipientAddress] = useState('send recipient address');
+  const [freezeAccountNumber, setFreezeAccountNumber] = useState('account to freeze');
+  const [freezeReason, setFreezeReason] = useState('Enter reason here');
+  const [seizeAccountNumber, setSeizeAccountNumber] = useState('account to seize');
+  const [seizeReason, setSeizeReason] = useState('Enter reason here');
 
   const handleAddressClearedChange = (event: { target: { checked: boolean | ((prevState: boolean) => boolean); }; }) => {
     setAddressCleared(event.target.checked);
   };
 
   const onMint = async () => {
+    lucid.selectWallet.fromSeed(mintAccount.mnemonic);
     const requestData = {
       asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
       issuer: mintAccount.address,
-      quantity: mintTokens,
+      quantity: mintTokensAmount,
     };
 
     try {
@@ -51,25 +54,41 @@ export default function Home() {
           },
         }
       );
-      lucid.selectWallet.fromSeed(mintAccount.mnemonic);
       console.log('Mint response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
-      const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
-      const cmlTx = txBuilder.toTransaction();
-      const witnessSet = txBuilder.toTransaction().witness_set();
-      const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
-      console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
-      const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());
-      console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
-      cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash!);
-      console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
-      const cmlClonedTx = CML.Transaction.new(cmlTxBodyClone, cmlTx!.witness_set(), true, cmlTx!.auxiliary_data());
-      const cmlClonedSignedTx = await makeTxSignBuilder(lucid.wallet(), cmlClonedTx).sign.withWallet().complete();
-
-      const txId = await cmlClonedSignedTx.submit();
-      await lucid.awaitTx(txId);
+      await signAndSentTx(lucid, tx);
     } catch (error) {
       console.error('Minting failed:', error);
+    }
+  };
+
+  const onSend = async () => {
+    lucid.selectWallet.fromSeed(mintAccount.mnemonic);
+    console.log('send tokens');
+    const requestData = {
+      asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
+      issuer: mintAccount.address,
+      quantity: sendTokensAmount,
+      recipient: sendRecipientAddress,
+      sender: mintAccount.address,
+    };
+    try {
+      const response = await axios.post(
+        '/api/v1/tx/programmable-token/transfer', 
+        requestData, 
+        {
+          headers: {
+            'Content-Type': 'application/json;charset=utf-8', 
+          },
+        }
+      );
+      console.log('Send response:', response.data);
+      const tx = await lucid.fromTx(response.data.cborHex);
+      await signAndSentTx(lucid, tx);
+      const mintStartBalance = await getWalletBalance(sendRecipientAddress);
+      setAlertStatus(true);
+    } catch (error) {
+      console.error('Send failed:', error);
     }
   };
 
@@ -81,22 +100,17 @@ export default function Home() {
     console.log('freeze an account');
   };
 
-  const onSend = () => {
-    console.log('send tokens');
-    setAlertStatus(true);
-  };
-
   const mintContent =  <Box>
   <WSTTextField 
-      value={mintTokens}
+      value={mintTokensAmount}
       onChange={(e) => setMintTokens(Number(e.target.value))}
       label="Number of Tokens to Mint"
       fullWidth={true}
   />
   <WSTTextField 
-      value={recipientAddress}
-      onChange={(e) => setRecipientAddress(e.target.value)}
-      label="Recipient’s Address"
+      value={mintRecipientAddress}
+      onChange={(e) => setMintRecipientAddress(e.target.value)}
+      label="Mint Recipient’s Address"
       fullWidth={true}
   />
     <FormControlLabel
@@ -108,14 +122,14 @@ export default function Home() {
 
   const freezeContent =  <Box>
   <WSTTextField 
-  value={accountNumber}
-  onChange={(e) => setAccountNumber(e.target.value)}
+  value={freezeAccountNumber}
+  onChange={(e) => setFreezeAccountNumber(e.target.value)}
   label="Account Number"
   fullWidth={true}
   />
   <WSTTextField 
-  value={reason}
-  onChange={(e) => setReason(e.target.value)}
+  value={freezeReason}
+  onChange={(e) => setFreezeReason(e.target.value)}
   label="Reason"
   fullWidth={true}
   multiline={true}
@@ -126,14 +140,14 @@ export default function Home() {
 
 const seizeContent =  <Box>
 <WSTTextField 
-value={accountNumber}
-onChange={(e) => setAccountNumber(e.target.value)}
+value={seizeAccountNumber}
+onChange={(e) => setSeizeAccountNumber(e.target.value)}
 label="Account Number"
 fullWidth={true}
 />
 <WSTTextField 
-value={reason}
-onChange={(e) => setReason(e.target.value)}
+value={seizeReason}
+onChange={(e) => setSeizeReason(e.target.value)}
 label="Reason"
 fullWidth={true}
 multiline={true}
@@ -144,14 +158,14 @@ maxRows={3}
   
   const sendContent =  <Box>
   <WSTTextField 
-      value={mintTokens}
-      onChange={(e) => setMintTokens(Number(e.target.value))}
+      value={sendTokensAmount}
+      onChange={(e) => setSendTokens(Number(e.target.value))}
       label="Number of Tokens to Send"
       fullWidth={true}
   />
   <WSTTextField 
-      value={recipientAddress}
-      onChange={(e) => setRecipientAddress(e.target.value)}
+      value={sendRecipientAddress}
+      onChange={(e) => setsendRecipientAddress(e.target.value)}
       label="Recipient’s Address"
       fullWidth={true}
   />

@@ -24,7 +24,7 @@ export default function Profile() {
 
   // temp state for each text field
   const [mintTokens, setMintTokens] = useState(0);
-  const [recipientAddress, setRecipientAddress] = useState('address');
+  const [sendRecipientAddress, setsendRecipientAddress] = useState('address');
 
   const onSend = () => {
     console.log('send tokens');
@@ -41,8 +41,8 @@ export default function Profile() {
   />
   <WSTTextField 
       placeholder="address"
-      value={recipientAddress}
-      onChange={(e) => setRecipientAddress(e.target.value)}
+      value={sendRecipientAddress}
+      onChange={(e) => setsendRecipientAddress(e.target.value)}
       label="Recipient’s Address"
       fullWidth={true}
   />
@@ -50,7 +50,7 @@ export default function Profile() {
 
   const receiveContent =  <Box>
     <CopyTextField 
-      value={getUserAccountDetails()?.address}
+      value={getUserAccountDetails()?.address ?? ''}
       fullWidth={true}
       label="Your Address"
       />
