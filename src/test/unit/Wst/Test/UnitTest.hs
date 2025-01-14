@@ -275,9 +275,6 @@ registerTransferScripts pkh = failOnError $ do
       credSpending = C.StakeCredentialByScript hshSpending
 
   txBody <- BuildTx.execBuildTxT $ do
-    -- pp <- fmap C.unLedgerProtocolParameters queryProtocolParameters
-    -- BuildTx.addStakeScriptWitness credMinting transferMintingScript ()
-    -- BuildTx.addConwayStakeCredentialRegistrationCertificate credMinting (pp ^. Ledger.ppKeyDepositL)
 
     addConwayStakeCredentialCertificate credSpending
     addConwayStakeCredentialCertificate credMinting
