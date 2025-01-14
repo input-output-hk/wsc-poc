@@ -12,12 +12,13 @@ import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
 
 export default function Profile() {
-  const { currentUser, userA, userB, setAlertStatus } = useStore();
+  const { currentUser, userA, userB, walletUser, setAlertStatus } = useStore();
 
   const getUserAccountDetails = () => {
     switch (currentUser) {
       case "User A": return userA;
       case "User B": return userB;
+      case "Connected Wallet": return walletUser;
     };
   };
 

@@ -11,7 +11,7 @@ import Paper from "@mui/material/Paper";
 import useStore from '../store/store'; 
 
 export default function WSTTable() {
-  const { userA, userB, } = useStore();
+  const { userA, userB, walletUser } = useStore();
 
   return (
     <TableContainer component={Paper}>
@@ -46,6 +46,20 @@ export default function WSTTable() {
                 {`${userB?.balance} WST`}
             </TableCell>
         </TableRow>
+          {
+            walletUser.address &&
+            <TableRow>
+              <TableCell>
+                  {walletUser?.address.slice(0,15)}
+              </TableCell>
+              <TableCell sx={{color: userB?.status === 'Frozen' ? 'error.main' : 'success.main', fontWeight: '500'}}>
+                  {walletUser?.status}
+              </TableCell>
+              <TableCell align="right">
+                  {`${walletUser?.balance} WST`}
+              </TableCell>
+            </TableRow>
+          }
       </TableBody>    
     </Table>
     </TableContainer>
