@@ -143,7 +143,10 @@ executable export-smart-tokens
     , base
     , base16-bytestring
     , bytestring
+    , cardano-api
     , cardano-binary
+    , mtl
+    , optparse-applicative
     , plutarch
     , plutus-ledger-api
     , text
