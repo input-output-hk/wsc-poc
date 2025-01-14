@@ -1,5 +1,6 @@
-{-# LANGUAGE NamedFieldPuns   #-}
-{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE NamedFieldPuns    #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications  #-}
 
 {-| servant server for stablecoin POC
 -}
@@ -130,7 +131,8 @@ queryBlacklistedNodes _ (SerialiseAddress addr) = do
         . P.fromBuiltin
         . blnKey
         . uDatum
-  Env.withEnv $ Env.withTransfer transferLogic (fmap (fmap getHash) (Query.blacklistNodes @era))
+      nonHeadNodes (P.fromBuiltin . blnKey . uDatum -> hsh) = hsh /= ""
+  Env.withEnv $ Env.withTransfer transferLogic (fmap getHash . filter nonHeadNodes <$> (Query.blacklistNodes @era))
 
 txOutValue :: C.IsMaryBasedEra era => C.TxOut C.CtxUTxO era -> C.Value
 txOutValue = L.view (L._TxOut . L._2 . L._TxOutValue)

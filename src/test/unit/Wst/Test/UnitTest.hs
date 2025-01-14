@@ -86,11 +86,10 @@ deployDirectorySet = do
     pure scriptRoot
 
 insertDirectoryNode :: (MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => DirectoryScriptRoot -> m ()
-insertDirectoryNode scriptRoot = failOnError $ Env.withEnv $ do
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ do
-    Endpoints.insertNodeTx dummyNodeArgs >>= void . sendTx . signTxOperator admin
-    Query.registryNodes @C.ConwayEra
-      >>= void . expectN 2 "registry outputs"
+insertDirectoryNode scriptRoot = failOnError $ Env.withEnv $ asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ do
+  Endpoints.insertNodeTx dummyNodeArgs >>= void . sendTx . signTxOperator admin
+  Query.registryNodes @C.ConwayEra
+    >>= void . expectN 2 "registry outputs"
 
 {-| Issue some tokens with the "always succeeds" validator
 -}
@@ -190,9 +189,8 @@ blacklistTransfer = failOnError $ Env.withEnv $ do
 
   aid <- issueTransferLogicProgrammableToken scriptRoot
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
-    Endpoints.deployBlacklistTx
-      >>= void . sendTx . signTxOperator admin
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ Endpoints.deployBlacklistTx
+    >>= void . sendTx . signTxOperator admin
 
   opPkh <- asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
@@ -202,13 +200,11 @@ blacklistTransfer = failOnError $ Env.withEnv $ do
 
   transferLogic <- Env.withDirectoryFor scriptRoot $ Env.transferLogicForDirectory (C.verificationKeyHash . Operator.verificationKey . Operator.oPaymentKey $ admin)
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
-    Endpoints.blacklistCredentialTx userPaymentCred
-      >>= void . sendTx . signTxOperator admin
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ Endpoints.blacklistCredentialTx userPaymentCred
+    >>= void . sendTx . signTxOperator admin
 
-  asWallet Wallet.w2 $ Env.withDirectoryFor scriptRoot $ Env.withTransfer transferLogic $ do
-    Endpoints.transferSmartTokensTx aid 30 (C.PaymentCredentialByKey opPkh)
-      >>= void . sendTx . signTxOperator (user Wallet.w2)
+  asWallet Wallet.w2 $ Env.withDirectoryFor scriptRoot $ Env.withTransfer transferLogic $ Endpoints.transferSmartTokensTx aid 30 (C.PaymentCredentialByKey opPkh)
+    >>= void . sendTx . signTxOperator (user Wallet.w2)
 
 seizeUserOutput :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m ()
 seizeUserOutput scriptRoot = failOnError $ Env.withEnv $ do
@@ -217,9 +213,8 @@ seizeUserOutput scriptRoot = failOnError $ Env.withEnv $ do
 
   aid <- issueTransferLogicProgrammableToken scriptRoot
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
-    Endpoints.deployBlacklistTx
-      >>= void . sendTx . signTxOperator admin
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ Endpoints.deployBlacklistTx
+    >>= void . sendTx . signTxOperator admin
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
     Endpoints.transferSmartTokensTx aid 50 (C.PaymentCredentialByKey userPkh)
@@ -239,7 +234,6 @@ seizeUserOutput scriptRoot = failOnError $ Env.withEnv $ do
       >>= void . expectN 1 "user programmable outputs"
     Query.userProgrammableOutputs (C.PaymentCredentialByKey opPkh)
       >>= void . expectN 2 "user programmable outputs"
-
 
 dummyNodeArgs :: InsertNodeArgs
 dummyNodeArgs =
@@ -267,6 +261,8 @@ registerTransferScripts :: (MonadFail m, MonadReader env m, Env.HasTransferLogic
 registerTransferScripts pkh = failOnError $ do
   transferMintingScript <- asks (Env.tleMintingScript . Env.transferLogicEnv)
   transferSpendingScript <- asks (Env.tleTransferScript . Env.transferLogicEnv)
+  transferSeizeSpendingScript <- asks (Env.tleIssuerScript . Env.transferLogicEnv)
+
   let
       hshMinting = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferMintingScript
       credMinting = C.StakeCredentialByScript hshMinting
@@ -274,10 +270,15 @@ registerTransferScripts pkh = failOnError $ do
       hshSpending = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferSpendingScript
       credSpending = C.StakeCredentialByScript hshSpending
 
+      hshSeizeSpending = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferSeizeSpendingScript
+      credSeizeSpending = C.StakeCredentialByScript hshSeizeSpending
+
+
   txBody <- BuildTx.execBuildTxT $ do
 
     addConwayStakeCredentialCertificate credSpending
     addConwayStakeCredentialCertificate credMinting
+    addConwayStakeCredentialCertificate credSeizeSpending
 
     BuildTx.addRequiredSignature pkh
 

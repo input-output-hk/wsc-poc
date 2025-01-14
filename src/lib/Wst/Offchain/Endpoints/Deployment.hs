@@ -17,16 +17,17 @@ module Wst.Offchain.Endpoints.Deployment(
 import Cardano.Api (Quantity)
 import Cardano.Api.Shelley qualified as C
 import Control.Monad (when)
-import Control.Monad.Except (MonadError)
+import Control.Monad.Except (MonadError (..))
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Convex.CoinSelection qualified
 import Data.Foldable (maximumBy)
 import Data.Function (on)
+import GHC.IsList (IsList (..))
 import SmartTokens.Core.Scripts (ScriptTarget (..))
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
-import Wst.AppError (AppError)
+import Wst.AppError (AppError (NoTokensToSeize))
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (inaNewKey))
 import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
 import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
@@ -36,7 +37,6 @@ import Wst.Offchain.Env (DirectoryScriptRoot (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Query qualified as Query
-
 
 
 {-| Build a transaction that deploys the directory and global params. Returns the
@@ -216,7 +216,17 @@ seizeCredentialAssetsTx :: forall era env m.
 seizeCredentialAssetsTx sanctionedCred = do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   directory <- Query.registryNodes @era
-  seizeTxo <- head <$> Query.userProgrammableOutputs sanctionedCred
+  let getTxOutValue (C.TxOut _a v _d _r) = v
+      -- simple fold to choose the UTxO with the most total assets
+      nonAda v = foldl (\acc -> \case
+                    (C.AdaAssetId,  _) -> acc
+                    (_aid,  q) -> acc + q
+                  ) 0 $ toList v
+
+      getNonAdaTokens = nonAda . C.txOutValueToValue . getTxOutValue . uOut
+  seizeTxo <- maximumBy (compare `on` getNonAdaTokens) <$> Query.userProgrammableOutputs sanctionedCred
+  when (getNonAdaTokens seizeTxo == 0) $
+    throwError NoTokensToSeize
   paramsTxIn <- Query.globalParamsNode @era
   (tx, _) <- Env.balanceTxEnv_ $ do
     BuildTx.seizeSmartTokens paramsTxIn seizeTxo (C.PaymentCredentialByKey opPkh) directory

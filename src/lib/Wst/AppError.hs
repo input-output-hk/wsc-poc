@@ -14,6 +14,8 @@ data AppError era =
   | GlobalParamsNodeNotFound -- ^ The node with the global parameters was not found
   | BalancingError (CoinSelection.BalanceTxError era)
   | BlockfrostErr BlockfrostError
+  | NoTokensToSeize -- ^ No tokens to seize
+  | DuplicateBlacklistNode -- ^ Attempting to add a duplicate blacklist node
   | TransferBlacklistedCredential Credential -- ^ Attempting to transfer funds from a blacklisted address
   | SubmitError (ValidationError era)
   deriving stock (Show)
