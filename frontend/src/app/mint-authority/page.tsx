@@ -1,6 +1,6 @@
 'use client';
 //React imports
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 //Axios imports
 import axios from 'axios';
@@ -12,6 +12,7 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 
 //Local components
 import useStore from '../store/store'; 
+import { Accounts } from '../store/types';
 import WalletCard from '../components/Card';
 import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
@@ -20,7 +21,7 @@ import AlertBar from '../components/AlertBar';
 import { getWalletBalance, signAndSentTx } from '../utils/walletUtils';
 
 export default function Home() {
-  const { lucid, mintAccount, selectedTab, errorMessage, setAlertStatus } = useStore();
+  const { lucid, mintAccount, accounts, selectedTab, errorMessage, setAlertStatus, changeWalletAccountDetails } = useStore();
   const [addressCleared, setAddressCleared] = useState(false);
   // Temporary state for each text field
   const [mintTokensAmount, setMintTokens] = useState(0);
@@ -36,7 +37,17 @@ export default function Home() {
     setAddressCleared(event.target.checked);
   };
 
+  useEffect(() => {
+    useStore.getState();
+    console.log("accounts changed:", accounts, mintAccount);
+  }, [accounts, mintAccount]);
+
   const onMint = async () => {
+    if (addressCleared === false) {
+      // setAlertStatus(true);
+      console.error("Recipient Address not cleared.");
+      return;
+    }
     lucid.selectWallet.fromSeed(mintAccount.mnemonic);
     const requestData = {
       asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
@@ -85,7 +96,16 @@ export default function Home() {
       console.log('Send response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       await signAndSentTx(lucid, tx);
-      const mintStartBalance = await getWalletBalance(sendRecipientAddress);
+      const newAccountBalance = await getWalletBalance(sendRecipientAddress);
+      const recipientWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
+        (key) => accounts[key].address === sendRecipientAddress
+      );
+      if (recipientWalletKey) {
+        changeWalletAccountDetails(recipientWalletKey, {
+          ...accounts[recipientWalletKey],
+          balance: newAccountBalance,
+        });
+      }
       setAlertStatus(true);
     } catch (error) {
       console.error('Send failed:', error);

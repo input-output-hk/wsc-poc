@@ -11,7 +11,8 @@ import Paper from "@mui/material/Paper";
 import useStore from '../store/store'; 
 
 export default function WSTTable() {
-  const { userA, userB, walletUser } = useStore();
+  const { accounts } = useStore();
+  const accountArray = Object.values(accounts);
 
   return (
     <TableContainer component={Paper}>
@@ -24,42 +25,21 @@ export default function WSTTable() {
         </TableRow>
       </TableHead>
       <TableBody>
-        <TableRow>
-            <TableCell>
-                {userA?.address.slice(0,15)}
-            </TableCell>
-            <TableCell sx={{color: userA?.status === 'Frozen' ? 'error.main' : 'success.main', fontWeight: '500'}}>
-                {userA?.status}
-            </TableCell>
-            <TableCell align="right">
-                {`${userA?.balance} WST`}
-            </TableCell>
-        </TableRow>
-        <TableRow>
-            <TableCell>
-                {userB?.address.slice(0,15)}
-            </TableCell>
-            <TableCell sx={{color: userB?.status === 'Frozen' ? 'error.main' : 'success.main', fontWeight: '500'}}>
-                {userB?.status}
-            </TableCell>
-            <TableCell align="right">
-                {`${userB?.balance} WST`}
-            </TableCell>
-        </TableRow>
-          {
-            walletUser.address &&
-            <TableRow>
+        {
+          accountArray.filter((acct) => acct.address !== "").map((acct, i) => (
+            <TableRow key={i}>
               <TableCell>
-                  {walletUser?.address.slice(0,15)}
+                  {acct?.address.slice(0,15)}
               </TableCell>
-              <TableCell sx={{color: userB?.status === 'Frozen' ? 'error.main' : 'success.main', fontWeight: '500'}}>
-                  {walletUser?.status}
+              <TableCell sx={{color: acct?.status === 'Frozen' ? 'error.main' : 'success.main', fontWeight: '500'}}>
+                  {acct?.status}
               </TableCell>
               <TableCell align="right">
-                  {`${walletUser?.balance} WST`}
+                  {`${acct?.balance} WST`}
               </TableCell>
             </TableRow>
-          }
+          ))
+        }
       </TableBody>    
     </Table>
     </TableContainer>

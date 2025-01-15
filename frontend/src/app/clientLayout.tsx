@@ -14,21 +14,24 @@ import useStore from './store/store';
 import WSTAppBar from "./components/WSTAppBar";
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
-    const { mintAccount, userA, userB, changeMintAccountDetails, changeWalletAAccountDetails, changeWalletBAccountDetails, setLucidInstance } = useStore();
+    const { mintAccount, accounts, changeMintAccountDetails, changeWalletAccountDetails, setLucidInstance } = useStore();
 
     useEffect(() => {
         const fetchUserWallets = async () => {
           try {
             // retrieve wallet info
             const mintAuthorityWallet = await getWalletFromSeed(mintAccount.mnemonic);
-            const walletA = await getWalletFromSeed(userA.mnemonic);
-            const walletB = await getWalletFromSeed(userB.mnemonic);
+            const walletA = await getWalletFromSeed(accounts.userA.mnemonic);
+            
+            const walletB = await getWalletFromSeed(accounts.userB.mnemonic);
     
             const mintStartBalance = await getWalletBalance(mintAuthorityWallet.address);
+            const userAStartBalance = await getWalletBalance(walletA.address);
+            const userBStartBalance = await getWalletBalance(walletB.address);
             // Update Zustand store with the initialized wallet information
             changeMintAccountDetails({ ...mintAccount, address: mintAuthorityWallet.address, balance: mintStartBalance});
-            changeWalletAAccountDetails({ ...userA, address: walletA.address});
-            changeWalletBAccountDetails({ ...userB, address: walletB.address,});
+            changeWalletAccountDetails('userA', { ...accounts.userA, address: walletA.address, balance: userAStartBalance});
+            changeWalletAccountDetails('userB', { ...accounts.userB, address: walletB.address, balance: userBStartBalance});
     
             const initialLucid = await makeLucid();
             setLucidInstance(initialLucid);
@@ -41,7 +44,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         fetchUserWallets();
       },[]);
 
-  if(userB.address === '') {
+  if(accounts.userB.address === '') {
     return <div className="mainLoadingContainer">
     <div className="mainLoader" />
   </div>;

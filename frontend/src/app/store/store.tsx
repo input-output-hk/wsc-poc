@@ -2,14 +2,12 @@
 import { create } from "zustand";
 
 //Local Imports
-import { UserName, AccountInfo, MenuTab } from "./types";
+import { UserName, AccountInfo, Accounts, MenuTab, AccountKey } from "./types";
 import { LucidEvolution } from "@lucid-evolution/lucid";
 
 export type State = {
   mintAccount: AccountInfo;
-  userA: AccountInfo;
-  userB: AccountInfo;
-  walletUser: AccountInfo;
+  accounts: Accounts;
   currentUser: UserName;
   selectedTab: MenuTab;
   alertOpen: boolean;
@@ -19,9 +17,7 @@ export type State = {
 
 export type Actions = {
   changeMintAccountDetails: (newAccountInfo: AccountInfo) => void;
-  changeWalletAAccountDetails: (newAccountInfo: AccountInfo) => void;
-  changeWalletBAccountDetails: (newAccountInfo: AccountInfo) => void;
-  changeToLaceWallet: (newAccountInfo: AccountInfo) => void;
+  changeWalletAccountDetails: (accountKey: AccountKey, newAccountInfo: AccountInfo) => void;
   changeUserAccount: (newUser: UserName) => void;
   selectTab: (tab: MenuTab) => void;
   setAlertStatus: (status: boolean) => void;
@@ -30,28 +26,30 @@ export type Actions = {
 
 const useStore = create<State & Actions>((set) => ({
     mintAccount: {
+      name: 'Mint Authority',
       address: 'addr_test1qq986m3uel86pl674mkzneqtycyg7csrdgdxj6uf7v7kd857kquweuh5kmrj28zs8czrwkl692jm67vna2rf7xtafhpqk3hecm',
       mnemonic: 'problem alert infant glance toss gospel tonight sheriff match else hover upset chicken desert anxiety cliff moment song large seed purpose chalk loan onion',
       balance: 0,
     },
-    userA: {
-      address: '',
-      mnemonic: 'during dolphin crop lend pizza guilt hen earn easy direct inhale deputy detect season army inject exhaust apple hard front bubble emotion short portion',
-      balance: 0,
-      status: 'Active',
-    },
-    userB: {
-      address: '',
-      mnemonic: 'tooth benefit wish capable stock inner motor cover diamond crash work amount foot help shell glad friend front degree pudding inflict filter twice resource',
-      balance: 0,
-      status: 'Active',
-    },
-    walletUser:
-    {
-      address: '',
-      mnemonic: '',
-      balance: 0,
-      status: 'Active',
+    accounts: {
+      userA: {
+        address: '',
+        mnemonic: 'during dolphin crop lend pizza guilt hen earn easy direct inhale deputy detect season army inject exhaust apple hard front bubble emotion short portion',
+        balance: 0,
+        status: 'Active',
+      },
+      userB: {
+        address: '',
+        mnemonic: 'tooth benefit wish capable stock inner motor cover diamond crash work amount foot help shell glad friend front degree pudding inflict filter twice resource',
+        balance: 0,
+        status: 'Active',
+      },
+      walletUser: {
+        address: '',
+        mnemonic: '',
+        balance: 0,
+        status: 'Active',
+      },
     },
     currentUser: 'Mint Authority',
     selectedTab: 'Mint Actions',
@@ -65,22 +63,13 @@ const useStore = create<State & Actions>((set) => ({
       });
     },
 
-    changeWalletAAccountDetails: (newAccountInfo: AccountInfo) => {
-      set(() => {
-        return { userA: newAccountInfo };
-      });
-    },
-    
-    changeWalletBAccountDetails: (newAccountInfo: AccountInfo) => {
-      set(() => {
-        return { userB: newAccountInfo };
-      });
-    },
-
-    changeToLaceWallet: (newAccountInfo: AccountInfo) => {
-      set(() => {
-       return { walletUser: newAccountInfo }
-      });
+    changeWalletAccountDetails: (accountKey, newAccountInfo) => {
+      set((state) => ({
+        accounts: {
+          ...state.accounts,
+          [accountKey]: newAccountInfo,
+        },
+      }));
     },
 
     changeUserAccount: (newUser: UserName) => {
@@ -94,7 +83,7 @@ const useStore = create<State & Actions>((set) => ({
             firstAccessibleTab = 'Wallet'; 
             break;
           case 'Connected Wallet':
-            if (useStore.getState().walletUser.address === useStore.getState().mintAccount.address)
+            if (useStore.getState().accounts.walletUser.address === useStore.getState().mintAccount.address)
               firstAccessibleTab = 'Mint Actions';
             else
               firstAccessibleTab = 'Wallet';

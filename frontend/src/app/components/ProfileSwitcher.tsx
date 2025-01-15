@@ -18,9 +18,7 @@ import { selectLucidWallet, getWalletBalance } from '../utils/walletUtils';
 
 export default function ProfileSwitcher() {
   const [anchorEl, setAnchorEl] = React.useState<HTMLElement | null>(null);
-  const currentUser = useStore(state => state.currentUser);
-  const walletUser = useStore(state => state.walletUser);
-  const changeToLaceWallet = useStore(state => state.changeToLaceWallet);
+  const { currentUser, accounts, changeWalletAccountDetails } = useStore();
   const lucid = useStore(state => state.lucid);
   const changeUserAccount = useStore(state => state.changeUserAccount);
   const router = useRouter();
@@ -64,8 +62,8 @@ export default function ProfileSwitcher() {
     await selectLucidWallet(lucid, "Lace");
     const userAddress = await lucid.wallet().address();
     const userBalance = await getWalletBalance(userAddress);
-    changeToLaceWallet({
-      ...walletUser,
+    changeWalletAccountDetails('walletUser', {
+      ...accounts.walletUser,
       address: userAddress,
       balance: userBalance,
     });

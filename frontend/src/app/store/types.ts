@@ -5,4 +5,10 @@ export type AccountInfo = {
     mnemonic: string,
     balance: number,
     status?: 'Active' | 'Frozen',
-}
+};
+export type AccountKey = 'userA' | 'userB' | 'walletUser';
+export type Accounts = {
+    userA: AccountInfo;
+    userB: AccountInfo;
+    walletUser: AccountInfo;
+};
