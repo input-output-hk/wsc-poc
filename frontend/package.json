@@ -9,24 +9,40 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@cardano-sdk/core": "^0.43.0",
+    "@cardano-sdk/crypto": "^0.1.32",
+    "@cardano-sdk/key-management": "^0.19.0",
     "@emotion/cache": "^11.14.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
+    "@lucid-evolution/lucid": "^0.4.18",
     "@mui/icons-material": "^6.3.0",
     "@mui/material": "^6.3.0",
     "@mui/material-nextjs": "^6.3.0",
+    "autoprefixer": "10.4.17",
     "axios": "^1.7.9",
-    "next": "^14.2.21",
+    "next": "^15.0.0",
     "react": "^18",
     "react-dom": "^18",
+    "regenerator-runtime": "^0.14.1",
+    "ts-log": "^2.2.7",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "browserify-zlib": "^0.2.0",
+    "buffer": "^6.0.3",
+    "constants-browserify": "^1.0.0",
+    "crypto-browserify": "^3.12.1",
     "eslint": "^8",
-    "eslint-config-next": "14.2.21",
+    "eslint-config-next": "^15.0.0",
+    "events": "^3.3.0",
+    "https-browserify": "^1.0.0",
+    "readable-stream": "^4.7.0",
+    "stream-http": "^3.2.0",
+    "tsconfig-paths-webpack-plugin": "^4.2.0",
     "typescript": "^5"
   }
 }

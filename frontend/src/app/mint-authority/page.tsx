@@ -1,6 +1,8 @@
 'use client';
 //React imports
 import React, { useState } from 'react';
+
+//Axios imports
 import axios from 'axios';
 
 //Mui imports
@@ -8,22 +10,24 @@ import { Box, Typography } from '@mui/material';
 import Checkbox from '@mui/material/Checkbox';
 import FormControlLabel from '@mui/material/FormControlLabel';
 
+//Lucid imports
+import { CML, makeTxSignBuilder } from "@lucid-evolution/lucid";
+
 //Local components
-import useStore from './store/store'; 
-import WalletCard from './components/Card';
-import WSTTextField from './components/WSTTextField';
-import CopyTextField from './components/CopyTextField';
-import WSTTable from './components/WSTTable';
-import AlertBar from './components/AlertBar';
+import useStore from '../store/store'; 
+import WalletCard from '../components/Card';
+import WSTTextField from '../components/WSTTextField';
+import CopyTextField from '../components/CopyTextField';
+import WSTTable from '../components/WSTTable';
+import AlertBar from '../components/AlertBar';
 
 export default function Home() {
-  const { mintAccount, selectedTab, errorMessage, setAlertStatus } = useStore();
+  const { lucid, mintAccount, selectedTab, errorMessage, setAlertStatus } = useStore();
   const [addressCleared, setAddressCleared] = useState(false);
-
-  // temp state for each text field
+  // Temporary state for each text field
   const [mintTokens, setMintTokens] = useState(36);
-  const [recipientAddress, setRecipientAddress] = useState('addr_sdfah35gd808xxx');
-  const [accountNumber, setAccountNumber] = useState('addr_sdfah35gd808xxx');
+  const [recipientAddress, setRecipientAddress] = useState('addr_test1qpynxme7c0tcmmvgk2tjuv63aw7zk9tk6yqkaqd48ulhkyl5f6v47dp5rc7286z5f57339d0c79khw4y3lwxzm8ywkzsvudp69');
+  const [accountNumber, setAccountNumber] = useState('addr_test1qpynxme7c0tcmmvgk2tjuv63aw7zk9tk6yqkaqd48ulhkyl5f6v47dp5rc7286z5f57339d0c79khw4y3lwxzm8ywkzsvudp69');
   const [reason, setReason] = useState('Enter reason here');
 
   const handleAddressClearedChange = (event: { target: { checked: boolean | ((prevState: boolean) => boolean); }; }) => {
@@ -33,7 +37,7 @@ export default function Home() {
   const onMint = async () => {
     const requestData = {
       asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
-      issuer: mintAccount,
+      issuer: mintAccount.address,
       quantity: mintTokens,
     };
 
@@ -47,7 +51,23 @@ export default function Home() {
           },
         }
       );
+      lucid.selectWallet.fromSeed(mintAccount.mnemonic);
       console.log('Mint response:', response.data);
+      const tx = await lucid.fromTx(response.data.cborHex);
+      const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
+      const cmlTx = txBuilder.toTransaction();
+      const witnessSet = txBuilder.toTransaction().witness_set();
+      const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
+      console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
+      const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());
+      console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
+      cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash!);
+      console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
+      const cmlClonedTx = CML.Transaction.new(cmlTxBodyClone, cmlTx!.witness_set(), true, cmlTx!.auxiliary_data());
+      const cmlClonedSignedTx = await makeTxSignBuilder(lucid.wallet(), cmlClonedTx).sign.withWallet().complete();
+
+      const txId = await cmlClonedSignedTx.submit();
+      await lucid.awaitTx(txId);
     } catch (error) {
       console.error('Minting failed:', error);
     }
@@ -126,7 +146,7 @@ maxRows={3}
   <WSTTextField 
       value={mintTokens}
       onChange={(e) => setMintTokens(Number(e.target.value))}
-      label="Number of Tokens to Mint"
+      label="Number of Tokens to Send"
       fullWidth={true}
   />
   <WSTTextField 
@@ -139,7 +159,7 @@ maxRows={3}
 
   const receiveContent =  <Box>
     <CopyTextField 
-      value="addr_sdfah35gd808xxx"
+      value={mintAccount.address}
       fullWidth={true}
       label="Your Address"
       />
@@ -152,9 +172,9 @@ maxRows={3}
           <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'end', marginBottom: '16px'}}>
           <Box>
             <Typography variant='h4'>Mint Balance</Typography>
-            <Typography variant='h1'>1,000,000 WST</Typography>
+            <Typography variant='h1'>{mintAccount.balance} WST</Typography>
           </Box>
-          <Typography variant='h5'>UserID: xxxxxxx7850</Typography>
+          <Typography variant='h5'>UserID: {mintAccount.address.slice(0,15)}</Typography>
           </Box>
           <div className="cardWrapperParent">
             <WalletCard tabs={[
@@ -198,30 +218,6 @@ maxRows={3}
           </Box> 
           <WSTTable />
         </>;
-      case 'Wallet':
-        return <>
-        <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'end', marginBottom: '16px'}}>
-        <Box>
-          <Typography variant='h4'>Account Balance</Typography>
-          <Typography variant='h1'>3,478 WST</Typography>
-        </Box>
-        <Typography variant='h5'>UserID: xxxxxxx7850</Typography>
-        </Box>
-        <div className="cardWrapperParent">
-          <WalletCard tabs={[
-                {
-                  label: 'Send',
-                  content: sendContent,
-                  buttonLabel: 'Send',
-                  onAction: onSend
-                },
-                {
-                  label: 'Receive',
-                  content: receiveContent
-                }
-          ]}/>
-        </div>
-      </>;
     }
   };
 

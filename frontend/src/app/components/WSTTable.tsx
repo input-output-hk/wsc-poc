@@ -7,35 +7,11 @@ import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import Paper from "@mui/material/Paper";
 
-const Field = [
-    {
-        account: 'addr_sdfah35gd808xxx',
-        status: 'Frozen',
-        balance: 1000
-    },
-    {
-        account: 'addr_sdfah35gd808xxx',
-        status: 'Active',
-        balance: 1000
-    },
-    {
-        account: 'addr_sdfah35gd808xxx',
-        status: 'Active',
-        balance: 1000
-    },
-    {
-        account: 'addr_sdfah35gd808xxx',
-        status: 'Frozen',
-        balance: 1000
-    },
-    {
-        account: 'addr_sdfah35gd808xxx',
-        status: 'Active',
-        balance: 1000
-    }
-]
+//Local Imports
+import useStore from '../store/store'; 
 
 export default function WSTTable() {
+  const { userA, userB, walletUser } = useStore();
 
   return (
     <TableContainer component={Paper}>
@@ -48,19 +24,42 @@ export default function WSTTable() {
         </TableRow>
       </TableHead>
       <TableBody>
-        {Field.map((field, fieldIndex) => (
-            <TableRow key={fieldIndex}>
-                <TableCell>
-                    {field.account}
-                </TableCell>
-                <TableCell sx={{color: field.status === 'Frozen' ? 'error.main' : 'success.main', fontWeight: '500'}}>
-                    {field.status}
-                </TableCell>
-                <TableCell align="right">
-                    {`${field.balance} WST`}
-                </TableCell>
+        <TableRow>
+            <TableCell>
+                {userA?.address.slice(0,15)}
+            </TableCell>
+            <TableCell sx={{color: userA?.status === 'Frozen' ? 'error.main' : 'success.main', fontWeight: '500'}}>
+                {userA?.status}
+            </TableCell>
+            <TableCell align="right">
+                {`${userA?.balance} WST`}
+            </TableCell>
+        </TableRow>
+        <TableRow>
+            <TableCell>
+                {userB?.address.slice(0,15)}
+            </TableCell>
+            <TableCell sx={{color: userB?.status === 'Frozen' ? 'error.main' : 'success.main', fontWeight: '500'}}>
+                {userB?.status}
+            </TableCell>
+            <TableCell align="right">
+                {`${userB?.balance} WST`}
+            </TableCell>
+        </TableRow>
+          {
+            walletUser.address &&
+            <TableRow>
+              <TableCell>
+                  {walletUser?.address.slice(0,15)}
+              </TableCell>
+              <TableCell sx={{color: userB?.status === 'Frozen' ? 'error.main' : 'success.main', fontWeight: '500'}}>
+                  {walletUser?.status}
+              </TableCell>
+              <TableCell align="right">
+                  {`${walletUser?.balance} WST`}
+              </TableCell>
             </TableRow>
-        ))}
+          }
       </TableBody>    
     </Table>
     </TableContainer>

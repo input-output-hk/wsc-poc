@@ -13,6 +13,7 @@ import Tooltip from '@mui/material/Tooltip';
 import IconButton from './WSTIconButton';
 
 interface PHATextFieldProps {
+    placeholder?: TextFieldProps['placeholder'];
     value: TextFieldProps['value'];
     onChange: (event: React.ChangeEvent<HTMLInputElement>) => void; 
     error?: TextFieldProps['error'];
@@ -24,7 +25,7 @@ interface PHATextFieldProps {
     maxRows?: number;
 }
 
-export default function WSTTextField({value, onChange, error, fullWidth, multiline, minRows, maxRows, helperText, label}: PHATextFieldProps) {
+export default function WSTTextField({placeholder, value, onChange, error, fullWidth, multiline, minRows, maxRows, helperText, label}: PHATextFieldProps) {
   const [isFocused, setIsFocused] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
@@ -47,6 +48,7 @@ export default function WSTTextField({value, onChange, error, fullWidth, multili
 
   return (
         <TextField
+          placeholder={placeholder}
           sx={{marginBottom: '24px'}}
           inputRef={inputRef}
           value={value}
