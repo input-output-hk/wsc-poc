@@ -36,7 +36,7 @@ runWstApp env WstApp{unWstApp} = do
 
 {-| Interpret the 'WstApp' in a servant handler
 -}
-runWstAppServant :: forall env era a. (Env.HasRuntimeEnv env) => env -> WstApp env era a -> Handler a
+runWstAppServant :: forall env era a. (C.IsAlonzoBasedEra era, Env.HasRuntimeEnv env) => env -> WstApp env era a -> Handler a
 runWstAppServant env action = liftIO (runWstApp env action) >>= \case
   Left err -> do
     let err_ = S.err500 { S.errBody = fromString (show err) }

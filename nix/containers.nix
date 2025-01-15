@@ -54,6 +54,10 @@ in rec {
       (inputs.n2c.packages.nix2container.buildLayer {
         copyToRoot = [frontend];
       })
+      # CA certificates for SSL (required for calling blockfrost API)
+      (inputs.n2c.packages.nix2container.buildLayer {
+        copyToRoot = [pkgs.dockerTools.caCertificates];
+      })
     ];
   };
 

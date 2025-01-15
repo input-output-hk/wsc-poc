@@ -94,12 +94,14 @@ import Convex.Utils (mapError)
 import Convex.Utxos (BalanceChanges)
 import Convex.Utxos qualified as Utxos
 import Convex.Wallet.Operator (returnOutputFor)
+import Data.Aeson (FromJSON, ToJSON)
 import Data.Either (fromRight)
 import Data.Functor.Identity (Identity (..))
 import Data.Map qualified as Map
 import Data.Maybe (listToMaybe)
 import Data.Proxy (Proxy (..))
 import Data.Text qualified as Text
+import GHC.Generics (Generic)
 import SmartTokens.Core.Scripts (ScriptTarget)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 import System.Environment qualified
@@ -108,7 +110,8 @@ import Wst.Offchain.Scripts (alwaysSucceedsScript, blacklistMintingScript,
                              blacklistSpendingScript,
                              directoryNodeMintingScript,
                              directoryNodeSpendingScript, freezeTransferScript,
-                             permissionedTransferScript,
+                             permissionedMintingScript,
+                             permissionedSpendingScript,
                              programmableLogicBaseScript,
                              programmableLogicGlobalScript,
                              programmableLogicMintingScript,
@@ -192,6 +195,8 @@ data DirectoryScriptRoot =
     { srTxIn :: C.TxIn
     , srTarget :: ScriptTarget
     }
+    deriving (Show, Generic)
+    deriving anyclass (ToJSON, FromJSON)
 
 class HasDirectoryEnv e where
   directoryEnv :: e -> DirectoryEnv
@@ -318,9 +323,9 @@ mkTransferLogicEnv BlacklistTransferLogicScriptRoot{tlrTarget, tlrDirEnv, tlrIss
   TransferLogicEnv
     { tleBlacklistMintingScript = blacklistMinting
     , tleBlacklistSpendingScript = blacklistSpendingScript tlrTarget tlrIssuer
-    , tleMintingScript =  permissionedTransferScript tlrTarget tlrIssuer
+    , tleMintingScript =  permissionedMintingScript tlrTarget tlrIssuer
     , tleTransferScript = freezeTransferScript tlrTarget progLogicBaseCred blacklistPolicy
-    , tleIssuerScript = permissionedTransferScript tlrTarget tlrIssuer
+    , tleIssuerScript = permissionedSpendingScript tlrTarget tlrIssuer
     }
 
 blacklistNodePolicyId :: TransferLogicEnv -> C.PolicyId

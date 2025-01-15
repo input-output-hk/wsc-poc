@@ -9,13 +9,16 @@ module Wst.Offchain.BuildTx.TransferLogic
     seizeSmartTokens,
     initBlacklist,
     insertBlacklistNode,
-    paySmartTokensToDestination
+    spendBlacklistOutput,
+    paySmartTokensToDestination,
+    registerTransferScripts,
   )
 where
 
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Control.Lens (over, (^.))
+import Control.Monad (when)
 import Control.Monad.Except (MonadError (throwError))
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx (addTxBuilder), TxBuilder (TxBuilder),
@@ -43,10 +46,11 @@ import SmartTokens.Contracts.ExampleTransferLogic (BlacklistProof (..))
 import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (BlacklistNode (..),
                                           DirectorySetNode (..))
-import Wst.AppError (AppError (TransferBlacklistedCredential))
+import Wst.AppError (AppError (DuplicateBlacklistNode, TransferBlacklistedCredential))
 import Wst.Offchain.BuildTx.ProgrammableLogic (issueProgrammableToken,
                                                seizeProgrammableToken,
                                                transferProgrammableToken)
+import Wst.Offchain.BuildTx.Utils (addConwayStakeCredentialCertificate)
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Scripts (scriptPolicyIdV3)
@@ -89,7 +93,7 @@ initBlacklist = Utils.inBabbage @era $ do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   addRequiredSignature opPkh
 
-insertBlacklistNode :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
+insertBlacklistNode :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError (AppError era) m) => C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
 insertBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
   -- mint new blacklist token
   mintingScript <- asks (Env.tleBlacklistMintingScript . Env.transferLogicEnv)
@@ -100,7 +104,6 @@ insertBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
   mintPlutus mintingScript () newAssetName quantity
 
   let
-
       -- find the node to insert on
       UTxODat {uIn = prevNodeRef,uOut = (C.TxOut prevAddr prevVal _ _),  uDatum = prevNode} =
         maximumBy (compare `on` (blnKey . uDatum)) $
@@ -117,6 +120,9 @@ insertBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
       newPrevNodeDatum = C.TxOutDatumInline C.babbageBasedEra $ C.toHashableScriptData newPrevNode
       newPrevNodeOutput = C.TxOut prevAddr prevVal newPrevNodeDatum C.ReferenceScriptNone
 
+  when (blnKey prevNode == blnKey newNode)
+    $ throwError DuplicateBlacklistNode
+
   -- spend previous node
   spendingScript <- asks (Env.tleBlacklistSpendingScript . Env.transferLogicEnv)
   spendPlutusInlineDatum prevNodeRef spendingScript ()
@@ -126,6 +132,13 @@ insertBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
   prependTxOut newNodeOutput
 
   -- add operator signature
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
+  addRequiredSignature opPkh
+
+spendBlacklistOutput :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.TxIn -> m ()
+spendBlacklistOutput txin = Utils.inBabbage @era $ do
+  spendingScript <- asks (Env.tleBlacklistSpendingScript . Env.transferLogicEnv)
+  spendPlutusInlineDatum txin spendingScript ()
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   addRequiredSignature opPkh
 
@@ -321,3 +334,25 @@ unwrapCredential :: Credential -> PlutusTx.BuiltinByteString
 unwrapCredential = \case
   PubKeyCredential (PubKeyHash s) -> s
   ScriptCredential (ScriptHash s) -> s
+
+registerTransferScripts :: forall env era m. (MonadReader env m, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m) => m ()
+registerTransferScripts = case C.babbageBasedEra @era of
+  C.BabbageEraOnwardsBabbage -> error "babbage era registration not implemented"
+  C.BabbageEraOnwardsConway  -> Utils.inConway @era $ do
+    transferMintingScript <- asks (Env.tleMintingScript . Env.transferLogicEnv)
+    transferSpendingScript <- asks (Env.tleTransferScript . Env.transferLogicEnv)
+    transferSeizeSpendingScript <- asks (Env.tleIssuerScript . Env.transferLogicEnv)
+
+    let
+        hshMinting = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferMintingScript
+        credMinting = C.StakeCredentialByScript hshMinting
+
+        hshSpending = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferSpendingScript
+        credSpending = C.StakeCredentialByScript hshSpending
+
+        hshSeizeSpending = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferSeizeSpendingScript
+        credSeizeSpending = C.StakeCredentialByScript hshSeizeSpending
+
+    addConwayStakeCredentialCertificate credMinting
+    addConwayStakeCredentialCertificate credSpending
+    addConwayStakeCredentialCertificate credSeizeSpending

@@ -4,12 +4,14 @@ cabalProject:
 
 let
   plutarch = inputs.plutarch.packages.plutarch;
+  cardano-cli = inputs.cardano-cli.legacyPackages.cardano-cli;
 in
 {
   name = "smart-tokens-plutarch";
   packages = [
     pkgs.ghcid
     pkgs.nixpkgs-fmt
+    cardano-cli
   ];
 
   env = { };

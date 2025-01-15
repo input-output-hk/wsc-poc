@@ -80,6 +80,7 @@ library
     Wst.Offchain.BuildTx.ProgrammableLogic
     Wst.Offchain.BuildTx.ProtocolParams
     Wst.Offchain.BuildTx.TransferLogic
+    Wst.Offchain.BuildTx.Utils
     Wst.Offchain.Endpoints.Deployment
     Wst.Offchain.Env
     Wst.Offchain.Query
@@ -97,6 +98,7 @@ library
     , blockfrost-api
     , blockfrost-client-core
     , cardano-api
+    , cardano-ledger-shelley
     , containers
     , convex-base
     , convex-blockfrost
@@ -141,7 +143,10 @@ executable export-smart-tokens
     , base
     , base16-bytestring
     , bytestring
+    , cardano-api
     , cardano-binary
+    , mtl
+    , optparse-applicative
     , plutarch
     , plutus-ledger-api
     , text
@@ -180,11 +185,10 @@ test-suite wst-poc-test
     Wst.Test.UnitTest
 
   build-depends:
-    , base                    >=4.14.0
+    , base                   >=4.14.0
     , cardano-api
     , cardano-ledger-api
     , cardano-ledger-core
-    , cardano-ledger-shelley
     , convex-base
     , convex-coin-selection
     , convex-mockchain
