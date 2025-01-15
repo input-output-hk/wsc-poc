@@ -78,12 +78,10 @@ jobs:
       if: False
       run: nix build --accept-flake-config .#containers.x86_64-linux.${{ matrix.image }}.copyTo
     - name: Publish tagged image with podman
-    if: False
+      if: False
       run: |
         IMAGE_NAME=ghcr.io/${{github.repository_owner}}/${{ matrix.image }}:$IMAGE_TAG
         ./result/bin/copy-to oci-archive:oci.tar
         IMAGE_HASH=$(podman load --quiet -i oci.tar | sed 's/.*sha256://')
         podman tag $IMAGE_HASH $IMAGE_NAME
         podman push $IMAGE_NAME
-
-
