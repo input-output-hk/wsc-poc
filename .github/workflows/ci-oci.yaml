@@ -74,10 +74,11 @@ jobs:
         # except the version with the `primary-key`, if it exists
         purge-primary-key: never
 
-    # TODO: matrix build for two images (mock server and wst)
     - name: Build image with nix
+      if: False
       run: nix build --accept-flake-config .#containers.x86_64-linux.${{ matrix.image }}.copyTo
     - name: Publish tagged image with podman
+    if: False
       run: |
         IMAGE_NAME=ghcr.io/${{github.repository_owner}}/${{ matrix.image }}:$IMAGE_TAG
         ./result/bin/copy-to oci-archive:oci.tar
