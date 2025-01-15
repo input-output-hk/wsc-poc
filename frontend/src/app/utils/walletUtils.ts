@@ -13,7 +13,7 @@ export async function makeLucid() {
             );
         }
 
-        let blockfrostURL = "https://cardano-preview.blockfrost.io/api/v0";
+        const blockfrostURL = "https://cardano-preview.blockfrost.io/api/v0";
         const blockfrost = new Blockfrost(blockfrostURL, API_KEY);
 
         const lucid = await Lucid(blockfrost, "Preview");
@@ -23,7 +23,7 @@ export async function makeLucid() {
 
 export async function getWalletFromSeed(mnemonic: string) {
   try {
-    let mintWallet = walletFromSeed(mnemonic, {password: '', addressType: 'Base', accountIndex: 0, network: "Preview"});
+    const mintWallet = walletFromSeed(mnemonic, {password: '', addressType: 'Base', accountIndex: 0, network: "Preview"});
     return mintWallet;
   } catch (error) {
     console.error('Failed to initialize KeyAgent:', error);

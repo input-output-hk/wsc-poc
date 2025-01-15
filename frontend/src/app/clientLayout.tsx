@@ -39,7 +39,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         };
     
         fetchUserWallets();
-      },[]);
+      }, [changeMintAccountDetails, changeWalletAAccountDetails, changeWalletBAccountDetails, mintAccount, setLucidInstance, userA, userB]);
 
   if(userB.address === '') {
     return <div className="mainLoadingContainer">

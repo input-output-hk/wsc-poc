@@ -5,6 +5,7 @@ frontendNpm = pkgs.buildNpmPackage rec {
   src = ../frontend;
   npmDepsHash = "sha256-wtpNvgzcY0jpp5EgmWp4hXYfVs3xieq3Lb05tlhHlv4=";
   npmPackFlags = [ "--ignore-scripts" ];
+  npmBuildScript = "export";
   installPhase = ''
     mkdir -p $out/frontend
     cp -r out/* $out/frontend
