@@ -5,16 +5,20 @@ import axios from 'axios';
 import { Blockfrost, CML, Lucid, LucidEvolution, TxSigned, walletFromSeed } from "@lucid-evolution/lucid";
 
 export async function makeLucid() {
-        const API_KEY = process.env.NEXT_PUBLIC_BLOCKFROST_API_KEY;
+        var API_KEY = process.env.NEXT_PUBLIC_BLOCKFROST_API_KEY;
 
         if (!API_KEY) {
-          console.warn("NEXT_PUBLIC_BLOCKFROST_API_KEY environment variable not found. Using blockfrost proxy.")
+          console.warn("NEXT_PUBLIC_BLOCKFROST_API_KEY environment variable not found. Loading blockfrost key from backend.")
+          API_KEY = await axios.get("/blockfrost-key",
+            {
+              headers: {
+                'Content-Type': 'application/json;charset=utf-8', 
+              },
+            });
+          console.log(`API_KEY=${API_KEY}`);
         }
 
-        const blockfrostURL =
-          API_KEY
-            ? "https://cardano-preview.blockfrost.io/api/v0"
-            : "/blockfrost-proxy/api/v0";
+        const blockfrostURL = "https://cardano-preview.blockfrost.io/api/v0"
 
         const blockfrost = new Blockfrost(blockfrostURL, API_KEY);
 
