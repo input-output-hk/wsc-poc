@@ -1,6 +1,9 @@
 //Zustand Imports
 import { create } from "zustand";
 
+//Axios imports
+import axios from 'axios';
+
 //Local Imports
 import { UserName, AccountInfo, Accounts, MenuTab, AccountKey } from "./types";
 import { LucidEvolution } from "@lucid-evolution/lucid";
@@ -8,6 +11,7 @@ import { LucidEvolution } from "@lucid-evolution/lucid";
 export type State = {
   mintAccount: AccountInfo;
   accounts: Accounts;
+  blacklistAddresses: string[];
   currentUser: UserName;
   selectedTab: MenuTab;
   alertOpen: boolean;
@@ -22,6 +26,7 @@ export type Actions = {
   selectTab: (tab: MenuTab) => void;
   setAlertStatus: (status: boolean) => void;
   setLucidInstance: (lucid: LucidEvolution) => void;
+  fetchBlacklistStatus: (accounts: Accounts) => void;
 };
 
 const useStore = create<State & Actions>((set) => ({
@@ -51,11 +56,43 @@ const useStore = create<State & Actions>((set) => ({
         status: 'Active',
       },
     },
+    blacklistAddresses: [],
     currentUser: 'Mint Authority',
     selectedTab: 'Mint Actions',
     alertOpen: false,
     errorMessage: false,
     lucid: {} as LucidEvolution,
+
+    fetchBlacklistStatus: async (accounts: Accounts) => {
+      try {
+        // const requests = Object.entries(accounts).map(async ([key, account]) => {
+        //   const response = await axios.get(`/api/v1/query/blacklist/${account.address}`, {
+        //     headers: {
+        //       'Content-Type': 'application/json;charset=utf-8',
+        //       Accept: 'application/json;charset=utf-8',
+        //     },
+        //   });
+        //   return { key, data: response.data };
+        // });
+    
+        // console.log(requests);
+
+        const response = await axios.get(`/api/v1/query/blacklist/${accounts.userA.address}`, {
+          headers: {
+            'Content-Type': 'application/json;charset=utf-8',
+            Accept: 'application/json;charset=utf-8',
+          },
+        });
+        return { 'blacklist response userA': response };
+      
+        // const results = await Promise.all(requests);
+    
+        // return results;
+      } catch (error) {
+        console.error('Blacklist fetch failed:', error);
+        throw new Error('Blacklist fetch failed');
+      }
+    },
 
     changeMintAccountDetails: (newAccountInfo: AccountInfo) => {
       set(() => {

@@ -18,10 +18,10 @@ import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
 import WSTTable from '../components/WSTTable';
 import AlertBar from '../components/AlertBar';
-import { getWalletBalance, signAndSentTx } from '../utils/walletUtils';
+import { getWalletBalance, signAndSentTx, getBlacklist } from '../utils/walletUtils';
 
 export default function Home() {
-  const { lucid, mintAccount, accounts, selectedTab, errorMessage, setAlertStatus, changeWalletAccountDetails } = useStore();
+  const { lucid, mintAccount, accounts, selectedTab, errorMessage, setAlertStatus, changeWalletAccountDetails, fetchBlacklistStatus } = useStore();
   const [addressCleared, setAddressCleared] = useState(false);
   // Temporary state for each text field
   const [mintTokensAmount, setMintTokens] = useState(0);
@@ -38,8 +38,9 @@ export default function Home() {
   };
 
   useEffect(() => {
+    // getBlacklist();
     useStore.getState();
-    console.log("accounts changed:", accounts, mintAccount);
+    // console.log("accounts changed:", accounts, mintAccount);
   }, [accounts, mintAccount]);
 
   const onMint = async () => {
@@ -112,12 +113,73 @@ export default function Home() {
     }
   };
 
-  const onFreeze = () => {
+  const onFreeze = async () => {
     console.log('freeze an account');
+    lucid.selectWallet.fromSeed(mintAccount.mnemonic);
+    const requestData = {
+      issuer: mintAccount.address,
+      blacklist_address: freezeAccountNumber,
+    };
+    try {
+      const response = await axios.post(
+        '/api/v1/tx/programmable-token/blacklist', 
+        requestData, 
+        {
+          headers: {
+            'Content-Type': 'application/json;charset=utf-8', 
+          },
+        }
+      );
+      console.log('Freeze response:', response.data);
+      const tx = await lucid.fromTx(response.data.cborHex);
+      await signAndSentTx(lucid, tx);
+      const frozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
+        (key) => accounts[key].address === freezeAccountNumber
+      );
+      if (frozenWalletKey) {
+        changeWalletAccountDetails(frozenWalletKey, {
+          ...accounts[frozenWalletKey],
+          status: 'Frozen',
+        });
+      }
+    } catch (error) {
+      console.error('Freeze failed:', error);
+    }
   };
 
-  const onSeize = () => {
-    console.log('freeze an account');
+  const onSeize = async () => {
+    console.log('seize account funds');
+    lucid.selectWallet.fromSeed(mintAccount.mnemonic);
+    const requestData = {
+      issuer: mintAccount.address,
+      target: seizeAccountNumber,
+    };
+    try {
+      const response = await axios.post(
+        '/api/v1/tx/programmable-token/seize', 
+        requestData, 
+        {
+          headers: {
+            'Content-Type': 'application/json;charset=utf-8', 
+          },
+        }
+      );
+      console.log('Seize response:', response.data);
+      // const tx = await lucid.fromTx(response.data.cborHex);
+      // await signAndSentTx(lucid, tx);
+      // const newAccountBalance = await getWalletBalance(seizeAccountNumber);
+      // const seizeWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
+      //   (key) => accounts[key].address === seizeAccountNumber
+      // );
+      // if (seizeWalletKey) {
+      //   changeWalletAccountDetails(seizeWalletKey, {
+      //     ...accounts[seizeWalletKey],
+      //     balance: newAccountBalance,
+      //   });
+      // }
+    } catch (error) {
+      console.error('Seize failed:', error);
+    }
   };
 
   const mintContent =  <Box>

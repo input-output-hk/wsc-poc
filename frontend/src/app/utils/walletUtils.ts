@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 //Lucis imports
-import { Assets, Blockfrost, CML, Lucid, LucidEvolution, makeTxSignBuilder, TxBuilder, TxSignBuilder, TxSigned, walletFromSeed } from "@lucid-evolution/lucid";
+import { Blockfrost, CML, Lucid, LucidEvolution, makeTxSignBuilder, TxSignBuilder, walletFromSeed } from "@lucid-evolution/lucid";
 
 export async function makeLucid() {
         const API_KEY = process.env.NEXT_PUBLIC_BLOCKFROST_API_KEY;
@@ -52,6 +52,25 @@ export async function getWalletBalance(address: string){
   } catch (error) {
     console.error('Failed to get balance', error);
     return 0;
+  }
+}
+
+export async function getBlacklist(){
+  try {
+    const response = await axios.get(
+      '/api/v1/query/blacklist/addr_test1qq986m3uel86pl674mkzneqtycyg7csrdgdxj6uf7v7kd857kquweuh5kmrj28zs8czrwkl692jm67vna2rf7xtafhpqk3hecm',  
+      {
+        headers: {
+          'Content-Type': 'application/json;charset=utf-8', 
+        },
+      }
+    );
+    
+    console.log('Get blacklist:', response);
+    // return stableBalance;
+  } catch (error) {
+      console.warn('Failed to get blacklist', error);
+      return error;
   }
 }
 

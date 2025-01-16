@@ -22,7 +22,7 @@ export default function Profile() {
 
   useEffect(() => {
     useStore.getState();
-    console.log("accounts changed:", accounts);
+    // console.log("accounts changed:", accounts);
   }, [accounts]);
 
   const getUserAccountDetails = () => {
