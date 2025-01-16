@@ -3,7 +3,7 @@
 frontendNpm = pkgs.buildNpmPackage rec {
   name = "frontend";
   src = ../frontend;
-  npmDepsHash = "sha256-Bwa9mN/07zBXpZj9OoXY4YHluOyTLkvCd9RHuxw0XGo=";
+  npmDepsHash = "sha256-N15xhC5rFY0pgnP6BXIztgfx2wDztcEvU5iOwDFFmHs=";
   npmPackFlags = [ "--ignore-scripts" ];
   npmBuildScript = "export";
   installPhase = ''
@@ -64,16 +64,6 @@ in rec {
       })
     ];
   };
-
-
-  wst-poc-mock-server = lib.iogx.mkContainerFromCabalExe {
-    exe = inputs.self.packages.wst-poc-mock-server;
-    name = "wst-poc-mock-server";
-    description = "WST mockserver";
-    packages = [ ];
-    sourceUrl = "https://github.com/input-output-hk/wsc-poc";
-  };
-
 
 }
 
