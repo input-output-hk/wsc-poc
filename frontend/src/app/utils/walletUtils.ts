@@ -8,12 +8,14 @@ export async function makeLucid() {
         const API_KEY = process.env.NEXT_PUBLIC_BLOCKFROST_API_KEY;
 
         if (!API_KEY) {
-            throw new Error(
-                "Missing required environment variables for Blockfrost context.",
-            );
+          console.warn("NEXT_PUBLIC_BLOCKFROST_API_KEY environment variable not found. Using blockfrost proxy.")
         }
 
-        const blockfrostURL = "https://cardano-preview.blockfrost.io/api/v0";
+        const blockfrostURL =
+          API_KEY
+            ? "https://cardano-preview.blockfrost.io/api/v0"
+            : "/blockfrost-proxy/api/v0";
+
         const blockfrost = new Blockfrost(blockfrostURL, API_KEY);
 
         const lucid = await Lucid(blockfrost, "Preview");
