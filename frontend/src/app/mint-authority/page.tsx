@@ -21,7 +21,7 @@ import AlertBar from '../components/AlertBar';
 import { getWalletBalance, signAndSentTx, getBlacklist } from '../utils/walletUtils';
 
 export default function Home() {
-  const { lucid, mintAccount, accounts, selectedTab, errorMessage, setAlertStatus, changeWalletAccountDetails, fetchBlacklistStatus } = useStore();
+  const { lucid, mintAccount, accounts, alertInfo, selectedTab, changeAlertInfo, changeWalletAccountDetails, fetchBlacklistStatus } = useStore();
   const [addressCleared, setAddressCleared] = useState(false);
   // Temporary state for each text field
   const [mintTokensAmount, setMintTokens] = useState(0);
@@ -49,6 +49,7 @@ export default function Home() {
       console.error("Recipient Address not cleared.");
       return;
     }
+    changeAlertInfo({severity: 'info', message: 'Transaction processing', open: true,});
     lucid.selectWallet.fromSeed(mintAccount.mnemonic);
     const requestData = {
       asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
@@ -69,6 +70,7 @@ export default function Home() {
       console.log('Mint response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       await signAndSentTx(lucid, tx);
+      changeAlertInfo({...alertInfo, open: true,});
     } catch (error) {
       console.error('Minting failed:', error);
     }
@@ -77,6 +79,7 @@ export default function Home() {
   const onSend = async () => {
     lucid.selectWallet.fromSeed(mintAccount.mnemonic);
     console.log('send tokens');
+    changeAlertInfo({severity: 'info', message: 'Transaction processing', open: true,});
     const requestData = {
       asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
       issuer: mintAccount.address,
@@ -107,7 +110,7 @@ export default function Home() {
           balance: newAccountBalance,
         });
       }
-      setAlertStatus(true);
+      changeAlertInfo({...alertInfo, open: true,});
     } catch (error) {
       console.error('Send failed:', error);
     }
@@ -116,6 +119,7 @@ export default function Home() {
   const onFreeze = async () => {
     console.log('freeze an account');
     lucid.selectWallet.fromSeed(mintAccount.mnemonic);
+    changeAlertInfo({severity: 'info', message: 'Transaction processing', open: true,});
     const requestData = {
       issuer: mintAccount.address,
       blacklist_address: freezeAccountNumber,
@@ -133,6 +137,7 @@ export default function Home() {
       console.log('Freeze response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       await signAndSentTx(lucid, tx);
+      changeAlertInfo({...alertInfo, open: true,});
       const frozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].address === freezeAccountNumber
       );
@@ -150,6 +155,7 @@ export default function Home() {
   const onSeize = async () => {
     console.log('seize account funds');
     lucid.selectWallet.fromSeed(mintAccount.mnemonic);
+    changeAlertInfo({severity: 'info', message: 'Transaction processing', open: true,});
     const requestData = {
       issuer: mintAccount.address,
       target: seizeAccountNumber,
@@ -177,6 +183,7 @@ export default function Home() {
       //     balance: newAccountBalance,
       //   });
       // }
+      // changeAlertInfo({...alertInfo, open: true,});
     } catch (error) {
       console.error('Seize failed:', error);
     }
@@ -320,7 +327,6 @@ maxRows={3}
   return (
     <div className="page">
       {getContentComponent()}
-      <AlertBar severity={errorMessage ? 'error' : 'success'} message={errorMessage? 'This is an error message showing there was a failed attempt to send WST to a frozen account.' : 'Transaction sent successfully!'}/>
     </div>
   );
 }

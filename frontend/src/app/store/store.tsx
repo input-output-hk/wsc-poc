@@ -5,7 +5,7 @@ import { create } from "zustand";
 import axios from 'axios';
 
 //Local Imports
-import { UserName, AccountInfo, Accounts, MenuTab, AccountKey } from "./types";
+import { UserName, AccountInfo, Accounts, MenuTab, AccountKey, AlertInfo } from "./types";
 import { LucidEvolution } from "@lucid-evolution/lucid";
 
 export type State = {
@@ -14,8 +14,7 @@ export type State = {
   blacklistAddresses: string[];
   currentUser: UserName;
   selectedTab: MenuTab;
-  alertOpen: boolean;
-  errorMessage: boolean;
+  alertInfo: AlertInfo; 
   lucid: LucidEvolution;
 };
 
@@ -24,7 +23,7 @@ export type Actions = {
   changeWalletAccountDetails: (accountKey: AccountKey, newAccountInfo: AccountInfo) => void;
   changeUserAccount: (newUser: UserName) => void;
   selectTab: (tab: MenuTab) => void;
-  setAlertStatus: (status: boolean) => void;
+  changeAlertInfo: (alertInfo: AlertInfo) => void;
   setLucidInstance: (lucid: LucidEvolution) => void;
   fetchBlacklistStatus: (accounts: Accounts) => void;
 };
@@ -59,8 +58,11 @@ const useStore = create<State & Actions>((set) => ({
     blacklistAddresses: [],
     currentUser: 'Mint Authority',
     selectedTab: 'Mint Actions',
-    alertOpen: false,
-    errorMessage: false,
+    alertInfo: {
+      open: false,
+      message: 'Transaction sent successfully!',
+      severity: 'success',
+    },
     lucid: {} as LucidEvolution,
 
     fetchBlacklistStatus: async (accounts: Accounts) => {
@@ -135,8 +137,13 @@ const useStore = create<State & Actions>((set) => ({
         set({ selectedTab: tab });
     },
 
-    setAlertStatus: (status: boolean) => {
-        set({ alertOpen: status });
+    changeAlertInfo: (partial: Partial<AlertInfo>) => {
+      set((state) => ({
+        alertInfo: {
+          ...state.alertInfo,
+          ...partial,
+        },
+      }));
     },
 
     setLucidInstance: (lucid) => {

@@ -12,9 +12,10 @@ import "./styles/globals.css";
 import { makeLucid, getWalletFromSeed, getWalletBalance } from "./utils/walletUtils";
 import useStore from './store/store'; 
 import WSTAppBar from "./components/WSTAppBar";
+import AlertBar from './components/AlertBar';
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
-    const { mintAccount, accounts, changeMintAccountDetails, changeWalletAccountDetails, setLucidInstance } = useStore();
+    const { mintAccount, accounts, alertInfo, changeMintAccountDetails, changeWalletAccountDetails, setLucidInstance } = useStore();
 
     useEffect(() => {
         const fetchUserWallets = async () => {
@@ -57,6 +58,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
           <WSTAppBar />
           <NavDrawer />
           <div className="contentSection">{children}</div>
+          <AlertBar/>
         </main>
       </ThemeModeProvider>
     </AppRouterCacheProvider>

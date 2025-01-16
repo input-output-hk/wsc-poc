@@ -17,7 +17,7 @@ import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
 
 export default function Profile() {
-  const { lucid, currentUser, mintAccount, setAlertStatus, changeWalletAccountDetails } = useStore();
+  const { lucid, currentUser, mintAccount, alertInfo, changeAlertInfo, changeWalletAccountDetails } = useStore();
   const accounts = useStore((state) => state.accounts);
 
   useEffect(() => {
@@ -39,6 +39,7 @@ export default function Profile() {
 
   const onSend = async () => {
     console.log('start sending tokens');
+    changeAlertInfo({severity: 'info', message: 'Transaction processing', open: true,});
     const accountInfo = getUserAccountDetails();
     if (!accountInfo) {
       console.error("No valid send account found! Cannot send.");
@@ -67,7 +68,7 @@ export default function Profile() {
       await signAndSentTx(lucid, tx);
       updateAccountBalance(sendRecipientAddress);
       updateAccountBalance(accountInfo.address);
-      setAlertStatus(true);
+      changeAlertInfo({...alertInfo, open: true,});
     } catch (error) {
       console.error('Send failed:', error);
     }
