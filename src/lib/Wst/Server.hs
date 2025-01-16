@@ -22,8 +22,6 @@ import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain (sendTx), MonadUtxoQuery)
 import Data.Data (Proxy (..))
 import Data.List (nub)
-import Network.HTTP.Client (newManager)
-import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors
 import PlutusTx.Prelude qualified as P
@@ -39,7 +37,7 @@ import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (uDatum))
 import Wst.Offchain.Query qualified as Query
-import Wst.Server.BlockfrostProxy (BlockfrostProxy, runBlockfrostProxy)
+import Wst.Server.BlockfrostKey (BlockfrostKey, runBlockfrostKey)
 import Wst.Server.Types (APIInEra, AddToBlacklistArgs (..),
                          AddVKeyWitnessArgs (..), BuildTxAPI,
                          IssueProgrammableTokenArgs (..), QueryAPI,
@@ -51,7 +49,7 @@ import Wst.Server.Types (APIInEra, AddToBlacklistArgs (..),
 --   for static files
 type CombinedAPI =
   APIInEra
-  :<|> BlockfrostProxy
+  :<|> BlockfrostKey
   :<|> Raw
 
 data ServerArgs =
@@ -80,11 +78,11 @@ defaultServerArgs =
 
 runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env) => env -> ServerArgs -> IO ()
 runServer env ServerArgs{saPort, saStaticFiles} = do
-  manager <- newManager tlsManagerSettings
   let bf   = Blockfrost.projectId $ Env.envBlockfrost $ Env.runtimeEnv env
-      app  = cors (const $ Just simpleCorsResourcePolicy) $ case saStaticFiles of
-        Nothing -> serve (Proxy @APIInEra) (server env)
-        Just fp -> serve (Proxy @CombinedAPI) (server env :<|> runBlockfrostProxy manager bf :<|> serveDirectoryWebApp fp)
+      app  = cors (const $ Just simpleCorsResourcePolicy)
+        $ case saStaticFiles of
+            Nothing -> serve (Proxy @APIInEra) (server env)
+            Just fp -> serve (Proxy @CombinedAPI) (server env :<|> runBlockfrostKey bf :<|> serveDirectoryWebApp fp)
       port = saPort
   Warp.run port app
 
