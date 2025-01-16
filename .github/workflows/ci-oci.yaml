@@ -75,10 +75,8 @@ jobs:
         purge-primary-key: never
 
     - name: Build image with nix
-      if: False
       run: nix build --accept-flake-config .#containers.x86_64-linux.${{ matrix.image }}.copyTo
     - name: Publish tagged image with podman
-    if: False
       run: |
         IMAGE_NAME=ghcr.io/${{github.repository_owner}}/${{ matrix.image }}:$IMAGE_TAG
         ./result/bin/copy-to oci-archive:oci.tar
