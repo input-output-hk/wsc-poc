@@ -87,6 +87,7 @@ library
     Wst.Offchain.Scripts
     Wst.Orphans
     Wst.Server
+    Wst.Server.BlockfrostProxy
     Wst.Server.Types
 
   hs-source-dirs:  lib
@@ -96,9 +97,12 @@ library
     , base16-bytestring
     , Blammo
     , blockfrost-api
+    , blockfrost-client
     , blockfrost-client-core
+    , bytestring
     , cardano-api
     , cardano-ledger-shelley
+    , case-insensitive
     , containers
     , convex-base
     , convex-blockfrost
@@ -106,6 +110,8 @@ library
     , convex-optics
     , convex-wallet
     , generics-sop
+    , http-client
+    , http-types
     , lens
     , mtl
     , openapi3
@@ -121,6 +127,7 @@ library
     , servant-client-core
     , servant-server
     , text
+    , wai
     , wai-cors
     , warp
 
@@ -157,10 +164,7 @@ executable export-smart-tokens
 library test-lib
   import:          lang
   hs-source-dirs:  test/lib
-  exposed-modules:
-    Wst.Test.Gen
-    Wst.Test.MockServer
-
+  exposed-modules: Wst.Test.Gen
   build-depends:
     , base
     , cardano-api

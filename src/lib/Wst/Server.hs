@@ -12,6 +12,7 @@ module Wst.Server(
   defaultServerArgs
   ) where
 
+import Blockfrost.Client.Types qualified as Blockfrost
 import Cardano.Api.Shelley qualified as C
 import Control.Lens qualified as L
 import Control.Monad.Error.Class (MonadError (throwError))
@@ -21,6 +22,7 @@ import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain (sendTx), MonadUtxoQuery)
 import Data.Data (Proxy (..))
 import Data.List (nub)
+import Network.HTTP.Client (defaultManagerSettings, newManager)
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors
 import PlutusTx.Prelude qualified as P
@@ -36,6 +38,7 @@ import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (uDatum))
 import Wst.Offchain.Query qualified as Query
+import Wst.Server.BlockfrostProxy (BlockfrostProxy, runBlockfrostProxy)
 import Wst.Server.Types (APIInEra, AddToBlacklistArgs (..),
                          AddVKeyWitnessArgs (..), BuildTxAPI,
                          IssueProgrammableTokenArgs (..), QueryAPI,
@@ -47,6 +50,7 @@ import Wst.Server.Types (APIInEra, AddToBlacklistArgs (..),
 --   for static files
 type CombinedAPI =
   APIInEra
+  :<|> BlockfrostProxy
   :<|> Raw
 
 data ServerArgs =
@@ -75,9 +79,11 @@ defaultServerArgs =
 
 runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env) => env -> ServerArgs -> IO ()
 runServer env ServerArgs{saPort, saStaticFiles} = do
-  let app  = cors (const $ Just simpleCorsResourcePolicy) $ case saStaticFiles of
+  manager <- newManager defaultManagerSettings
+  let bf   = Blockfrost.projectId $ Env.envBlockfrost $ Env.runtimeEnv env
+      app  = cors (const $ Just simpleCorsResourcePolicy) $ case saStaticFiles of
         Nothing -> serve (Proxy @APIInEra) (server env)
-        Just fp -> serve (Proxy @CombinedAPI) (server env :<|> serveDirectoryWebApp fp)
+        Just fp -> serve (Proxy @CombinedAPI) (server env :<|> runBlockfrostProxy manager bf :<|> serveDirectoryWebApp fp)
       port = saPort
   Warp.run port app
 
