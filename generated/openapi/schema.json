@@ -16,6 +16,21 @@
                 ],
                 "type": "object"
             },
+            "AddVKeyWitnessArgs_ConwayEra": {
+                "properties": {
+                    "w_tx": {
+                        "$ref": "#/components/schemas/TextEnvelopeJSON"
+                    },
+                    "w_v_key_witness": {
+                        "$ref": "#/components/schemas/TextEnvelopeJSON"
+                    }
+                },
+                "required": [
+                    "w_tx",
+                    "w_v_key_witness"
+                ],
+                "type": "object"
+            },
             "Address": {
                 "description": "bech32-encoded cardano address",
                 "example": "addr_test1qpju2uhn72ur6j5alln6nz7dqcgcjal7xjaw7lwdjdaex4qhr3xpz63fjwvlpsnu8efnhfdja78d3vkv8ks6ac09g3usemu2yl",
@@ -131,6 +146,9 @@
                     "quantity"
                 ],
                 "type": "object"
+            },
+            "TxId": {
+                "type": "string"
             },
             "TxIn": {
                 "description": "TxIn consisting of (Transaction hash + # + index)",
@@ -359,6 +377,35 @@
                 }
             }
         },
+        "/api/v1/tx/add-vkey-witness": {
+            "post": {
+                "description": "Add a VKey witness to a transaction",
+                "requestBody": {
+                    "content": {
+                        "application/json;charset=utf-8": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AddVKeyWitnessArgs_ConwayEra"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TextEnvelopeJSON"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
         "/api/v1/tx/programmable-token/blacklist": {
             "post": {
                 "description": "Add a credential to the blacklist",
@@ -464,6 +511,35 @@
                             "application/json;charset=utf-8": {
                                 "schema": {
                                     "$ref": "#/components/schemas/TextEnvelopeJSON"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/api/v1/tx/submit": {
+            "post": {
+                "description": "Submit a transaction to the blockchain",
+                "requestBody": {
+                    "content": {
+                        "application/json;charset=utf-8": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TextEnvelopeJSON"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TxId"
                                 }
                             }
                         },

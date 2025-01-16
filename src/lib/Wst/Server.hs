@@ -1,22 +1,27 @@
-{-# LANGUAGE NamedFieldPuns   #-}
-{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE NamedFieldPuns    #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications  #-}
 
 {-| servant server for stablecoin POC
 -}
 module Wst.Server(
   runServer,
   ServerArgs(..),
+  staticFilesFromEnv,
   CombinedAPI,
   defaultServerArgs
   ) where
 
+import Blockfrost.Client.Types qualified as Blockfrost
 import Cardano.Api.Shelley qualified as C
 import Control.Lens qualified as L
-import Control.Monad.Except (MonadError)
+import Control.Monad.Error.Class (MonadError (throwError))
+import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.CardanoApi.Lenses qualified as L
-import Convex.Class (MonadBlockchain, MonadUtxoQuery)
+import Convex.Class (MonadBlockchain (sendTx), MonadUtxoQuery)
 import Data.Data (Proxy (..))
+import Data.List (nub)
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors
 import PlutusTx.Prelude qualified as P
@@ -25,13 +30,16 @@ import Servant.API (NoContent (..), Raw, (:<|>) (..))
 import Servant.Server (hoistServer, serve)
 import Servant.Server.StaticFiles (serveDirectoryWebApp)
 import SmartTokens.Types.PTokenDirectory (blnKey)
+import System.Environment qualified
 import Wst.App (WstApp, runWstAppServant)
-import Wst.AppError (AppError)
+import Wst.AppError (AppError (..))
 import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (uDatum))
 import Wst.Offchain.Query qualified as Query
-import Wst.Server.Types (APIInEra, AddToBlacklistArgs (..), BuildTxAPI,
+import Wst.Server.BlockfrostKey (BlockfrostKey, runBlockfrostKey)
+import Wst.Server.Types (APIInEra, AddToBlacklistArgs (..),
+                         AddVKeyWitnessArgs (..), BuildTxAPI,
                          IssueProgrammableTokenArgs (..), QueryAPI,
                          SeizeAssetsArgs (..), SerialiseAddress (..),
                          TextEnvelopeJSON (..),
@@ -41,6 +49,7 @@ import Wst.Server.Types (APIInEra, AddToBlacklistArgs (..), BuildTxAPI,
 --   for static files
 type CombinedAPI =
   APIInEra
+  :<|> BlockfrostKey
   :<|> Raw
 
 data ServerArgs =
@@ -49,6 +58,16 @@ data ServerArgs =
     , saStaticFiles :: Maybe FilePath
     }
     deriving stock (Eq, Show)
+
+{-| Try to read the location of the static files from the 'WST_STATIC_FILES'
+variable, if it has not been set.
+-}
+staticFilesFromEnv :: MonadIO m => ServerArgs -> m ServerArgs
+staticFilesFromEnv sa@ServerArgs{saStaticFiles} = case saStaticFiles of
+  Just _ -> pure sa
+  Nothing -> do
+    files' <- liftIO (System.Environment.lookupEnv "WST_STATIC_FILES")
+    pure sa{saStaticFiles = files'}
 
 defaultServerArgs :: ServerArgs
 defaultServerArgs =
@@ -59,9 +78,11 @@ defaultServerArgs =
 
 runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env) => env -> ServerArgs -> IO ()
 runServer env ServerArgs{saPort, saStaticFiles} = do
-  let app  = cors (const $ Just simpleCorsResourcePolicy) $ case saStaticFiles of
-        Nothing -> serve (Proxy @APIInEra) (server env)
-        Just fp -> serve (Proxy @CombinedAPI) (server env :<|> serveDirectoryWebApp fp)
+  let bf   = Blockfrost.projectId $ Env.envBlockfrost $ Env.runtimeEnv env
+      app  = cors (const $ Just simpleCorsResourcePolicy)
+        $ case saStaticFiles of
+            Nothing -> serve (Proxy @APIInEra) (server env)
+            Just fp -> serve (Proxy @CombinedAPI) (server env :<|> runBlockfrostKey bf :<|> serveDirectoryWebApp fp)
       port = saPort
   Warp.run port app
 
@@ -84,10 +105,14 @@ queryApi =
 
 txApi :: forall env. (Env.HasDirectoryEnv env) => ServerT (BuildTxAPI C.ConwayEra) (WstApp env C.ConwayEra)
 txApi =
-  issueProgrammableTokenEndpoint @C.ConwayEra @env
+  (issueProgrammableTokenEndpoint @C.ConwayEra @env
   :<|> transferProgrammableTokenEndpoint @C.ConwayEra @env
   :<|> addToBlacklistEndpoint
   :<|> seizeAssetsEndpoint
+  )
+  :<|> pure . addWitnessEndpoint
+  :<|> submitTxEndpoint
+
 
 computeUserAddress :: forall era env m.
   ( MonadReader env m
@@ -124,7 +149,8 @@ queryBlacklistedNodes _ (SerialiseAddress addr) = do
         . P.fromBuiltin
         . blnKey
         . uDatum
-  Env.withEnv $ Env.withTransfer transferLogic (fmap (fmap getHash) (Query.blacklistNodes @era))
+      nonHeadNodes (P.fromBuiltin . blnKey . uDatum -> hsh) = hsh /= ""
+  Env.withEnv $ Env.withTransfer transferLogic (fmap getHash . filter nonHeadNodes <$> (Query.blacklistNodes @era))
 
 txOutValue :: C.IsMaryBasedEra era => C.TxOut C.CtxUTxO era -> C.Value
 txOutValue = L.view (L._TxOut . L._2 . L._TxOutValue)
@@ -163,11 +189,13 @@ issueProgrammableTokenEndpoint :: forall era env m.
   )
   => IssueProgrammableTokenArgs -> m (TextEnvelopeJSON (C.Tx era))
 issueProgrammableTokenEndpoint IssueProgrammableTokenArgs{itaAssetName, itaQuantity, itaIssuer} = do
+  let C.ShelleyAddress _network cred _stake = itaIssuer
+      destinationCredential = C.fromShelleyPaymentCredential cred
   operatorEnv <- Env.loadOperatorEnvFromAddress itaIssuer
   dirEnv <- asks Env.directoryEnv
   logic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress itaIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer logic $ do
-    TextEnvelopeJSON <$> Endpoints.issueProgrammableTokenTx itaAssetName itaQuantity
+    TextEnvelopeJSON . fst <$> Endpoints.issueSmartTokensTx itaAssetName itaQuantity destinationCredential
 
 paymentCredentialFromAddress :: C.Address C.ShelleyAddr -> C.PaymentCredential
 paymentCredentialFromAddress = \case
@@ -231,3 +259,18 @@ seizeAssetsEndpoint SeizeAssetsArgs{saIssuer, saTarget} = do
   transferLogic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress saIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
     TextEnvelopeJSON <$> Endpoints.seizeCredentialAssetsTx badCred
+
+addWitnessEndpoint :: forall era. AddVKeyWitnessArgs era -> TextEnvelopeJSON (C.Tx era)
+addWitnessEndpoint AddVKeyWitnessArgs{avwTx, avwVKeyWitness} =
+  let C.Tx txBody txWits = unTextEnvelopeJSON avwTx
+      vkey = unTextEnvelopeJSON avwVKeyWitness
+      x = C.makeSignedTransaction (nub $ vkey : txWits) txBody
+  in TextEnvelopeJSON x
+
+submitTxEndpoint :: forall era m.
+  ( MonadBlockchain era m
+  , MonadError (AppError era) m
+  )
+  =>  TextEnvelopeJSON (C.Tx era) -> m C.TxId
+submitTxEndpoint (TextEnvelopeJSON tx) = do
+  either (throwError . SubmitError) pure =<< sendTx tx

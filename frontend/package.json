@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "export": "WST_BUILD=export next build",
     "start": "next start",
     "lint": "next lint"
   },
@@ -25,7 +26,6 @@
     "react": "^18",
     "react-dom": "^18",
     "regenerator-runtime": "^0.14.1",
-    "ts-log": "^2.2.7",
     "zustand": "^5.0.2"
   },
   "devDependencies": {

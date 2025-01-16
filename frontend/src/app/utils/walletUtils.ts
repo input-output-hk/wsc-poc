@@ -4,6 +4,17 @@ import axios from 'axios';
 //Lucis imports
 import { Blockfrost, CML, Lucid, LucidEvolution, makeTxSignBuilder, TxSignBuilder, walletFromSeed } from "@lucid-evolution/lucid";
 
+async function loadKey() {
+  const response = await axios.get("/blockfrost-key",
+    {
+      headers: {
+        'Content-Type': 'application/json;charset=utf-8', 
+      },
+    });
+  const BE_KEY = response?.data;
+  return BE_KEY;
+}
+
 export async function makeLucid() {
         const API_KEY = process.env.NEXT_PUBLIC_BLOCKFROST_API_KEY;
 
@@ -96,3 +107,12 @@ export async function selectLucidWallet(lucid: LucidEvolution, wallet: WalletTyp
   const api = (await window.cardano[wallet.toLowerCase()].enable());
   lucid.selectWallet.fromAPI(api);
 }
+
+
+
+
+
+
+
+
+

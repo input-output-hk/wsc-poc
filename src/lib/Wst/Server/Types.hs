@@ -19,6 +19,7 @@ module Wst.Server.Types (
   TransferProgrammableTokenArgs(..),
   AddToBlacklistArgs(..),
   SeizeAssetsArgs(..),
+  AddVKeyWitnessArgs(..),
 
   -- * Newtypes
   TextEnvelopeJSON(..),
@@ -180,6 +181,23 @@ instance FromJSON SeizeAssetsArgs where
 instance ToSchema SeizeAssetsArgs where
   declareNamedSchema = Schema.genericDeclareNamedSchema (SchemaOptions.fromAesonOptions jsonOptions2)
 
+data AddVKeyWitnessArgs era =
+  AddVKeyWitnessArgs
+    { avwTx :: TextEnvelopeJSON (C.Tx era)
+    , avwVKeyWitness :: TextEnvelopeJSON (C.KeyWitness era)
+    }
+    deriving stock (Generic)
+
+instance C.IsShelleyBasedEra era => ToJSON (AddVKeyWitnessArgs era) where
+  toJSON = JSON.genericToJSON jsonOptions3
+  toEncoding = JSON.genericToEncoding jsonOptions3
+
+instance C.IsShelleyBasedEra era => FromJSON (AddVKeyWitnessArgs era) where
+  parseJSON = JSON.genericParseJSON jsonOptions3
+
+instance C.IsShelleyBasedEra era => ToSchema (AddVKeyWitnessArgs era) where
+  declareNamedSchema = Schema.genericDeclareNamedSchema (SchemaOptions.fromAesonOptions jsonOptions2)
+
 type BuildTxAPI era =
   "programmable-token" :>
     ( "issue" :> Description "Create some programmable tokens" :> ReqBody '[JSON] IssueProgrammableTokenArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
@@ -187,3 +205,7 @@ type BuildTxAPI era =
       :<|> "blacklist" :> Description "Add a credential to the blacklist" :> ReqBody '[JSON] AddToBlacklistArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
       :<|> "seize" :> Description "Seize a user's funds" :> ReqBody '[JSON] SeizeAssetsArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
     )
+  :<|>
+  "add-vkey-witness" :> Description "Add a VKey witness to a transaction" :> ReqBody '[JSON] (AddVKeyWitnessArgs era) :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
+  :<|>
+  "submit" :> Description "Submit a transaction to the blockchain" :> ReqBody '[JSON] (TextEnvelopeJSON (C.Tx era)) :> Post '[JSON] C.TxId

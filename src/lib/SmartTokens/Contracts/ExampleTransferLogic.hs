@@ -78,8 +78,8 @@ instance PUnsafeLiftDecl PBlacklistProof where
 
   This ensures that only transactions signed by the specified permissioned credential can spend the associated programmable tokens.
 -}
-mkPermissionedTransfer :: ClosedTerm (PAsData PPubKeyHash :--> PScriptContext :--> PUnit)
-mkPermissionedTransfer = plam $ \permissionedCred ctx ->
+mkPermissionedTransfer :: ClosedTerm (PData :--> PAsData PPubKeyHash :--> PScriptContext :--> PUnit)
+mkPermissionedTransfer = plam $ \_ permissionedCred ctx ->
   pvalidateConditions
     [ ptxSignedByPkh # permissionedCred # (pfield @"signatories" # (pfield @"txInfo" # ctx))
     ]

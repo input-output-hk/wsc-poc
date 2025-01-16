@@ -74,7 +74,6 @@ jobs:
         # except the version with the `primary-key`, if it exists
         purge-primary-key: never
 
-    # TODO: matrix build for two images (mock server and wst)
     - name: Build image with nix
       run: nix build --accept-flake-config .#containers.x86_64-linux.${{ matrix.image }}.copyTo
     - name: Publish tagged image with podman

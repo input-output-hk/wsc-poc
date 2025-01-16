@@ -3,8 +3,12 @@
 frontendNpm = pkgs.buildNpmPackage rec {
   name = "frontend";
   src = ../frontend;
+<<<<<<< HEAD
   npmDepsHash = "sha256-wtpNvgzcY0jpp5EgmWp4hXYfVs3xieq3Lb05tlhHlv4=";
+=======
+>>>>>>> origin/main
   npmPackFlags = [ "--ignore-scripts" ];
+  npmBuildScript = "export";
   installPhase = ''
     mkdir -p $out/frontend
     cp -r out/* $out/frontend
@@ -43,6 +47,9 @@ in rec {
   wst = inputs.n2c.packages.nix2container.buildImage {
     name = "wst";
     config = {
+      Env = [
+        "WST_STATIC_FILES=${frontend}/frontend"
+      ];
       Entrypoint = lib.singleton (lib.getExe inputs.self.packages.wst-poc-cli);
       Labels = {
         "org.opencontainers.image.source"      = "https://github.com/input-output-hk/wsc-poc";
@@ -54,18 +61,12 @@ in rec {
       (inputs.n2c.packages.nix2container.buildLayer {
         copyToRoot = [frontend];
       })
+      # CA certificates for SSL (required for calling blockfrost API)
+      (inputs.n2c.packages.nix2container.buildLayer {
+        copyToRoot = [pkgs.dockerTools.caCertificates];
+      })
     ];
   };
-
-
-  wst-poc-mock-server = lib.iogx.mkContainerFromCabalExe {
-    exe = inputs.self.packages.wst-poc-mock-server;
-    name = "wst-poc-mock-server";
-    description = "WST mockserver";
-    packages = [ ];
-    sourceUrl = "https://github.com/input-output-hk/wsc-poc";
-  };
-
 
 }
 

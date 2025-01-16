@@ -80,12 +80,14 @@ library
     Wst.Offchain.BuildTx.ProgrammableLogic
     Wst.Offchain.BuildTx.ProtocolParams
     Wst.Offchain.BuildTx.TransferLogic
+    Wst.Offchain.BuildTx.Utils
     Wst.Offchain.Endpoints.Deployment
     Wst.Offchain.Env
     Wst.Offchain.Query
     Wst.Offchain.Scripts
     Wst.Orphans
     Wst.Server
+    Wst.Server.BlockfrostKey
     Wst.Server.Types
 
   hs-source-dirs:  lib
@@ -95,8 +97,10 @@ library
     , base16-bytestring
     , Blammo
     , blockfrost-api
+    , blockfrost-client
     , blockfrost-client-core
     , cardano-api
+    , cardano-ledger-shelley
     , containers
     , convex-base
     , convex-blockfrost
@@ -141,7 +145,10 @@ executable export-smart-tokens
     , base
     , base16-bytestring
     , bytestring
+    , cardano-api
     , cardano-binary
+    , mtl
+    , optparse-applicative
     , plutarch
     , plutus-ledger-api
     , text
@@ -152,10 +159,7 @@ executable export-smart-tokens
 library test-lib
   import:          lang
   hs-source-dirs:  test/lib
-  exposed-modules:
-    Wst.Test.Gen
-    Wst.Test.MockServer
-
+  exposed-modules: Wst.Test.Gen
   build-depends:
     , base
     , cardano-api
@@ -164,10 +168,6 @@ library test-lib
     , hedgehog-quickcheck
     , plutus-ledger-api
     , QuickCheck
-    , servant
-    , servant-server
-    , wai-cors
-    , warp
     , wst-poc
 
 test-suite wst-poc-test
@@ -180,11 +180,10 @@ test-suite wst-poc-test
     Wst.Test.UnitTest
 
   build-depends:
-    , base                    >=4.14.0
+    , base                   >=4.14.0
     , cardano-api
     , cardano-ledger-api
     , cardano-ledger-core
-    , cardano-ledger-shelley
     , convex-base
     , convex-coin-selection
     , convex-mockchain

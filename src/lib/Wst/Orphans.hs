@@ -105,3 +105,8 @@ instance ToSchema C.Quantity where
     $ mempty
         & L.type_ ?~ OpenApiInteger
 
+instance ToSchema C.TxId where
+  declareNamedSchema _ = pure
+    $ NamedSchema (Just "TxId")
+    $ mempty
+        & L.type_ ?~ OpenApiString

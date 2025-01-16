@@ -1,8 +1,76 @@
 const TsconfigPathsPlugin = require('tsconfig-paths-webpack-plugin');
 
+/**
+ * Webpack config used by export and dev builds
+ * @param {*} config 
+ * @param {*} param1 
+ * @returns 
+ */
+const webpackConfig = (config, { isServer }) => {
+  // Ensure `resolve.plugins` exists
+  config.resolve.plugins = [
+    ...(config.resolve.plugins || []), // Keep existing plugins
+    new TsconfigPathsPlugin({
+      configFile: './tsconfig.json', // Adjust the path to your tsconfig.json if necessary
+    }),
+  ];
+
+  config.experiments = {
+    ...config.experiments,
+    asyncWebAssembly: true, // Enable async WebAssembly
+    topLevelAwait: true,
+    layers: true
+  };
+  if (!isServer) {
+    config.output.environment = { ...config.output.environment, asyncFunction: true };
+  }
+
+  // Add fallback and resolve configurations for browser compatibility
+  config.resolve = {
+    ...config.resolve,
+    extensions: ['.ts', '.tsx', '.js', '.mjs'],
+    fallback: {
+      https: require.resolve('https-browserify'),
+      http: require.resolve('stream-http'),
+      'get-port-please': false,
+      net: false,
+      fs: false,
+      os: false,
+      path: false,
+      events: require.resolve('events/'),
+      buffer: require.resolve('buffer/'),
+      stream: require.resolve('readable-stream'),
+      crypto: require.resolve('crypto-browserify'),
+      constants: require.resolve('constants-browserify'),
+      zlib: require.resolve('browserify-zlib'),
+      dns: false,
+      tls: false,
+      process: false,
+      child_process: false,
+    },
+  };
+  
+  return config;
+};
+
+/**
+ * Next.js config that produces a static page
+ */
+const nextConfigExport = {
+  output: 'export',
+  webpack: webpackConfig,
+  experimental: {
+    esmExternals: true, // Ensure modern module support
+  },
+
+  // https://github.com/Anastasia-Labs/lucid-evolution/issues/437
+  serverExternalPackages: [
+    "@lucid-evolution/lucid"
+  ]
+}
 
   /** @type {import('next').NextConfig} */
-const nextConfig = {
+const nextConfigDev = {
   // output: 'export',
   serverExternalPackages: [
     "@lucid-evolution/lucid",
@@ -41,53 +109,10 @@ const nextConfig = {
   experimental: {
     esmExternals: true, // Ensure modern module support
   },
-  webpack: (config, { isServer }) => {
-    // Ensure `resolve.plugins` exists
-    config.resolve.plugins = [
-      ...(config.resolve.plugins || []), // Keep existing plugins
-      new TsconfigPathsPlugin({
-        configFile: './tsconfig.json', // Adjust the path to your tsconfig.json if necessary
-      }),
-    ];
-
-    config.experiments = {
-      ...config.experiments,
-      asyncWebAssembly: true, // Enable async WebAssembly
-      topLevelAwait: true,
-      layers: true
-    };
-    if (!isServer) {
-      config.output.environment = { ...config.output.environment, asyncFunction: true };
-    }
-
-    // Add fallback and resolve configurations for browser compatibility
-    config.resolve = {
-      ...config.resolve,
-      extensions: ['.ts', '.tsx', '.js', '.mjs'],
-      fallback: {
-        https: require.resolve('https-browserify'),
-        http: require.resolve('stream-http'),
-        'get-port-please': false,
-        net: false,
-        fs: false,
-        os: false,
-        path: false,
-        events: require.resolve('events/'),
-        buffer: require.resolve('buffer/'),
-        stream: require.resolve('readable-stream'),
-        crypto: require.resolve('crypto-browserify'),
-        constants: require.resolve('constants-browserify'),
-        zlib: require.resolve('browserify-zlib'),
-        dns: false,
-        tls: false,
-        process: false,
-        child_process: false,
-      },
-    };
-    
-    return config;
-  },
+  webpack: webpackConfig
 };
+
+const nextConfig = (process.env.WST_BUILD === 'export') ? nextConfigExport : nextConfigDev;
 
 module.exports = nextConfig;
   
