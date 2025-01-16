@@ -87,6 +87,7 @@ library
     Wst.Offchain.Scripts
     Wst.Orphans
     Wst.Server
+    Wst.Server.BlockfrostKey
     Wst.Server.Types
 
   hs-source-dirs:  lib
@@ -96,6 +97,7 @@ library
     , base16-bytestring
     , Blammo
     , blockfrost-api
+    , blockfrost-client
     , blockfrost-client-core
     , cardano-api
     , cardano-ledger-shelley
@@ -157,10 +159,7 @@ executable export-smart-tokens
 library test-lib
   import:          lang
   hs-source-dirs:  test/lib
-  exposed-modules:
-    Wst.Test.Gen
-    Wst.Test.MockServer
-
+  exposed-modules: Wst.Test.Gen
   build-depends:
     , base
     , cardano-api
@@ -169,10 +168,6 @@ library test-lib
     , hedgehog-quickcheck
     , plutus-ledger-api
     , QuickCheck
-    , servant
-    , servant-server
-    , wai-cors
-    , warp
     , wst-poc
 
 test-suite wst-poc-test

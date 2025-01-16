@@ -39,7 +39,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         };
     
         fetchUserWallets();
-      },[]);
+      }, []);
 
   if(userB.address === '') {
     return <div className="mainLoadingContainer">

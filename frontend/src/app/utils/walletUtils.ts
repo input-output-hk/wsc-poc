@@ -4,16 +4,23 @@ import axios from 'axios';
 //Lucis imports
 import { Blockfrost, CML, Lucid, LucidEvolution, TxSigned, walletFromSeed } from "@lucid-evolution/lucid";
 
+async function loadKey() {
+  const response = await axios.get("/blockfrost-key",
+    {
+      headers: {
+        'Content-Type': 'application/json;charset=utf-8', 
+      },
+    });
+  const BE_KEY = response?.data;
+  return BE_KEY;
+}
+
 export async function makeLucid() {
-        const API_KEY = process.env.NEXT_PUBLIC_BLOCKFROST_API_KEY;
+        const API_KEY_ENV = process.env.NEXT_PUBLIC_BLOCKFROST_API_KEY;
+        const API_KEY = (API_KEY_ENV) ? API_KEY_ENV : await loadKey();
 
-        if (!API_KEY) {
-            throw new Error(
-                "Missing required environment variables for Blockfrost context.",
-            );
-        }
+        const blockfrostURL = "https://cardano-preview.blockfrost.io/api/v0"
 
-        let blockfrostURL = "https://cardano-preview.blockfrost.io/api/v0";
         const blockfrost = new Blockfrost(blockfrostURL, API_KEY);
 
         const lucid = await Lucid(blockfrost, "Preview");
@@ -23,7 +30,7 @@ export async function makeLucid() {
 
 export async function getWalletFromSeed(mnemonic: string) {
   try {
-    let mintWallet = walletFromSeed(mnemonic, {password: '', addressType: 'Base', accountIndex: 0, network: "Preview"});
+    const mintWallet = walletFromSeed(mnemonic, {password: '', addressType: 'Base', accountIndex: 0, network: "Preview"});
     return mintWallet;
   } catch (error) {
     console.error('Failed to initialize KeyAgent:', error);

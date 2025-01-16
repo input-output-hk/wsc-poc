@@ -3,8 +3,9 @@
 frontendNpm = pkgs.buildNpmPackage rec {
   name = "frontend";
   src = ../frontend;
-  npmDepsHash = "sha256-wtpNvgzcY0jpp5EgmWp4hXYfVs3xieq3Lb05tlhHlv4=";
+  npmDepsHash = "sha256-N15xhC5rFY0pgnP6BXIztgfx2wDztcEvU5iOwDFFmHs=";
   npmPackFlags = [ "--ignore-scripts" ];
+  npmBuildScript = "export";
   installPhase = ''
     mkdir -p $out/frontend
     cp -r out/* $out/frontend
@@ -43,6 +44,9 @@ in rec {
   wst = inputs.n2c.packages.nix2container.buildImage {
     name = "wst";
     config = {
+      Env = [
+        "WST_STATIC_FILES=${frontend}/frontend"
+      ];
       Entrypoint = lib.singleton (lib.getExe inputs.self.packages.wst-poc-cli);
       Labels = {
         "org.opencontainers.image.source"      = "https://github.com/input-output-hk/wsc-poc";
@@ -60,16 +64,6 @@ in rec {
       })
     ];
   };
-
-
-  wst-poc-mock-server = lib.iogx.mkContainerFromCabalExe {
-    exe = inputs.self.packages.wst-poc-mock-server;
-    name = "wst-poc-mock-server";
-    description = "WST mockserver";
-    packages = [ ];
-    sourceUrl = "https://github.com/input-output-hk/wsc-poc";
-  };
-
 
 }
 
