@@ -111,6 +111,7 @@ library
     , convex-wallet
     , generics-sop
     , http-client
+    , http-client-tls
     , http-types
     , lens
     , mtl

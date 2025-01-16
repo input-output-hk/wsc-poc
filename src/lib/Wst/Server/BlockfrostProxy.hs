@@ -25,6 +25,9 @@ type BlockfrostProxy = "blockfrost-proxy" :> Raw
 
 type Header = (CI.CI B8.ByteString, B8.ByteString)
 
+-- TODO: This always connects to the preview network, we should
+-- make this configurable. (Needs to be accompanied by a change
+-- in the frontend)
 targetUrl :: B8.ByteString
 targetUrl = "https://cardano-preview.blockfrost.io/"
 
@@ -42,15 +45,16 @@ runBlockfrostProxy manager t = do
 handler :: Manager -> Header -> Wai.Request -> (Response -> IO w) -> IO w
 handler manager hd request respond = do
   initialRequest <- parseRequest $ B8.unpack targetUrl
-  let path_ = Wai.rawPathInfo request <> Wai.rawQueryString request
+
+  -- We need to remove the first element of the path.
+  -- everything after that can be forwarded to blockfrost as-is.
+  let path_ = B8.drop (length @[] "/blockfrost-proxy") (Wai.rawPathInfo request) <> Wai.rawQueryString request
       newRequest = initialRequest
         { method = Wai.requestMethod request
         , path = path_
         , requestHeaders = hd : requestHeaders initialRequest
         , requestBody = requestBody initialRequest
         }
-
-  putStrLn $ "BLOCKFROST PROXY: New path: " <> B8.unpack path_
   response <- httpLbs newRequest manager
   respond $ Wai.responseLBS
     (responseStatus response)

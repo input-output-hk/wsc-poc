@@ -22,7 +22,8 @@ import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain (sendTx), MonadUtxoQuery)
 import Data.Data (Proxy (..))
 import Data.List (nub)
-import Network.HTTP.Client (defaultManagerSettings, newManager)
+import Network.HTTP.Client (newManager)
+import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors
 import PlutusTx.Prelude qualified as P
@@ -79,7 +80,7 @@ defaultServerArgs =
 
 runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env) => env -> ServerArgs -> IO ()
 runServer env ServerArgs{saPort, saStaticFiles} = do
-  manager <- newManager defaultManagerSettings
+  manager <- newManager tlsManagerSettings
   let bf   = Blockfrost.projectId $ Env.envBlockfrost $ Env.runtimeEnv env
       app  = cors (const $ Just simpleCorsResourcePolicy) $ case saStaticFiles of
         Nothing -> serve (Proxy @APIInEra) (server env)
