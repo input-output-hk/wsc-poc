@@ -5,6 +5,10 @@ import React, { useEffect, useState } from 'react';
 //Axios imports
 import axios from 'axios';
 
+//Lucid imports
+import { CML, makeTxSignBuilder, paymentCredentialOf } from '@lucid-evolution/lucid';
+import type { Credential as LucidCredential } from "@lucid-evolution/core-types";
+
 //Mui imports
 import { Box, Typography } from '@mui/material';
 import Checkbox from '@mui/material/Checkbox';
@@ -17,11 +21,10 @@ import WalletCard from '../components/Card';
 import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
 import WSTTable from '../components/WSTTable';
-import AlertBar from '../components/AlertBar';
-import { getWalletBalance, signAndSentTx, getBlacklist } from '../utils/walletUtils';
+import { getWalletBalance, signAndSentTx, getBlacklist, adjustMintOutput, deriveProgrammableAddress } from '../utils/walletUtils';
 
 export default function Home() {
-  const { lucid, mintAccount, accounts, alertInfo, selectedTab, changeAlertInfo, changeWalletAccountDetails, fetchBlacklistStatus } = useStore();
+  const { lucid, mintAccount, accounts, selectedTab, changeAlertInfo, changeMintAccountDetails, changeWalletAccountDetails } = useStore();
   const [addressCleared, setAddressCleared] = useState(false);
   // Temporary state for each text field
   const [mintTokensAmount, setMintTokens] = useState(0);
@@ -33,15 +36,45 @@ export default function Home() {
   const [seizeAccountNumber, setSeizeAccountNumber] = useState('account to seize');
   const [seizeReason, setSeizeReason] = useState('Enter reason here');
 
+  useEffect(() => {
+    const initialize = async () => {
+      await fetchUserDetails();
+      await fetchBlacklistStatus();
+    };
+    initialize();
+  }, []);
+
+  const fetchUserDetails = async () => {
+    const mintBalance = await getWalletBalance(mintAccount.address);
+    const userABalance = await getWalletBalance(accounts.userA.address);
+    const userBBalance = await getWalletBalance(accounts.userB.address);
+
+    // Update Zustand store with the initialized wallet information
+    changeMintAccountDetails({ ...mintAccount, balance: mintBalance});
+    changeWalletAccountDetails('userA', { ...accounts.userA, balance: userABalance});
+    changeWalletAccountDetails('userB', { ...accounts.userB, balance: userBBalance});
+  };
+
+  const fetchBlacklistStatus = async () => {
+    const blacklist = await getBlacklist();
+    
+    Object.entries(accounts).map(async ([key, account]) => {
+      if (!account.address || account.address.trim() === "") {
+        console.log(`${key} has no address yet, skipping`);
+        return;
+      }
+      const credential : LucidCredential = await paymentCredentialOf(account.address);
+      // console.log('here is the credential', credential);
+      if(blacklist.includes(credential.hash)) {
+        console.log('a match was found', key as keyof typeof accounts);
+        changeWalletAccountDetails(key as keyof typeof accounts, { ...account, status: 'Frozen',});
+      }
+    });
+  };
+
   const handleAddressClearedChange = (event: { target: { checked: boolean | ((prevState: boolean) => boolean); }; }) => {
     setAddressCleared(event.target.checked);
   };
-
-  useEffect(() => {
-    // getBlacklist();
-    useStore.getState();
-    // console.log("accounts changed:", accounts, mintAccount);
-  }, [accounts, mintAccount]);
 
   const onMint = async () => {
     if (addressCleared === false) {
@@ -49,7 +82,7 @@ export default function Home() {
       console.error("Recipient Address not cleared.");
       return;
     }
-    changeAlertInfo({severity: 'info', message: 'Transaction processing', open: true,});
+    changeAlertInfo({severity: 'info', message: 'Processing Mint Request', open: true,});
     lucid.selectWallet.fromSeed(mintAccount.mnemonic);
     const requestData = {
       asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
@@ -70,7 +103,26 @@ export default function Home() {
       console.log('Mint response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       await signAndSentTx(lucid, tx);
-      changeAlertInfo({...alertInfo, open: true,});
+      // const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
+      // const cmlTxInternal = txBuilder.toTransaction()
+      // console.log("TxBody: " + cmlTxInternal.body().to_json());
+      // const cmlTx = adjustMintOutput(cmlTxInternal, (await deriveProgrammableAddress(lucid, mintRecipientAddress)), BigInt(mintTokensAmount))
+      // const witnessSet = txBuilder.toTransaction().witness_set()
+      // const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
+      // console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
+      // const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());
+      // console.log("TxBody: " + cmlTxBodyClone.to_json());
+      // console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
+      // cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash!);
+      // console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
+      // const cmlClonedTx = CML.Transaction.new(cmlTxBodyClone, cmlTx!.witness_set(), true, cmlTx!.auxiliary_data());
+      // const cmlClonedSignedTx = await makeTxSignBuilder(lucid.wallet(), cmlClonedTx).sign.withWallet().complete();
+
+      // const txId = await cmlClonedSignedTx.submit();
+      // await lucid.awaitTx(txId);
+      
+      changeAlertInfo({severity: 'success', message: 'Successful new WST mint', open: true,});
+      await fetchUserDetails();
     } catch (error) {
       console.error('Minting failed:', error);
     }
@@ -110,7 +162,8 @@ export default function Home() {
           balance: newAccountBalance,
         });
       }
-      changeAlertInfo({...alertInfo, open: true,});
+      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true,});
+      await fetchUserDetails();
     } catch (error) {
       console.error('Send failed:', error);
     }
@@ -119,7 +172,7 @@ export default function Home() {
   const onFreeze = async () => {
     console.log('freeze an account');
     lucid.selectWallet.fromSeed(mintAccount.mnemonic);
-    changeAlertInfo({severity: 'info', message: 'Transaction processing', open: true,});
+    changeAlertInfo({severity: 'info', message: 'Freeze request processing', open: true,});
     const requestData = {
       issuer: mintAccount.address,
       blacklist_address: freezeAccountNumber,
@@ -137,16 +190,8 @@ export default function Home() {
       console.log('Freeze response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       await signAndSentTx(lucid, tx);
-      changeAlertInfo({...alertInfo, open: true,});
-      const frozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
-        (key) => accounts[key].address === freezeAccountNumber
-      );
-      if (frozenWalletKey) {
-        changeWalletAccountDetails(frozenWalletKey, {
-          ...accounts[frozenWalletKey],
-          status: 'Frozen',
-        });
-      }
+      changeAlertInfo({severity: 'success', message: 'Account successfully frozen', open: true,});
+      fetchBlacklistStatus();
     } catch (error) {
       console.error('Freeze failed:', error);
     }
@@ -155,7 +200,7 @@ export default function Home() {
   const onSeize = async () => {
     console.log('seize account funds');
     lucid.selectWallet.fromSeed(mintAccount.mnemonic);
-    changeAlertInfo({severity: 'info', message: 'Transaction processing', open: true,});
+    changeAlertInfo({severity: 'info', message: 'WST seizure processing', open: true,});
     const requestData = {
       issuer: mintAccount.address,
       target: seizeAccountNumber,
@@ -171,19 +216,20 @@ export default function Home() {
         }
       );
       console.log('Seize response:', response.data);
-      // const tx = await lucid.fromTx(response.data.cborHex);
-      // await signAndSentTx(lucid, tx);
-      // const newAccountBalance = await getWalletBalance(seizeAccountNumber);
-      // const seizeWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
-      //   (key) => accounts[key].address === seizeAccountNumber
-      // );
-      // if (seizeWalletKey) {
-      //   changeWalletAccountDetails(seizeWalletKey, {
-      //     ...accounts[seizeWalletKey],
-      //     balance: newAccountBalance,
-      //   });
-      // }
-      // changeAlertInfo({...alertInfo, open: true,});
+      const tx = await lucid.fromTx(response.data.cborHex);
+      await signAndSentTx(lucid, tx);
+      const newAccountBalance = await getWalletBalance(seizeAccountNumber);
+      const seizeWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
+        (key) => accounts[key].address === seizeAccountNumber
+      );
+      if (seizeWalletKey) {
+        changeWalletAccountDetails(seizeWalletKey, {
+          ...accounts[seizeWalletKey],
+          balance: newAccountBalance,
+        });
+      }
+      changeAlertInfo({severity: 'success', message: 'Funds successfully seized', open: true,});
+      await fetchUserDetails();
     } catch (error) {
       console.error('Seize failed:', error);
     }
@@ -330,3 +376,5 @@ maxRows={3}
     </div>
   );
 }
+
+

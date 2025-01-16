@@ -16,12 +16,11 @@ const handleClose = () => {
 };
 
   return (
-      <Snackbar open={alertInfo.open} anchorOrigin={{vertical: 'top', horizontal: 'center'}} >
+      <Snackbar open={alertInfo.open} autoHideDuration={3000} onClose={handleClose} anchorOrigin={{vertical: 'top', horizontal: 'center'}} >
         <Alert
           severity={alertInfo.severity}
           variant="filled"
           sx={{ width: '100%' }}
-          onClose={handleClose}
         >
             {alertInfo.message}
         </Alert>

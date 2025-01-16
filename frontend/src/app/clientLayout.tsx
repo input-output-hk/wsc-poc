@@ -23,16 +23,12 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             // retrieve wallet info
             const mintAuthorityWallet = await getWalletFromSeed(mintAccount.mnemonic);
             const walletA = await getWalletFromSeed(accounts.userA.mnemonic);
-            
             const walletB = await getWalletFromSeed(accounts.userB.mnemonic);
     
-            const mintStartBalance = await getWalletBalance(mintAuthorityWallet.address);
-            const userAStartBalance = await getWalletBalance(walletA.address);
-            const userBStartBalance = await getWalletBalance(walletB.address);
             // Update Zustand store with the initialized wallet information
-            changeMintAccountDetails({ ...mintAccount, address: mintAuthorityWallet.address, balance: mintStartBalance});
-            changeWalletAccountDetails('userA', { ...accounts.userA, address: walletA.address, balance: userAStartBalance});
-            changeWalletAccountDetails('userB', { ...accounts.userB, address: walletB.address, balance: userBStartBalance});
+            changeMintAccountDetails({ ...mintAccount, address: mintAuthorityWallet.address});
+            changeWalletAccountDetails('userA', { ...accounts.userA, address: walletA.address},);
+            changeWalletAccountDetails('userB', { ...accounts.userB, address: walletB.address});
     
             const initialLucid = await makeLucid();
             setLucidInstance(initialLucid);

@@ -1,4 +1,4 @@
-
+'use client'
 //Mui imports
 import TableContainer from "@mui/material/TableContainer";
 import Table from "@mui/material/Table";
@@ -32,8 +32,8 @@ export default function WSTTable() {
               <TableCell>
                   {acct?.address.slice(0,15)}
               </TableCell>
-              <TableCell sx={{color: acct?.status === 'Frozen' ? 'error.main' : 'success.main', fontWeight: '500'}}>
-                  {acct?.status}
+              <TableCell sx={{color: acct.status === 'Frozen' ? 'error.main' : 'success.main', fontWeight: '500'}}>
+                  {acct.status}
               </TableCell>
               <TableCell align="right">
                   {`${acct?.balance} WST`}

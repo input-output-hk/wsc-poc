@@ -369,6 +369,10 @@ export const getTheme = (mode: 'light') => createTheme({
             backgroundColor: '#FFDBD2',
             color: '#3C0800',
           }),
+          filledInfo: () => ({
+            backgroundColor: '#FFF2AC',
+            color: '#201C00',
+          }),
         },
       },
     },

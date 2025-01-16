@@ -66,8 +66,8 @@ export default function Profile() {
       console.log('Send response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       await signAndSentTx(lucid, tx);
-      updateAccountBalance(sendRecipientAddress);
-      updateAccountBalance(accountInfo.address);
+      await updateAccountBalance(sendRecipientAddress);
+      await updateAccountBalance(accountInfo.address);
       changeAlertInfo({...alertInfo, open: true,});
     } catch (error) {
       console.error('Send failed:', error);
