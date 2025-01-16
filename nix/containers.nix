@@ -3,10 +3,7 @@
 frontendNpm = pkgs.buildNpmPackage rec {
   name = "frontend";
   src = ../frontend;
-<<<<<<< HEAD
   npmDepsHash = "sha256-wtpNvgzcY0jpp5EgmWp4hXYfVs3xieq3Lb05tlhHlv4=";
-=======
->>>>>>> origin/main
   npmPackFlags = [ "--ignore-scripts" ];
   npmBuildScript = "export";
   installPhase = ''

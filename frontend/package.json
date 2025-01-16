@@ -10,9 +10,6 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@cardano-sdk/core": "^0.43.0",
-    "@cardano-sdk/crypto": "^0.1.32",
-    "@cardano-sdk/key-management": "^0.19.0",
     "@emotion/cache": "^11.14.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",

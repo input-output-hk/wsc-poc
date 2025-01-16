@@ -1,10 +1,7 @@
-'use client'
+
 'use client'
 //React Imports
 import * as React from 'react';
-
-//Next.js Imports
-import { useRouter } from 'next/navigation';
 
 //Next.js Imports
 import { useRouter } from 'next/navigation';
@@ -19,27 +16,12 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import useStore from '../store/store'; 
 import { UserName } from '../store/types';
 import { selectLucidWallet, getWalletBalance } from '../utils/walletUtils';
-import { selectLucidWallet, getWalletBalance } from '../utils/walletUtils';
 
 export default function ProfileSwitcher() {
   const [anchorEl, setAnchorEl] = React.useState<HTMLElement | null>(null);
   const { currentUser, accounts, changeWalletAccountDetails } = useStore();
   const lucid = useStore(state => state.lucid);
   const changeUserAccount = useStore(state => state.changeUserAccount);
-  const router = useRouter();
-
-  React.useEffect(() => {
-    // Check the current path and redirect if the currentUser doesn't match
-    const expectedPath =
-      currentUser === 'Mint Authority'
-        ? '/mint-authority'
-        : `/${currentUser.toLowerCase().replace(/\s+/g, '-')}`;
-    const currentPath = window.location.pathname;
-
-    if (currentPath !== expectedPath) {
-      router.push(expectedPath);
-    }
-  }, [currentUser, router]);
   const router = useRouter();
 
   React.useEffect(() => {
@@ -65,14 +47,6 @@ export default function ProfileSwitcher() {
 
   const handleSelect = (user: UserName) => {
     changeUserAccount(user);
-   
-    // Determine the URL
-    const newUrl =
-    user === 'Mint Authority'
-      ? '/mint-authority'
-      : `/${user.toLowerCase().replace(/\s+/g, '-')}`;
-
-    router.push(newUrl);
    
     // Determine the URL
     const newUrl =
@@ -114,7 +88,6 @@ export default function ProfileSwitcher() {
         <MenuItem onClick={() => handleSelect('Mint Authority')}>Mint Authority</MenuItem>
         <MenuItem onClick={() => handleSelect('User A')}>User A</MenuItem>
         <MenuItem onClick={() => handleSelect('User B')}>User B</MenuItem>
-        <MenuItem onClick={() => handleWalletConnect('Connected Wallet')}>Lace</MenuItem>
         <MenuItem onClick={() => handleWalletConnect('Connected Wallet')}>Lace</MenuItem>
       </Menu>
     </>
