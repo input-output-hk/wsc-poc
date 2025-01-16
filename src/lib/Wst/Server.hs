@@ -7,6 +7,7 @@
 module Wst.Server(
   runServer,
   ServerArgs(..),
+  staticFilesFromEnv,
   CombinedAPI,
   defaultServerArgs
   ) where
@@ -14,6 +15,7 @@ module Wst.Server(
 import Cardano.Api.Shelley qualified as C
 import Control.Lens qualified as L
 import Control.Monad.Error.Class (MonadError (throwError))
+import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain (sendTx), MonadUtxoQuery)
@@ -27,6 +29,7 @@ import Servant.API (NoContent (..), Raw, (:<|>) (..))
 import Servant.Server (hoistServer, serve)
 import Servant.Server.StaticFiles (serveDirectoryWebApp)
 import SmartTokens.Types.PTokenDirectory (blnKey)
+import System.Environment qualified
 import Wst.App (WstApp, runWstAppServant)
 import Wst.AppError (AppError (..))
 import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
@@ -52,6 +55,16 @@ data ServerArgs =
     , saStaticFiles :: Maybe FilePath
     }
     deriving stock (Eq, Show)
+
+{-| Try to read the location of the static files from the 'WST_STATIC_FILES'
+variable, if it has not been set.
+-}
+staticFilesFromEnv :: MonadIO m => ServerArgs -> m ServerArgs
+staticFilesFromEnv sa@ServerArgs{saStaticFiles} = case saStaticFiles of
+  Just _ -> pure sa
+  Nothing -> do
+    files' <- liftIO (System.Environment.lookupEnv "WST_STATIC_FILES")
+    pure sa{saStaticFiles = files'}
 
 defaultServerArgs :: ServerArgs
 defaultServerArgs =

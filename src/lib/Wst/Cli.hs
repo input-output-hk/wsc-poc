@@ -50,7 +50,8 @@ runCommand com = do
         Status -> do
           -- TODO: status check (call the query endpoints and print out a summary of the results)
           logInfo "Manage"
-        StartServer options -> startServer env' options
+        StartServer options ->
+          Server.staticFilesFromEnv options >>= startServer env'
   case result of
     Left err -> runLoggerLoggingT env $ logError (fromString $ show err)
     Right a -> pure a

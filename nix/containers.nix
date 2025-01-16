@@ -44,6 +44,9 @@ in rec {
   wst = inputs.n2c.packages.nix2container.buildImage {
     name = "wst";
     config = {
+      Env = [
+        "WST_STATIC_FILES=${frontend}/frontend"
+      ];
       Entrypoint = lib.singleton (lib.getExe inputs.self.packages.wst-poc-cli);
       Labels = {
         "org.opencontainers.image.source"      = "https://github.com/input-output-hk/wsc-poc";
