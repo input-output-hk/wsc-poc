@@ -69,8 +69,17 @@ export default function Profile() {
       await updateAccountBalance(sendRecipientAddress);
       await updateAccountBalance(accountInfo.address);
       changeAlertInfo({...alertInfo, open: true,});
-    } catch (error) {
-      console.error('Send failed:', error);
+    } catch (error: any) {
+      if (error.response.data.includes('TransferBlacklistedCredential')) {
+        changeAlertInfo({
+          severity: 'error',
+          message: 'Cannot send WST with frozen account.',
+          open: true,
+        });
+        return;
+      } else {
+        console.error('Send failed:', error);
+      }
     }
   };
 

@@ -74,7 +74,7 @@ export async function getBlacklist(){
       }
     );
     
-    console.log('Get blacklist:', response);
+    // console.log('Get blacklist:', response);
     return response.data;
   } catch (error) {
       console.warn('Failed to get blacklist', error);
@@ -103,6 +103,11 @@ export type WalletType = "Lace" | "Eternl" | "Nami" | "Yoroi";
 export async function selectLucidWallet(lucid: LucidEvolution, wallet: WalletType) {
   const api = (await window.cardano[wallet.toLowerCase()].enable());
   lucid.selectWallet.fromAPI(api);
+}
+
+const progLogicBase : LucidCredential = {
+  type: "Script",
+  hash: "fca77bcce1e5e73c97a0bfa8c90f7cd2faff6fd6ed5b6fec1c04eefa"
 }
 
 const stableCoin : Unit = toUnit("b34a184f1f2871aa4d33544caecefef5242025f45c3fa5213d7662a9", "575354");
@@ -218,7 +223,7 @@ export async function deriveProgrammableAddress(lucid: LucidEvolution, userAddre
   // staking credential is the user's payment credential        
   const userProgrammableTokenAddress = credentialToAddress(
         network,
-        // progLogicBase,
+        progLogicBase,
         ownerCred,
       );
   return userProgrammableTokenAddress;

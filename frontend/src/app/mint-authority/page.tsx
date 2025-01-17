@@ -35,7 +35,7 @@ export default function Home() {
   const [freezeReason, setFreezeReason] = useState('Enter reason here');
   const [seizeAccountNumber, setSeizeAccountNumber] = useState('account to seize');
   const [seizeReason, setSeizeReason] = useState('Enter reason here');
-
+  
   useEffect(() => {
     const initialize = async () => {
       await fetchUserDetails();
@@ -50,23 +50,23 @@ export default function Home() {
     const userBBalance = await getWalletBalance(accounts.userB.address);
 
     // Update Zustand store with the initialized wallet information
-    changeMintAccountDetails({ ...mintAccount, balance: mintBalance});
-    changeWalletAccountDetails('userA', { ...accounts.userA, balance: userABalance});
-    changeWalletAccountDetails('userB', { ...accounts.userB, balance: userBBalance});
+    await changeMintAccountDetails({ ...mintAccount, balance: mintBalance});
+    await changeWalletAccountDetails('userA', { ...accounts.userA, balance: userABalance});
+    await changeWalletAccountDetails('userB', { ...accounts.userB, balance: userBBalance});
   };
 
   const fetchBlacklistStatus = async () => {
     const blacklist = await getBlacklist();
+    const { accounts, changeWalletAccountDetails } = useStore.getState();
     
     Object.entries(accounts).map(async ([key, account]) => {
       if (!account.address || account.address.trim() === "") {
-        console.log(`${key} has no address yet, skipping`);
+        // console.log(`${key} has no address yet, skipping`);
         return;
       }
       const credential : LucidCredential = await paymentCredentialOf(account.address);
-      // console.log('here is the credential', credential);
       if(blacklist.includes(credential.hash)) {
-        console.log('a match was found', key as keyof typeof accounts);
+        // console.log('a match was found', key as keyof typeof accounts);
         changeWalletAccountDetails(key as keyof typeof accounts, { ...account, status: 'Frozen',});
       }
     });
@@ -102,24 +102,24 @@ export default function Home() {
       );
       console.log('Mint response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
-      await signAndSentTx(lucid, tx);
-      // const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
-      // const cmlTxInternal = txBuilder.toTransaction()
-      // console.log("TxBody: " + cmlTxInternal.body().to_json());
-      // const cmlTx = adjustMintOutput(cmlTxInternal, (await deriveProgrammableAddress(lucid, mintRecipientAddress)), BigInt(mintTokensAmount))
-      // const witnessSet = txBuilder.toTransaction().witness_set()
-      // const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
-      // console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
-      // const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());
-      // console.log("TxBody: " + cmlTxBodyClone.to_json());
-      // console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
-      // cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash!);
-      // console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
-      // const cmlClonedTx = CML.Transaction.new(cmlTxBodyClone, cmlTx!.witness_set(), true, cmlTx!.auxiliary_data());
-      // const cmlClonedSignedTx = await makeTxSignBuilder(lucid.wallet(), cmlClonedTx).sign.withWallet().complete();
+      // await signAndSentTx(lucid, tx);
+      const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
+      const cmlTxInternal = txBuilder.toTransaction()
+      console.log("TxBody: " + cmlTxInternal.body().to_json());
+      const cmlTx = adjustMintOutput(cmlTxInternal, (await deriveProgrammableAddress(lucid, mintRecipientAddress)), BigInt(mintTokensAmount))
+      const witnessSet = txBuilder.toTransaction().witness_set()
+      const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
+      console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
+      const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());
+      console.log("TxBody: " + cmlTxBodyClone.to_json());
+      console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
+      cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash!);
+      console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
+      const cmlClonedTx = CML.Transaction.new(cmlTxBodyClone, cmlTx!.witness_set(), true, cmlTx!.auxiliary_data());
+      const cmlClonedSignedTx = await makeTxSignBuilder(lucid.wallet(), cmlClonedTx).sign.withWallet().complete();
 
-      // const txId = await cmlClonedSignedTx.submit();
-      // await lucid.awaitTx(txId);
+      const txId = await cmlClonedSignedTx.submit();
+      await lucid.awaitTx(txId);
       
       changeAlertInfo({severity: 'success', message: 'Successful new WST mint', open: true,});
       await fetchUserDetails();
@@ -192,8 +192,17 @@ export default function Home() {
       await signAndSentTx(lucid, tx);
       changeAlertInfo({severity: 'success', message: 'Account successfully frozen', open: true,});
       fetchBlacklistStatus();
-    } catch (error) {
-      console.error('Freeze failed:', error);
+    } catch (error: any) {
+      if (error.response.data.includes('DuplicateBlacklistNode')) {
+        changeAlertInfo({
+          severity: 'error',
+          message: 'This account is already frozen.',
+          open: true,
+        });
+        return;
+      } else {
+        console.error('Freeze failed:', error);
+      }
     }
   };
 
