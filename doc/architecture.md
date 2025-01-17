@@ -41,16 +41,17 @@ CIP-0143 supports a wide range of programmable token policies, including non-fin
 For each of the two components (CIP and ACP) there is a principal validation script that encodes the script's logic and vetoes any transaction that does not meet the specification.
 The principal validation scripts use the [stake validator design pattern](https://github.com/Anastasia-Labs/design-patterns/blob/main/stake-validator/STAKE-VALIDATOR.md).
 
-* CIP related
-* Policy related
+The following table lists all scripts and their purposes.
 
-### Performance
-
-### Complexity
-
-### Yielding Patterns
-
-* Sequence diagrams explaining which script yields to what
+|Plutarch definition name|Used by|Parameters|Redeemer|Description|
+|--|--|--|--|--|
+|`palwaysSucceed`|_N/A_|_N/A_|_N/A_|Script that alway succeeds. Used for testing purposes only.|
+|`mkPermissionedTransfer`|ACP|`permissionedCred`||Checks that the transaction was signed by the `permissionedCred` payment credential|
+|`mkFreezeAndSeizeTransfer`|ACP|`programmableLogicBaseCred`, `blacklistNodeCS`|`proofs`|Checks that the transaction spends an output locked by `programmableLogicBaseCred`, and that none of the transaction's witnesses are in the blacklist with root `blacklistNodeCS`. For each witness a proof must be provided in `proofs`|
+|`mkProgrammableLogicMinting`|CIP|`programmableLogicBase`, `nodeCS`, `mintingLogicCred`|`mintingAction`|Handles minting policy registration, and issuance / burning of programmable tokens.|
+|`mkProgrammableLogicBase`|CIP|`stakeCred`|/|Validator script that locks progammable token outputs. Forwards all validation logic to the "global" programmable logic stake script `stakeCred`|
+|`mkProgrammableLogicGlobal`|CIP|`protocolParamsCS`||The global programmable logic stake script. For each programmable token that is transferred/minted/burned, check that the corresponding programmable token logic is invoked.|
+|`mkProtocolParametersMinting`|CIP|`oref`||Protocol parameters minting policy. Creates the NFT that marks the protocol parameters output. Checks that `oref` is spent (making this a one-shot minting policy)|
 
 ## Off-Chain
 
@@ -58,15 +59,18 @@ The system is designed so that all actions except the initial deployment of the 
 
 ### Docker Image, Deployment
 
+TODO
+
 ### Blockfrost
+
+TODO
 
 ### Lifecycle
 
-* 2 phases: Deployment, operations
-
-Each of the two components (programmable tokens, regulated stablecoin) requires an initial transaction that creates the on-chain data which is referenced on every interaction with the programmable tokens.
+Both components, CIP and ACP, require an initial transaction that creates the on-chain data which is referenced on every interaction with the programmable tokens.
 The initial transaction creates the registry nodes and mints the NFTs that are used to prove authenticity to the on-chain scripts.
-In the POC, the initialisation procedures for programmable tokens and for the regulated stablecoin are contained in a single transaction.
+In the POC, the initialisation procedures for programmable tokens (CIP) and for the regulated stablecoin (ACP) are merged in a single transaction.
+This means that the entire system can be deployed in a single step.
 
 ### Security
 
@@ -76,6 +80,12 @@ It does not use the web interface.
 Therefre
 
 ## Limitations of POC
+
+The POC works on the *preview testnet*.
+The code in this repository has not been audited.
+A professional audit is highly recommended before using this code in a production setting.
+
+TODO: List all limitations
 
 # FAQs
 
