@@ -188,8 +188,8 @@ issueProgrammableTokenEndpoint :: forall era env m.
   , MonadUtxoQuery m
   )
   => IssueProgrammableTokenArgs -> m (TextEnvelopeJSON (C.Tx era))
-issueProgrammableTokenEndpoint IssueProgrammableTokenArgs{itaAssetName, itaQuantity, itaIssuer} = do
-  let C.ShelleyAddress _network cred _stake = itaIssuer
+issueProgrammableTokenEndpoint IssueProgrammableTokenArgs{itaAssetName, itaQuantity, itaIssuer, itaRecipient} = do
+  let C.ShelleyAddress _network cred _stake = itaRecipient
       destinationCredential = C.fromShelleyPaymentCredential cred
   operatorEnv <- Env.loadOperatorEnvFromAddress itaIssuer
   dirEnv <- asks Env.directoryEnv

@@ -108,6 +108,7 @@ data IssueProgrammableTokenArgs =
     { itaIssuer    :: C.Address C.ShelleyAddr
     , itaAssetName :: AssetName
     , itaQuantity  :: Quantity
+    , itaRecipient :: C.Address C.ShelleyAddr
     }
     deriving stock (Eq, Show, Generic)
 
