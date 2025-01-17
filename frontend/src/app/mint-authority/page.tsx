@@ -20,6 +20,7 @@ import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
 import WSTTable from '../components/WSTTable';
 import AlertBar from '../components/AlertBar';
+import { adjustMintOutput, deriveProgrammableAddress } from '../utils/walletUtils';
 
 export default function Home() {
   const { lucid, mintAccount, selectedTab, errorMessage, setAlertStatus } = useStore();
@@ -55,7 +56,9 @@ export default function Home() {
       console.log('Mint response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
-      const cmlTx = txBuilder.toTransaction();
+      const cmlTxInternal = txBuilder.toTransaction()
+      console.log("TxBody: " + cmlTxInternal.body().to_json());
+      const cmlTx = adjustMintOutput(cmlTxInternal, (await deriveProgrammableAddress(lucid, recipientAddress)), BigInt(mintTokens))
       const witnessSet = txBuilder.toTransaction().witness_set();
       const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
       console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
