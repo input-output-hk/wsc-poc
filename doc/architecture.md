@@ -53,9 +53,99 @@ The following table lists all scripts and their purposes.
 |`mkProgrammableLogicGlobal`|CIP|`protocolParamsCS`||The global programmable logic stake script. For each programmable token that is transferred/minted/burned, check that the corresponding programmable token logic is invoked.|
 |`mkProtocolParametersMinting`|CIP|`oref`||Protocol parameters minting policy. Creates the NFT that marks the protocol parameters output. Checks that `oref` is spent (making this a one-shot minting policy)|
 
-### Common Activities
+### Example Transaction
 
-TODO: Describe in detail how mint / send / blacklist / freeze / seize transactions work
+To help understand how the scripts work together, let's look at a CIP-0143 compliant transaction that transfers programmable tokens under the ACP from one user to another.
+This transaction [91114618db866cc79b70129140e44e7195640a32bacca752f8f4b7a65590d430](https://preview.cexplorer.io/tx/91114618db866cc79b70129140e44e7195640a32bacca752f8f4b7a65590d430) was added to the preview testnet on Jan. 14.
+
+We can open [preview.cexplorer.io](https://preview.cexplorer.io/tx/91114618db866cc79b70129140e44e7195640a32bacca752f8f4b7a65590d430) to examine the transaction in detail.
+It has 3 inputs and 3 outputs.
+The screenshot below shows inputs on the left and outputs on the right.
+
+![alt text](image.png)
+
+Three different Plutus scripts are invoked:
+The global programmable logic stake script (`mkProgrammableLogicGlobal`), the POC transfer policy stake script (`mkFreezeAndSeizeTransfer`), and the programmabe logic base validator script (`mkProgrammableLogicBase`).
+
+#### Inputs and outputs
+
+The first input, `n52du`, contains only Ada.
+Looking at the outputs, we can see that most of the original Ada is paid back to the same address `n52du`.
+The difference is the Ada that was used to cover the transaction fee.
+
+Then there are two inputs from a script address (indicated by the key sign) `3cOlj`.
+This is the programmable logic base validator script.
+The script succeeds because the transaction also invokes the global programmable logic stake script.
+Each of those UTxO inputs contains 500k `MicroCoin`s.
+This is the name of the regulated token that we used for this test.
+
+In the outputs column on the right-hand side we can see that there are two script outputs.
+The first script output is addressed to `e5muu` and the second to `3cOlj`.
+The addresses have the same payment credential (the programmable logic base validator), but different stake credentials (`3cOlj` has the stake credential that identifies the sender, and `e5muu` has the stake credential that identifies the recipient).
+The sum of 1M `MicroCoin`s has been sent to `e5muu`, which means that they are now under the control of the recipient.
+
+#### Scripts
+
+Looking at the `Contracts` tab we can see that there were four invocations of Plutus scripts.
+
+![alt text](image-1.png)
+
+Two with purpose `SPEND` and two with purpose `REWARD`.
+The `SPEND` invocations correspond to the two script inputs from the `3cOlj` address.
+Both of them simply make sure that the global programmable logic stake script runs in the same transaction.
+This is why the two `SPEND` script runs consume very few resources (Mem and Steps), and contribute 0.00 Ada to the transaction's script fees.
+
+The two `REWARD` script invocations are the ones that run the actual business logic.
+We can distinguish them by their redeemers.
+
+##### Stake validator 1: Programmable Logic (CIP)
+
+The redeemer of the first entry is `{"fields": [{"list": [{"fields": [{"int": 2}], "constructor": 0}]}], "constructor": 0}`.
+Applying our knowledge of the data encoding we can tell that this redeemer corresponds to the first constructor of `PProgrammableLogicGlobalRedeemer`,`PTransferAct`.
+
+```haskell
+
+data PProgrammableLogicGlobalRedeemer (s :: S)
+  = PTransferAct
+      ( Term s ( PDataRecord '[ "proofs" ':= PBuiltinList (PAsData PTokenProof) ] ) )
+  -- | PSeizeAct
+  --     ( ...
+  --     )
+  deriving stock (Generic)
+  deriving anyclass (PlutusType, PIsData, PEq)
+```
+
+This means that we are looking at the programmable logic base script.
+The redeemer contains a list of proofs in the form of pointers into the list of reference inputs used by the transaction.
+There is one proof for each type of programmable token touched by the transaction.
+
+The value `2` tells the global programmable logic validator to check the second reference input for a stake credential, and to verify that the referenced stake validator is run as part of this transaction.
+
+So we could say that the global programmable logic validator "de-references a pointer" to the ACP stake credential.
+
+
+##### Stake validator 2: Access Control Policy (ACP)
+
+The second stake validator implements the actual policy that governs the spending of `MicroCoin`s.
+This redeemer of this validator is a list of `PBlacklistProof` values.
+
+```haskell
+data PBlacklistProof (s :: S)
+  = PNonmembershipProof
+      ( Term
+          s
+          ( PDataRecord
+              '[ "nodeIdx" ':= PInteger
+               ]
+          )
+      )
+  deriving stock (Generic)
+  deriving anyclass (PlutusType, PIsData, PEq, PShow)
+```
+
+Each `PBlacklistProof` is a pointer into the list of reference inputs.
+The UTxO of the reference input is an entry in the linked list that contains the blacklisted credentials.
+The script needs to check that the sender of the funds is not blacklisted, and it does so by looking at the "covering entry" in the list -- the entry that _would_ contain the sender's credential if it _was_ blacklisted.
 
 ## Off-Chain
 
@@ -63,11 +153,8 @@ The system is designed so that all actions except the initial deployment of the 
 
 ### Docker Image, Deployment
 
-TODO
-
-### Blockfrost
-
-TODO
+A CD pipeline builds a docker image that bundles the frontend and the backend, and pushes it to the github container registry.
+As a result, it is very easy to run the entire system locally.
 
 ### Lifecycle
 
@@ -78,20 +165,19 @@ This means that the entire system can be deployed in a single step.
 
 ### Security
 
-TODO
-
 The deployment phase relies exclusively on the command-line (CLI).
-It builds a 
-It does not use the web interface.
-Therefre
+This is the only time when our code handles private keys.
+
+After the initial deployment, the private keys can be removed from the system.
+All future transactions can be signed by a web wallet.
+
+Therefore, there is no need to store private keys during the regular operation of the system.
 
 ## Limitations of POC
 
 The POC works on the *preview testnet*.
 The code in this repository has not been audited.
 A professional audit is highly recommended before using this code in a production setting.
-
-TODO: List all limitations
 
 # FAQs
 
