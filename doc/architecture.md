@@ -15,6 +15,17 @@ We will call this policy the Access Control Policy (ACP).
 
 At its core, CIP-0143 describes a registry of programmable token policies and a mechanism for finding the right script whenever one of the programmable tokens is minted, burned, or transferred to another user.
 
+CIP-0143 supports a wide range of programmable token policies, including non-financial ones such as royalty collection schemes for NFTs.
+
+### Access Control Policy (ACP)
+
+This is the programmable token policy that we use to enable freeze and seize features.
+When the policy is invoked, it examines the spending transaction to ensure that none of the signatures on the transaction are blacklisted.
+The blacklist is stored as a sorted linked list on-chain.
+Each entry has its own UTxO.
+The UTxO also stores the next entry.
+This makes it possible to check membership and non-membership in constant time (in the size of the list).
+
 ```mermaid
 ---
 title: Relationship between CIP-0143 and Access Control Policy
@@ -24,16 +35,15 @@ flowchart LR
   cip[CIP-0143]
 
   policy[Access Control Policy]
+  blacklist[Blacklist]
 
   other_policies@{shape: procs, label: "Other policies"}
   style other_policies fill:#eee;
 
   cip -->|forwards access checks to| policy
+  policy -->|checks non-membership| blacklist
   cip --> other_policies
 ```
-
-CIP-0143 supports a wide range of programmable token policies, including non-financial ones such as royalty collection schemes for NFTs.
-
 ## High-Level Interactions
 
 ## On-Chain Scripts
@@ -41,11 +51,10 @@ CIP-0143 supports a wide range of programmable token policies, including non-fin
 For each of the two components (CIP and ACP) there is a principal validation script that encodes the script's logic and vetoes any transaction that does not meet the specification.
 The principal validation scripts use the [stake validator design pattern](https://github.com/Anastasia-Labs/design-patterns/blob/main/stake-validator/STAKE-VALIDATOR.md).
 
-The following table lists all scripts and their purposes.
+The following table lists the main scripts and their purposes.
 
 |Plutarch definition name|Used by|Parameters|Redeemer|Description|
 |--|--|--|--|--|
-|`palwaysSucceed`|_N/A_|_N/A_|_N/A_|Script that alway succeeds. Used for testing purposes only.|
 |`mkPermissionedTransfer`|ACP|`permissionedCred`||Checks that the transaction was signed by the `permissionedCred` payment credential|
 |`mkFreezeAndSeizeTransfer`|ACP|`programmableLogicBaseCred`, `blacklistNodeCS`|`proofs`|Checks that the transaction spends an output locked by `programmableLogicBaseCred`, and that none of the transaction's witnesses are in the blacklist with root `blacklistNodeCS`. For each witness a proof must be provided in `proofs`|
 |`mkProgrammableLogicMinting`|CIP|`programmableLogicBase`, `nodeCS`, `mintingLogicCred`|`mintingAction`|Handles minting policy registration, and issuance / burning of programmable tokens.|
