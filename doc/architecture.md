@@ -53,6 +53,10 @@ The following table lists all scripts and their purposes.
 |`mkProgrammableLogicGlobal`|CIP|`protocolParamsCS`||The global programmable logic stake script. For each programmable token that is transferred/minted/burned, check that the corresponding programmable token logic is invoked.|
 |`mkProtocolParametersMinting`|CIP|`oref`||Protocol parameters minting policy. Creates the NFT that marks the protocol parameters output. Checks that `oref` is spent (making this a one-shot minting policy)|
 
+### Common Activities
+
+TODO: Describe in detail how mint / send / blacklist / freeze / seize transactions work
+
 ## Off-Chain
 
 The system is designed so that all actions except the initial deployment of the programmable logic UTxOs can be performed through a web UI with browser-based wallets. The REST API therefore exposes a number of endpoints that produce fully-balanced-but-not-signed transactions. The intention is for the caller (web UI) to sign the transactions with the web-based wallet and submit them to the network. The backend uses blockfrost to query the blockchain. As a result, the server is pretty light-weight and does not even need its own database or a full cardano node.
@@ -73,6 +77,8 @@ In the POC, the initialisation procedures for programmable tokens (CIP) and for 
 This means that the entire system can be deployed in a single step.
 
 ### Security
+
+TODO
 
 The deployment phase relies exclusively on the command-line (CLI).
 It builds a 
