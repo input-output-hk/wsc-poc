@@ -54,12 +54,16 @@
                     },
                     "quantity": {
                         "$ref": "#/components/schemas/Quantity"
+                    },
+                    "recipient": {
+                        "$ref": "#/components/schemas/Address"
                     }
                 },
                 "required": [
                     "issuer",
                     "asset_name",
-                    "quantity"
+                    "quantity",
+                    "recipient"
                 ],
                 "type": "object"
             },

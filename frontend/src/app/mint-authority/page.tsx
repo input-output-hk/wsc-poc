@@ -23,6 +23,8 @@ import CopyTextField from '../components/CopyTextField';
 import WSTTable from '../components/WSTTable';
 import { getWalletBalance, signAndSentTx, getBlacklist, adjustMintOutput, deriveProgrammableAddress } from '../utils/walletUtils';
 
+
+
 export default function Home() {
   const { lucid, mintAccount, accounts, selectedTab, changeAlertInfo, changeMintAccountDetails, changeWalletAccountDetails } = useStore();
   const [addressCleared, setAddressCleared] = useState(false);
@@ -106,8 +108,8 @@ export default function Home() {
       const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
       const cmlTxInternal = txBuilder.toTransaction()
       console.log("TxBody: " + cmlTxInternal.body().to_json());
-      const cmlTx = adjustMintOutput(cmlTxInternal, (await deriveProgrammableAddress(lucid, mintRecipientAddress)), BigInt(mintTokensAmount))
-      const witnessSet = txBuilder.toTransaction().witness_set()
+      const cmlTx = adjustMintOutput(cmlTxInternal, (await deriveProgrammableAddress(lucid, mintRecipientAddress)), BigInt(mintTokensAmount));
+      const witnessSet = txBuilder.toTransaction().witness_set();
       const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
       console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
       const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());

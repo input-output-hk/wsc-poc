@@ -229,8 +229,3 @@ export async function deriveProgrammableAddress(lucid: LucidEvolution, userAddre
   return userProgrammableTokenAddress;
 
 }
-
-
-
-
-
