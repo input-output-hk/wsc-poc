@@ -102,7 +102,6 @@ export function adjustMintOutput(tx: CML.Transaction, receiverAddress: Address, 
   const outputsLen = outputs.len()
   for (let i = 0; i < outputsLen; i++) {
     const output : CML.TransactionOutput = outputs.get(i)
-    const address = output.address()
     const assets : Assets = valueToAssets(output.amount())
     if (stableCoin in assets) {
       console.log("Found stablecoin in output")
