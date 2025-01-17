@@ -40,7 +40,7 @@ const useStore = create<State & Actions>((set) => ({
       },
       userB: {
         address: '',
-        mnemonic: 'tooth benefit wish capable stock inner motor cover diamond crash work amount foot help shell glad friend front degree pudding inflict filter twice resource',
+        mnemonic: 'silver legal flame powder fence kiss stable margin refuse hold unknown valid wolf kangaroo zero able waste jewel find salad sadness exhibit hello tape',
         balance: 0,
         status: 'Active',
       },

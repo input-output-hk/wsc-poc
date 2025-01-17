@@ -191,7 +191,15 @@ export default function Home() {
       const tx = await lucid.fromTx(response.data.cborHex);
       await signAndSentTx(lucid, tx);
       changeAlertInfo({severity: 'success', message: 'Account successfully frozen', open: true,});
-      fetchBlacklistStatus();
+      const frozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
+        (key) => accounts[key].address === freezeAccountNumber
+      );
+      if (frozenWalletKey) {
+        changeWalletAccountDetails(frozenWalletKey, {
+          ...accounts[frozenWalletKey],
+          status: 'Frozen',
+        });
+      }
     } catch (error: any) {
       if (error.response.data.includes('DuplicateBlacklistNode')) {
         changeAlertInfo({

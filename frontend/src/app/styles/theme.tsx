@@ -335,8 +335,8 @@ export const getTheme = (mode: 'light') => createTheme({
           root: ({theme}) => ({
             backgroundColor: theme.palette.containerLowest.main,
             boxShadow: 'none',
-            minHeight: '80%',
             border: '1px solid #C9C6C6',
+            height: '100%',
           }),
         },
       },
@@ -350,7 +350,11 @@ export const getTheme = (mode: 'light') => createTheme({
       MuiTableCell: {
         styleOverrides: {
           stickyHeader: () => ({
-              backgroundColor: 'rgba(57,82,205,0.12)',
+              background: `linear-gradient(
+                0deg, 
+                rgba(57,82,205,0.12), 
+                rgba(57,82,205,0.12)
+                ), white`,
               fontSize: '14px',
           }),
           body: () => ({

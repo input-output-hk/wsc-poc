@@ -38,6 +38,14 @@ export default function Profile() {
   const [sendRecipientAddress, setsendRecipientAddress] = useState('address');
 
   const onSend = async () => {
+    if (getUserAccountDetails()?.status === 'Frozen') {
+      changeAlertInfo({
+        severity: 'error',
+        message: 'Cannot send WST with frozen account.',
+        open: true,
+      });
+      return;
+    }
     console.log('start sending tokens');
     changeAlertInfo({severity: 'info', message: 'Transaction processing', open: true,});
     const accountInfo = getUserAccountDetails();
@@ -68,18 +76,9 @@ export default function Profile() {
       await signAndSentTx(lucid, tx);
       await updateAccountBalance(sendRecipientAddress);
       await updateAccountBalance(accountInfo.address);
-      changeAlertInfo({...alertInfo, open: true,});
-    } catch (error: any) {
-      if (error.response.data.includes('TransferBlacklistedCredential')) {
-        changeAlertInfo({
-          severity: 'error',
-          message: 'Cannot send WST with frozen account.',
-          open: true,
-        });
-        return;
-      } else {
-        console.error('Send failed:', error);
-      }
+      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true,});
+    } catch (error) {
+      console.error('Send failed:', error);
     }
   };
 
