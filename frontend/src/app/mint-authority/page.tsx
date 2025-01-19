@@ -21,7 +21,7 @@ import WalletCard from '../components/Card';
 import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
 import WSTTable from '../components/WSTTable';
-import { getWalletBalance, signAndSentTx, getBlacklist, adjustMintOutput, deriveProgrammableAddress } from '../utils/walletUtils';
+import { getWalletBalance, signAndSentTx, getBlacklist } from '../utils/walletUtils';
 
 
 
@@ -90,6 +90,7 @@ export default function Home() {
       asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
       issuer: mintAccount.address,
       quantity: mintTokensAmount,
+      recipient: mintRecipientAddress
     };
 
     try {
@@ -106,9 +107,8 @@ export default function Home() {
       const tx = await lucid.fromTx(response.data.cborHex);
       // await signAndSentTx(lucid, tx);
       const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
-      const cmlTxInternal = txBuilder.toTransaction()
-      console.log("TxBody: " + cmlTxInternal.body().to_json());
-      const cmlTx = adjustMintOutput(cmlTxInternal, (await deriveProgrammableAddress(lucid, mintRecipientAddress)), BigInt(mintTokensAmount));
+      const cmlTx = txBuilder.toTransaction()
+      console.log("TxBody: " + cmlTx.body().to_json());
       const witnessSet = txBuilder.toTransaction().witness_set();
       const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
       console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
