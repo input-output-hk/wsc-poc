@@ -15,7 +15,7 @@ import Paper from "@mui/material/Paper";
 
 //Local Imports
 import useStore from '../store/store'; 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 const progLogicBase : LucidCredential = {
   type: "Script",
@@ -26,8 +26,6 @@ const stableCoin : Unit = toUnit("b34a184f1f2871aa4d33544caecefef5242025f45c3fa5
 
 
 export default function WSTTable() {
-  const [uniqueAddresses, setUniqueAddresses] = useState<string[]>([]);
-  const [balanceMap, setBalanceMap] = useState<Map<Address, number>>(new Map());
   const { lucid, accounts } = useStore();
   const accountArray = Object.values(accounts);
 
@@ -39,8 +37,6 @@ export default function WSTTable() {
       addresses.add(utxo.address)
       valueMap.set(utxo.address, Number(utxo.assets[stableCoin]))
     });
-    setBalanceMap(valueMap);
-    setUniqueAddresses(Array.from(addresses));
   }
   
   useEffect(() => {

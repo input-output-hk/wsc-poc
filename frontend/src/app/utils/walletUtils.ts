@@ -31,7 +31,7 @@ export async function makeLucid() {
 
 export async function getWalletFromSeed(mnemonic: string) {
   try {
-    let wallet = walletFromSeed(mnemonic, {password: '', addressType: 'Base', accountIndex: 0, network: "Preview"});
+    const wallet = walletFromSeed(mnemonic, {password: '', addressType: 'Base', accountIndex: 0, network: "Preview"});
     return wallet;
   } catch (error) {
     console.error('Failed to initialize KeyAgent:', error);
@@ -120,7 +120,6 @@ export function adjustMintOutput(tx: CML.Transaction, receiverAddress: Address, 
   const outputsLen = outputs.len()
   for (let i = 0; i < outputsLen; i++) {
     const output : CML.TransactionOutput = outputs.get(i)
-    const address = output.address()
     const assets : Assets = valueToAssets(output.amount())
     if (stableCoin in assets) {
       console.log("Found stablecoin in output")

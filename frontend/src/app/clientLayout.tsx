@@ -9,7 +9,7 @@ import NavDrawer from './components/NavDrawer';
 //Local file
 import { ThemeModeProvider } from "./styles/themeContext";
 import "./styles/globals.css";
-import { makeLucid, getWalletFromSeed, getWalletBalance } from "./utils/walletUtils";
+import { makeLucid, getWalletFromSeed } from "./utils/walletUtils";
 import useStore from './store/store'; 
 import WSTAppBar from "./components/WSTAppBar";
 import AlertBar from './components/AlertBar';

@@ -17,7 +17,7 @@ import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
 
 export default function Profile() {
-  const { lucid, currentUser, mintAccount, alertInfo, changeAlertInfo, changeWalletAccountDetails } = useStore();
+  const { lucid, currentUser, mintAccount, changeAlertInfo, changeWalletAccountDetails } = useStore();
   const accounts = useStore((state) => state.accounts);
 
   useEffect(() => {
