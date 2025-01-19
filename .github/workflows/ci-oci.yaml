@@ -29,6 +29,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
+    - name: Log in to ghcr.io
+      uses: redhat-actions/podman-login@v1
+      with:
+        username: ${{ env.REGISTRY_USER }}
+        password: ${{ env.REGISTRY_PASSWORD }}
+        registry: ${{ env.IMAGE_REGISTRY }}
+
+    - uses: actions/checkout@v4
+
     - name: Determine image tag for git tag
       if: ${{ github.event_name == 'push' }}
       run: |
@@ -40,15 +49,6 @@ jobs:
       run: |
         IMAGE_TAG=pr-${{ github.event.pull_request.number }}
         echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
-
-    - name: Log in to ghcr.io
-      uses: redhat-actions/podman-login@v1
-      with:
-        username: ${{ env.REGISTRY_USER }}
-        password: ${{ env.REGISTRY_PASSWORD }}
-        registry: ${{ env.IMAGE_REGISTRY }}
-
-    - uses: actions/checkout@v4
 
     - name: Install nix
       uses: cachix/install-nix-action@v27
