@@ -9,26 +9,26 @@ import NavDrawer from './components/NavDrawer';
 //Local file
 import { ThemeModeProvider } from "./styles/themeContext";
 import "./styles/globals.css";
-import { makeLucid, getWalletFromSeed, getWalletBalance } from "./utils/walletUtils";
+import { makeLucid, getWalletFromSeed } from "./utils/walletUtils";
 import useStore from './store/store'; 
 import WSTAppBar from "./components/WSTAppBar";
+import AlertBar from './components/AlertBar';
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
-    const { mintAccount, userA, userB, changeMintAccountDetails, changeWalletAAccountDetails, changeWalletBAccountDetails, setLucidInstance } = useStore();
+    const { mintAccount, accounts, changeMintAccountDetails, changeWalletAccountDetails, setLucidInstance } = useStore();
 
     useEffect(() => {
         const fetchUserWallets = async () => {
           try {
             // retrieve wallet info
             const mintAuthorityWallet = await getWalletFromSeed(mintAccount.mnemonic);
-            const walletA = await getWalletFromSeed(userA.mnemonic);
-            const walletB = await getWalletFromSeed(userB.mnemonic);
+            const walletA = await getWalletFromSeed(accounts.userA.mnemonic);
+            const walletB = await getWalletFromSeed(accounts.userB.mnemonic);
     
-            const mintStartBalance = await getWalletBalance(mintAuthorityWallet.address);
             // Update Zustand store with the initialized wallet information
-            changeMintAccountDetails({ ...mintAccount, address: mintAuthorityWallet.address, balance: mintStartBalance});
-            changeWalletAAccountDetails({ ...userA, address: walletA.address});
-            changeWalletBAccountDetails({ ...userB, address: walletB.address,});
+            changeMintAccountDetails({ ...mintAccount, address: mintAuthorityWallet.address});
+            changeWalletAccountDetails('userA', { ...accounts.userA, address: walletA.address},);
+            changeWalletAccountDetails('userB', { ...accounts.userB, address: walletB.address});
     
             const initialLucid = await makeLucid();
             setLucidInstance(initialLucid);
@@ -39,9 +39,9 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         };
     
         fetchUserWallets();
-      }, []);
+      },[]);
 
-  if(userB.address === '') {
+  if(accounts.userB.address === '') {
     return <div className="mainLoadingContainer">
     <div className="mainLoader" />
   </div>;
@@ -54,6 +54,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
           <WSTAppBar />
           <NavDrawer />
           <div className="contentSection">{children}</div>
+          <AlertBar/>
         </main>
       </ThemeModeProvider>
     </AppRouterCacheProvider>

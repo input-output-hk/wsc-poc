@@ -5,4 +5,16 @@ export type AccountInfo = {
     mnemonic: string,
     balance: number,
     status?: 'Active' | 'Frozen',
-}
+};
+export type AccountKey = 'userA' | 'userB' | 'walletUser';
+export type Accounts = {
+    userA: AccountInfo;
+    userB: AccountInfo;
+    walletUser: AccountInfo;
+};
+export type Severity = 'success' | 'error' | 'info' | 'warning';
+export type AlertInfo = {
+    open: boolean | undefined,
+    message: string,
+    severity: Severity,
+};

@@ -2,7 +2,8 @@
 import axios from 'axios';
 
 //Lucis imports
-import { Blockfrost, CML, Lucid, LucidEvolution, TxSigned, walletFromSeed, Credential, valueToAssets, Assets, UTxO, Address, paymentCredentialOf, credentialToAddress, toUnit, Unit } from "@lucid-evolution/lucid";
+import { Address, Assets, Blockfrost, CML, credentialToAddress, Lucid, LucidEvolution, makeTxSignBuilder, paymentCredentialOf, toUnit, TxSignBuilder, Unit, valueToAssets, walletFromSeed } from "@lucid-evolution/lucid";
+import type { Credential as LucidCredential } from "@lucid-evolution/core-types";
 
 async function loadKey() {
   const response = await axios.get("/blockfrost-key",
@@ -16,22 +17,22 @@ async function loadKey() {
 }
 
 export async function makeLucid() {
-        const API_KEY_ENV = process.env.NEXT_PUBLIC_BLOCKFROST_API_KEY;
-        const API_KEY = (API_KEY_ENV) ? API_KEY_ENV : await loadKey();
+  const API_KEY_ENV = process.env.NEXT_PUBLIC_BLOCKFROST_API_KEY;
+  const API_KEY = (API_KEY_ENV) ? API_KEY_ENV : await loadKey();
 
-        const blockfrostURL = "https://cardano-preview.blockfrost.io/api/v0"
+  const blockfrostURL = "https://cardano-preview.blockfrost.io/api/v0"
 
-        const blockfrost = new Blockfrost(blockfrostURL, API_KEY);
+  const blockfrost = new Blockfrost(blockfrostURL, API_KEY);
 
-        const lucid = await Lucid(blockfrost, "Preview");
+  const lucid = await Lucid(blockfrost, "Preview");
 
-        return lucid;
+  return lucid;
 }
 
 export async function getWalletFromSeed(mnemonic: string) {
   try {
-    const mintWallet = walletFromSeed(mnemonic, {password: '', addressType: 'Base', accountIndex: 0, network: "Preview"});
-    return mintWallet;
+    const wallet = walletFromSeed(mnemonic, {password: '', addressType: 'Base', accountIndex: 0, network: "Preview"});
+    return wallet;
   } catch (error) {
     console.error('Failed to initialize KeyAgent:', error);
     throw error; 
@@ -62,22 +63,39 @@ export async function getWalletBalance(address: string){
   }
 }
 
-export function setScriptDataHash(tx: CML.Transaction, newScriptDataHash: CML.ScriptDataHash) : CML.Transaction {
-  const txBodyClone = CML.TransactionBody.from_cbor_hex(tx.body().to_cbor_hex());
-  txBodyClone.set_script_data_hash(newScriptDataHash);
-  const clonedTx = CML.Transaction.new(txBodyClone, tx.witness_set(), true, tx.auxiliary_data());
-  tx.free();
-  return clonedTx;
+export async function getBlacklist(){
+  try {
+    const response = await axios.get(
+      '/api/v1/query/blacklist/addr_test1qq986m3uel86pl674mkzneqtycyg7csrdgdxj6uf7v7kd857kquweuh5kmrj28zs8czrwkl692jm67vna2rf7xtafhpqk3hecm',  
+      {
+        headers: {
+          'Content-Type': 'application/json;charset=utf-8', 
+        },
+      }
+    );
+    
+    // console.log('Get blacklist:', response);
+    return response.data;
+  } catch (error) {
+      console.warn('Failed to get blacklist', error);
+      return error;
+  }
 }
 
-export function adjustScriptDataHash(tx: TxSigned, costModel: CML.CostModels) : CML.Transaction {
-  const cmlTx = tx.toTransaction();
-  const witnessSet = cmlTx.witness_set()
-  const plutusDatumsI = witnessSet.plutus_datums()
-  const plutusDatums : CML.PlutusDataList = (plutusDatumsI !== undefined) ? plutusDatumsI : CML.PlutusDataList.new();
-  const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, plutusDatums, costModel, witnessSet.languages());
-  const fixedTx = setScriptDataHash(cmlTx, expectedScriptDataHash!);
-  return fixedTx
+export async function signAndSentTx(lucid: LucidEvolution, tx: TxSignBuilder) {
+  const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
+  const cmlTx = txBuilder.toTransaction();
+  const witnessSet = txBuilder.toTransaction().witness_set();
+  const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
+  console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
+  const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());
+  console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
+  cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash!);
+  console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
+  const cmlClonedTx = CML.Transaction.new(cmlTxBodyClone, cmlTx!.witness_set(), true, cmlTx!.auxiliary_data());
+  const cmlClonedSignedTx = await makeTxSignBuilder(lucid.wallet(), cmlClonedTx).sign.withWallet().complete();
+  const txId = await cmlClonedSignedTx.submit();
+  await lucid.awaitTx(txId);
 }
 
 export type WalletType = "Lace" | "Eternl" | "Nami" | "Yoroi";
@@ -87,12 +105,12 @@ export async function selectLucidWallet(lucid: LucidEvolution, wallet: WalletTyp
   lucid.selectWallet.fromAPI(api);
 }
 
-const progLogicBase : Credential = {
+const progLogicBase : LucidCredential = {
   type: "Script",
   hash: "fca77bcce1e5e73c97a0bfa8c90f7cd2faff6fd6ed5b6fec1c04eefa"
 }
 
-const stableCoin : Unit = toUnit("b34a184f1f2871aa4d33544caecefef5242025f45c3fa5213d7662a9", "575354")
+const stableCoin : Unit = toUnit("b34a184f1f2871aa4d33544caecefef5242025f45c3fa5213d7662a9", "575354");
 
 export function adjustMintOutput(tx: CML.Transaction, receiverAddress: Address, mintedAmount: bigint) {
   const txB : CML.TransactionBody = tx.body()
@@ -117,6 +135,10 @@ export function adjustMintOutput(tx: CML.Transaction, receiverAddress: Address, 
     } else {
       new_outputs.add(output)
     }
+    // if (value !== undefined) {
+    //   const newValue = value + 100
+    //   assets.insert(stableCoin, newValue)
+    // }
   }
   const newTxB : CML.TransactionBody = CML.TransactionBody.new(txB.inputs(), new_outputs, txB.fee());
   const oldTxAuxHash = txB.auxiliary_data_hash()
@@ -190,21 +212,10 @@ export function adjustMintOutput(tx: CML.Transaction, receiverAddress: Address, 
 
 }
 
-export async function getStablecoinAccounts(lucid: LucidEvolution) {
-  const progUTxOs : UTxO[] = await lucid.utxosAtWithUnit(progLogicBase, stableCoin);
-  const addresses = new Set<string>();
-  const valueMap = new Map<Address, number>();
-  progUTxOs.forEach(utxo => {
-    addresses.add(utxo.address)
-    valueMap.set(utxo.address, Number(utxo.assets[stableCoin]))
-  });
-  return { addresses: Array.from(addresses), valueMap };
-}
-
 export async function deriveProgrammableAddress(lucid: LucidEvolution, userAddress: Address){
   const network = lucid.config().network!;
   // user's payment credential
-  const ownerCred : Credential = paymentCredentialOf(userAddress);
+  const ownerCred : LucidCredential = paymentCredentialOf(userAddress);
 
   // construct the user's programmable token address
   // payment credential is always the programmable token base script hash
@@ -215,4 +226,5 @@ export async function deriveProgrammableAddress(lucid: LucidEvolution, userAddre
         ownerCred,
       );
   return userProgrammableTokenAddress;
+
 }

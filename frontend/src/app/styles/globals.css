@@ -48,6 +48,11 @@ a {
   height: 100%;
 }
 
+.tableContainerBox {
+  height: 85%;
+  padding: 16px;
+}
+
   /* App loader styles */
 .mainLoadingContainer {
   font-size: 50px;

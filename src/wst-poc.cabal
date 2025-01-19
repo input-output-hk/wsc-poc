@@ -132,6 +132,7 @@ executable wst-poc-cli
   import:         lang
   main-is:        Main.hs
   hs-source-dirs: exe/wst-poc-cli
+  ghc-options:    -threaded -rtsopts -O2 -with-rtsopts=-N
   build-depends:
     , base
     , wst-poc

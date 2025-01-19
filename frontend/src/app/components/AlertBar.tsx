@@ -8,27 +8,22 @@ import Alert from '@mui/material/Alert';
 //Local components
 import useStore from '../store/store'; 
 
-interface AlertBarProps {   
-    severity?: 'success' | 'error' | 'info' | 'warning';
-    message: string;
-}
-
-export default function AlertBar({severity = 'success', message}: AlertBarProps) {
-const { alertOpen, setAlertStatus } = useStore();
+export default function AlertBar() {
+const { alertInfo, changeAlertInfo } = useStore();
 
 const handleClose = () => { 
-    setAlertStatus(false);
+  changeAlertInfo({ ...alertInfo, open: false });
 };
 
   return (
-      <Snackbar open={alertOpen} anchorOrigin={{vertical: 'top', horizontal: 'center'}} >
+      <Snackbar open={alertInfo.open} autoHideDuration={alertInfo.severity === 'success' ? 3000 : null} onClose={handleClose} anchorOrigin={{vertical: 'top', horizontal: 'center'}} >
         <Alert
-          severity={severity}
+          severity={alertInfo.severity}
           variant="filled"
           sx={{ width: '100%' }}
           onClose={handleClose}
         >
-            {message}
+            {alertInfo.message}
         </Alert>
       </Snackbar>
   );
