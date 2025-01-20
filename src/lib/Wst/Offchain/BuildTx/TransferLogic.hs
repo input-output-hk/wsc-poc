@@ -9,7 +9,7 @@ module Wst.Offchain.BuildTx.TransferLogic
     seizeSmartTokens,
     initBlacklist,
     insertBlacklistNode,
-    spendBlacklistOutput,
+    removeBlacklistNode,
     paySmartTokensToDestination,
     registerTransferScripts,
   )
@@ -36,7 +36,7 @@ import Convex.Utxos (UtxoSet (UtxoSet))
 import Convex.Wallet (selectMixedInputsCovering)
 import Data.Foldable (maximumBy)
 import Data.Function (on)
-import Data.List (nub, sort)
+import Data.List (find, nub, sort)
 import Data.Monoid (Last (..))
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.Data.V3 (Credential (..), PubKeyHash (PubKeyHash),
@@ -46,7 +46,7 @@ import SmartTokens.Contracts.ExampleTransferLogic (BlacklistProof (..))
 import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (BlacklistNode (..),
                                           DirectorySetNode (..))
-import Wst.AppError (AppError (DuplicateBlacklistNode, TransferBlacklistedCredential))
+import Wst.AppError (AppError (BlacklistNodeNotFound, DuplicateBlacklistNode, TransferBlacklistedCredential))
 import Wst.Offchain.BuildTx.ProgrammableLogic (issueProgrammableToken,
                                                seizeProgrammableToken,
                                                transferProgrammableToken)
@@ -135,12 +135,47 @@ insertBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   addRequiredSignature opPkh
 
-spendBlacklistOutput :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => C.TxIn -> m ()
-spendBlacklistOutput txin = Utils.inBabbage @era $ do
-  spendingScript <- asks (Env.tleBlacklistSpendingScript . Env.transferLogicEnv)
-  spendPlutusInlineDatum txin spendingScript ()
+removeBlacklistNode :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError (AppError era) m) => C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
+removeBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
+  blacklistSpendingScript <- asks (Env.tleBlacklistSpendingScript . Env.transferLogicEnv)
+  blacklistMintingScript <- asks (Env.tleBlacklistMintingScript . Env.transferLogicEnv)
+  blacklistPolicyId <- asks (Env.blacklistNodePolicyId . Env.transferLogicEnv)
+
+  -- find node to remove
+  UTxODat{uIn = delNodeRef, uOut = (C.TxOut _delAddr delOutVal _ _),  uDatum = delNodeDatum}
+    <- maybe (throwError BlacklistNodeNotFound) pure $ find ((== unwrapCredential (transCredential cred)) . blnKey . uDatum) blacklistNodes
+
+
+  let expectedAssetName = C.AssetName $  case transCredential cred of
+        PubKeyCredential (PubKeyHash s) -> PlutusTx.fromBuiltin s
+        ScriptCredential (ScriptHash s) -> PlutusTx.fromBuiltin s
+
+      v = C.selectAsset (C.txOutValueToValue delOutVal) (C.AssetId blacklistPolicyId expectedAssetName)
+
+  when (v /= 1) $ error "Unexpected blacklist node token quantity. Head node should not be deleted"
+
+      -- find the node to update to point to the node after the node to remove
+  let UTxODat {uIn = prevNodeRef,uOut = (C.TxOut prevAddr prevVal _ _),  uDatum = prevNode} =
+        maximumBy (compare `on` (blnKey . uDatum)) $
+          filter ((< unwrapCredential (transCredential cred)) . blnKey . uDatum) blacklistNodes
+
+      -- update the previous node to point to the node after the node to remove
+      updatedPrevNode = prevNode {blnNext=blnNext delNodeDatum}
+      updatedPrevNodeDatum = C.TxOutDatumInline C.babbageBasedEra $ C.toHashableScriptData updatedPrevNode
+      updatedPrevNodeOutput = C.TxOut prevAddr prevVal updatedPrevNodeDatum C.ReferenceScriptNone
+
+
+  -- spend the node to remove
+  spendPlutusInlineDatum delNodeRef blacklistSpendingScript ()
+  -- set previous node output
+  spendPlutusInlineDatum prevNodeRef blacklistSpendingScript ()
+  -- set previous node output
+  prependTxOut updatedPrevNodeOutput
+  -- burn the removed node blacklist token
+  mintPlutus blacklistMintingScript () expectedAssetName (-1)
   addRequiredSignature opPkh
+
 
 {-| Add a smart token output that locks the given value,
 addressed to the payment credential

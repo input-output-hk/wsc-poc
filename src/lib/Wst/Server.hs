@@ -240,7 +240,7 @@ addToBlacklistEndpoint AddToBlacklistArgs{atbIssuer, atbBlacklistAddress} = do
   dirEnv <- asks Env.directoryEnv
   transferLogic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress atbIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
-    TextEnvelopeJSON <$> Endpoints.blacklistCredentialTx badCred
+    TextEnvelopeJSON <$> Endpoints.insertBlacklistNodeTx badCred
 
 seizeAssetsEndpoint :: forall era env m.
   ( MonadReader env m

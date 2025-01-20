@@ -10,7 +10,7 @@ module Wst.Offchain.Endpoints.Deployment(
   issueSmartTokensTx,
   transferSmartTokensTx,
   insertBlacklistNodeTx,
-  blacklistCredentialTx,
+  removeBlacklistNodeTx,
   seizeCredentialAssetsTx,
 ) where
 
@@ -132,6 +132,13 @@ insertBlacklistNodeTx cred = do
   (tx, _)  <- Env.balanceTxEnv_ (BuildTx.insertBlacklistNode cred blacklist)
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
+removeBlacklistNodeTx :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m) => C.PaymentCredential -> m (C.Tx era)
+removeBlacklistNodeTx cred = do
+  blacklist <- Query.blacklistNodes @era
+  (tx, _)  <- Env.balanceTxEnv_ (BuildTx.removeBlacklistNode cred blacklist)
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
+
 {-| Build a transaction that issues a progammable token
 -}
 issueSmartTokensTx :: forall era env m.
@@ -182,23 +189,6 @@ transferSmartTokensTx assetId quantity destCred = do
     BuildTx.transferSmartTokens paramsTxIn blacklist directory userOutputsAtProgrammable (assetId, quantity) destCred
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
-blacklistCredentialTx :: forall era env m.
-  ( MonadReader env m
-  , Env.HasOperatorEnv era env
-  , Env.HasTransferLogicEnv env
-  , MonadBlockchain era m
-  , MonadError (AppError era) m
-  , C.IsBabbageBasedEra era
-  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
-  , MonadUtxoQuery m
-  )
-  => C.PaymentCredential -- ^ Source/User credential
-  -> m (C.Tx era)
-blacklistCredentialTx sanctionedCred = do
-  blacklist <- Query.blacklistNodes @era
-  (tx, _) <- Env.balanceTxEnv_ $ do
-    BuildTx.insertBlacklistNode sanctionedCred blacklist
-  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 seizeCredentialAssetsTx :: forall era env m.
   ( MonadReader env m
