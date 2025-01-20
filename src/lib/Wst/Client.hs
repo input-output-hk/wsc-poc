@@ -12,6 +12,7 @@ module Wst.Client (
   postIssueProgrammableTokenTx,
   postTransferProgrammableTokenTx,
   postAddToBlacklistTx,
+  postRemoveFromBlacklistTx,
   postSeizeFundsTx
 ) where
 
@@ -22,7 +23,7 @@ import Servant.Client (ClientEnv, client, runClientM)
 import Servant.Client.Core (ClientError)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import Wst.Offchain.Query (UTxODat)
-import Wst.Server.Types (API, APIInEra, AddToBlacklistArgs,
+import Wst.Server.Types (API, APIInEra, BlacklistNodeArgs,
                          IssueProgrammableTokenArgs (..), SeizeAssetsArgs,
                          TextEnvelopeJSON, TransferProgrammableTokenArgs (..))
 
@@ -46,13 +47,17 @@ postTransferProgrammableTokenTx env args = do
   let _ :<|> _ :<|> ((_ :<|> transferProgrammableTokenTx :<|> _) :<|> _) = client (Proxy @(API era))
   runClientM (transferProgrammableTokenTx args) env
 
-postAddToBlacklistTx :: forall era. C.IsShelleyBasedEra era => ClientEnv -> AddToBlacklistArgs -> IO (Either ClientError (TextEnvelopeJSON (C.Tx era)))
+postAddToBlacklistTx :: forall era. C.IsShelleyBasedEra era => ClientEnv -> BlacklistNodeArgs -> IO (Either ClientError (TextEnvelopeJSON (C.Tx era)))
 postAddToBlacklistTx env args = do
   let _ :<|> _ :<|> ((_ :<|> _ :<|> addToBlacklistTx :<|> _) :<|> _) = client (Proxy @(API era))
   runClientM (addToBlacklistTx args) env
 
+postRemoveFromBlacklistTx :: forall era. C.IsShelleyBasedEra era => ClientEnv -> BlacklistNodeArgs -> IO (Either ClientError (TextEnvelopeJSON (C.Tx era)))
+postRemoveFromBlacklistTx env args = do
+  let _ :<|> _ :<|> ((_ :<|> _ :<|> _ :<|>  removeFromBlacklistTx :<|> _) :<|> _) = client (Proxy @(API era))
+  runClientM (removeFromBlacklistTx args) env
+
 postSeizeFundsTx :: forall era. C.IsShelleyBasedEra era => ClientEnv -> SeizeAssetsArgs -> IO (Either ClientError (TextEnvelopeJSON (C.Tx era)))
 postSeizeFundsTx env args = do
-  let _ :<|> _ :<|> ((_ :<|> _ :<|> _ :<|> seizeFunds) :<|> _) = client (Proxy @(API era))
+  let _ :<|> _ :<|> ((_ :<|> _ :<|> _ :<|> _ :<|> seizeFunds) :<|> _) = client (Proxy @(API era))
   runClientM (seizeFunds args) env
-
