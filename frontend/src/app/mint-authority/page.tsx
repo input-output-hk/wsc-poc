@@ -34,6 +34,7 @@ export default function Home() {
   const [mintRecipientAddress, setMintRecipientAddress] = useState('mint recipient address');
   const [sendRecipientAddress, setsendRecipientAddress] = useState('send recipient address');
   const [freezeAccountNumber, setFreezeAccountNumber] = useState('account to freeze');
+  const [unfreezeAccountNumber, setUnfreezeAccountNumber] = useState('account to unfreeze');
   const [freezeReason, setFreezeReason] = useState('Enter reason here');
   const [seizeAccountNumber, setSeizeAccountNumber] = useState('account to seize');
   const [seizeReason, setSeizeReason] = useState('Enter reason here');
@@ -216,6 +217,51 @@ export default function Home() {
     }
   };
 
+  const onUnfreeze = async () => {
+    console.log('unfreeze an account');
+    lucid.selectWallet.fromSeed(mintAccount.mnemonic);
+    changeAlertInfo({severity: 'info', message: 'Unfreeze request processing', open: true,});
+    const requestData = {
+      issuer: mintAccount.address,
+      blacklist_address: unfreezeAccountNumber,
+    };
+    try {
+      const response = await axios.post(
+        '/api/v1/tx/programmable-token/unblacklist', 
+        requestData, 
+        {
+          headers: {
+            'Content-Type': 'application/json;charset=utf-8', 
+          },
+        }
+      );
+      console.log('Unfreeze response:', response.data);
+      const tx = await lucid.fromTx(response.data.cborHex);
+      await signAndSentTx(lucid, tx);
+      changeAlertInfo({severity: 'success', message: 'Account successfully unfrozen', open: true,});
+      const unfrozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
+        (key) => accounts[key].address === freezeAccountNumber
+      );
+      if (unfrozenWalletKey) {
+        changeWalletAccountDetails(unfrozenWalletKey, {
+          ...accounts[unfrozenWalletKey],
+          status: 'Active',
+        });
+      }
+    } catch (error: any) {
+      if (error.response.data.includes('BlacklistNodeNotFound')) {
+        changeAlertInfo({
+          severity: 'error',
+          message: 'This account is not frozen.',
+          open: true,
+        });
+        return;
+      } else {
+        console.error('Unfreeze failed:', error);
+      }
+    }
+  };
+
   const onSeize = async () => {
     console.log('seize account funds');
     lucid.selectWallet.fromSeed(mintAccount.mnemonic);
@@ -292,6 +338,15 @@ export default function Home() {
   />
   </Box>
 
+  const unFreezeContent =  <Box>
+  <WSTTextField 
+  value={unfreezeAccountNumber}
+  onChange={(e) => setUnfreezeAccountNumber(e.target.value)}
+  label="Account Number"
+  fullWidth={true}
+  />
+  </Box>
+
 const seizeContent =  <Box>
 <WSTTextField 
 value={seizeAccountNumber}
@@ -357,6 +412,12 @@ maxRows={3}
             content: freezeContent,
             buttonLabel: 'Freeze',
             onAction: onFreeze
+          },
+          {
+            label: 'Unfreeze',
+            content: unFreezeContent,
+            buttonLabel: 'Unfreeze',
+            onAction: onUnfreeze
           },
           {
             label: 'Seize',
