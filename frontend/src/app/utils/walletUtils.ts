@@ -87,15 +87,19 @@ export async function signAndSentTx(lucid: LucidEvolution, tx: TxSignBuilder) {
   const cmlTx = txBuilder.toTransaction();
   const witnessSet = txBuilder.toTransaction().witness_set();
   const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
-  console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
+  // console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
   const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());
-  console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
+  const txIDinAlert = await cmlTxBodyClone.to_json();
+  const txIDObject = JSON.parse(txIDinAlert);   
+  // console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
   cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash!);
-  console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
+  // console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
   const cmlClonedTx = CML.Transaction.new(cmlTxBodyClone, cmlTx!.witness_set(), true, cmlTx!.auxiliary_data());
   const cmlClonedSignedTx = await makeTxSignBuilder(lucid.wallet(), cmlClonedTx).sign.withWallet().complete();
   const txId = await cmlClonedSignedTx.submit();
   await lucid.awaitTx(txId);
+  console.log(cmlClonedSignedTx);
+  return txIDObject
 }
 
 export type WalletType = "Lace" | "Eternl" | "Nami" | "Yoroi";

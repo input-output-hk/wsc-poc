@@ -85,7 +85,7 @@ export default function Home() {
       console.error("Recipient Address not cleared.");
       return;
     }
-    changeAlertInfo({severity: 'info', message: 'Processing Mint Request', open: true,});
+    changeAlertInfo({severity: 'info', message: 'Processing Mint Request', open: true, link: ''});
     lucid.selectWallet.fromSeed(mintAccount.mnemonic);
     const requestData = {
       asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
@@ -109,22 +109,26 @@ export default function Home() {
       // await signAndSentTx(lucid, tx);
       const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
       const cmlTx = txBuilder.toTransaction()
-      console.log("TxBody: " + cmlTx.body().to_json());
+      // console.log("TxBody: " + cmlTx.body().to_json());
       const witnessSet = txBuilder.toTransaction().witness_set();
       const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
-      console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
+      // console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
       const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());
-      console.log("TxBody: " + cmlTxBodyClone.to_json());
-      console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
+      // console.log("TxBody: " + cmlTxBodyClone.to_json());
+      const txIDinAlert = await cmlTxBodyClone.to_json();
+      const txIDObject = JSON.parse(txIDinAlert);      
+      // console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
       cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash!);
-      console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
+      // console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
       const cmlClonedTx = CML.Transaction.new(cmlTxBodyClone, cmlTx!.witness_set(), true, cmlTx!.auxiliary_data());
       const cmlClonedSignedTx = await makeTxSignBuilder(lucid.wallet(), cmlClonedTx).sign.withWallet().complete();
 
       const txId = await cmlClonedSignedTx.submit();
       await lucid.awaitTx(txId);
       
-      changeAlertInfo({severity: 'success', message: 'Successful new WST mint', open: true,});
+      changeAlertInfo({severity: 'success', message: 'Successful new WST mint. View the transaction here:', open: true, link: `https://preview.cardanoscan.io/transaction/${txIDObject.inputs[0].transaction_id}`});
+      
+      
       await fetchUserDetails();
     } catch (error) {
       console.error('Minting failed:', error);
@@ -134,7 +138,7 @@ export default function Home() {
   const onSend = async () => {
     lucid.selectWallet.fromSeed(mintAccount.mnemonic);
     console.log('send tokens');
-    changeAlertInfo({severity: 'info', message: 'Transaction processing', open: true,});
+    changeAlertInfo({severity: 'info', message: 'Transaction processing', open: true, link: ''});
     const requestData = {
       asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
       issuer: mintAccount.address,
@@ -154,7 +158,7 @@ export default function Home() {
       );
       console.log('Send response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
-      await signAndSentTx(lucid, tx);
+      const txId = await signAndSentTx(lucid, tx);
       const newAccountBalance = await getWalletBalance(sendRecipientAddress);
       const recipientWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].address === sendRecipientAddress
@@ -165,7 +169,7 @@ export default function Home() {
           balance: newAccountBalance,
         });
       }
-      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true,});
+      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
       await fetchUserDetails();
     } catch (error) {
       console.error('Send failed:', error);
@@ -175,7 +179,7 @@ export default function Home() {
   const onFreeze = async () => {
     console.log('freeze an account');
     lucid.selectWallet.fromSeed(mintAccount.mnemonic);
-    changeAlertInfo({severity: 'info', message: 'Freeze request processing', open: true,});
+    changeAlertInfo({severity: 'info', message: 'Freeze request processing', open: true, link: ''});
     const requestData = {
       issuer: mintAccount.address,
       blacklist_address: freezeAccountNumber,
@@ -192,8 +196,8 @@ export default function Home() {
       );
       console.log('Freeze response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
-      await signAndSentTx(lucid, tx);
-      changeAlertInfo({severity: 'success', message: 'Account successfully frozen', open: true,});
+      const txId = await signAndSentTx(lucid, tx);
+      changeAlertInfo({severity: 'success', message: 'Account successfully frozen', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
       const frozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].address === freezeAccountNumber
       );
@@ -220,7 +224,7 @@ export default function Home() {
   const onUnfreeze = async () => {
     console.log('unfreeze an account');
     lucid.selectWallet.fromSeed(mintAccount.mnemonic);
-    changeAlertInfo({severity: 'info', message: 'Unfreeze request processing', open: true,});
+    changeAlertInfo({severity: 'info', message: 'Unfreeze request processing', open: true, link: ''});
     const requestData = {
       issuer: mintAccount.address,
       blacklist_address: unfreezeAccountNumber,
@@ -237,8 +241,8 @@ export default function Home() {
       );
       console.log('Unfreeze response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
-      await signAndSentTx(lucid, tx);
-      changeAlertInfo({severity: 'success', message: 'Account successfully unfrozen', open: true,});
+      const txId = await signAndSentTx(lucid, tx);
+      changeAlertInfo({severity: 'success', message: 'Account successfully unfrozen', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
       const unfrozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].address === freezeAccountNumber
       );
@@ -265,7 +269,7 @@ export default function Home() {
   const onSeize = async () => {
     console.log('seize account funds');
     lucid.selectWallet.fromSeed(mintAccount.mnemonic);
-    changeAlertInfo({severity: 'info', message: 'WST seizure processing', open: true,});
+    changeAlertInfo({severity: 'info', message: 'WST seizure processing', open: true, link: ''});
     const requestData = {
       issuer: mintAccount.address,
       target: seizeAccountNumber,
@@ -282,7 +286,7 @@ export default function Home() {
       );
       console.log('Seize response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
-      await signAndSentTx(lucid, tx);
+      const txId = await signAndSentTx(lucid, tx);
       const newAccountBalance = await getWalletBalance(seizeAccountNumber);
       const seizeWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].address === seizeAccountNumber
@@ -293,7 +297,7 @@ export default function Home() {
           balance: newAccountBalance,
         });
       }
-      changeAlertInfo({severity: 'success', message: 'Funds successfully seized', open: true,});
+      changeAlertInfo({severity: 'success', message: 'Funds successfully seized', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
       await fetchUserDetails();
     } catch (error) {
       console.error('Seize failed:', error);

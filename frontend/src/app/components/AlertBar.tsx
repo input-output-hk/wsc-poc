@@ -16,7 +16,7 @@ const handleClose = () => {
 };
 
   return (
-      <Snackbar open={alertInfo.open} autoHideDuration={alertInfo.severity === 'success' ? 3000 : null} onClose={handleClose} anchorOrigin={{vertical: 'top', horizontal: 'center'}} >
+      <Snackbar open={alertInfo.open} anchorOrigin={{vertical: 'top', horizontal: 'center'}} >
         <Alert
           severity={alertInfo.severity}
           variant="filled"
@@ -24,6 +24,19 @@ const handleClose = () => {
           onClose={handleClose}
         >
             {alertInfo.message}
+            {alertInfo.link && (
+          <>
+            {" "}
+            <a 
+              href={alertInfo.link} 
+              target="_blank" 
+              rel="noopener noreferrer" 
+            >
+              {alertInfo.link}
+            </a>
+            {" "}
+          </>
+        )}
         </Alert>
       </Snackbar>
   );

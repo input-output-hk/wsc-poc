@@ -43,6 +43,7 @@ export default function Profile() {
         severity: 'error',
         message: 'Cannot send WST with frozen account.',
         open: true,
+        link: ''
       });
       return;
     }
@@ -73,10 +74,10 @@ export default function Profile() {
       );
       console.log('Send response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
-      await signAndSentTx(lucid, tx);
+      const txId = await signAndSentTx(lucid, tx);
       await updateAccountBalance(sendRecipientAddress);
       await updateAccountBalance(accountInfo.address);
-      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true,});
+      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
     } catch (error) {
       console.error('Send failed:', error);
     }
