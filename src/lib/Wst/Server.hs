@@ -38,8 +38,8 @@ import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (uDatum))
 import Wst.Offchain.Query qualified as Query
 import Wst.Server.BlockfrostKey (BlockfrostKey, runBlockfrostKey)
-import Wst.Server.Types (APIInEra, AddToBlacklistArgs (..),
-                         AddVKeyWitnessArgs (..), BuildTxAPI,
+import Wst.Server.Types (APIInEra, AddVKeyWitnessArgs (..),
+                         BlacklistNodeArgs (..), BuildTxAPI,
                          IssueProgrammableTokenArgs (..), QueryAPI,
                          SeizeAssetsArgs (..), SerialiseAddress (..),
                          TextEnvelopeJSON (..),
@@ -108,6 +108,7 @@ txApi =
   (issueProgrammableTokenEndpoint @C.ConwayEra @env
   :<|> transferProgrammableTokenEndpoint @C.ConwayEra @env
   :<|> addToBlacklistEndpoint
+  :<|> removeFromBlacklistEndpoint
   :<|> seizeAssetsEndpoint
   )
   :<|> pure . addWitnessEndpoint
@@ -233,14 +234,32 @@ addToBlacklistEndpoint :: forall era env m.
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadUtxoQuery m
   )
-  => AddToBlacklistArgs -> m (TextEnvelopeJSON (C.Tx era))
-addToBlacklistEndpoint AddToBlacklistArgs{atbIssuer, atbBlacklistAddress} = do
-  let badCred = paymentCredentialFromAddress atbBlacklistAddress
-  operatorEnv <- Env.loadOperatorEnvFromAddress atbIssuer
+  => BlacklistNodeArgs -> m (TextEnvelopeJSON (C.Tx era))
+addToBlacklistEndpoint BlacklistNodeArgs{bnaIssuer, bnaBlacklistAddress} = do
+  let badCred = paymentCredentialFromAddress bnaBlacklistAddress
+  operatorEnv <- Env.loadOperatorEnvFromAddress bnaIssuer
   dirEnv <- asks Env.directoryEnv
-  transferLogic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress atbIssuer)
+  transferLogic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress bnaIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
-    TextEnvelopeJSON <$> Endpoints.blacklistCredentialTx badCred
+    TextEnvelopeJSON <$> Endpoints.insertBlacklistNodeTx badCred
+
+removeFromBlacklistEndpoint :: forall era env m.
+  ( MonadReader env m
+  , Env.HasDirectoryEnv env
+  , MonadBlockchain era m
+  , MonadError (AppError era) m
+  , C.IsBabbageBasedEra era
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , MonadUtxoQuery m
+  )
+  => BlacklistNodeArgs -> m (TextEnvelopeJSON (C.Tx era))
+removeFromBlacklistEndpoint BlacklistNodeArgs{bnaIssuer, bnaBlacklistAddress} = do
+  let badCred = paymentCredentialFromAddress bnaBlacklistAddress
+  operatorEnv <- Env.loadOperatorEnvFromAddress bnaIssuer
+  dirEnv <- asks Env.directoryEnv
+  transferLogic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress bnaIssuer)
+  Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
+    TextEnvelopeJSON <$> Endpoints.removeBlacklistNodeTx badCred
 
 seizeAssetsEndpoint :: forall era env m.
   ( MonadReader env m

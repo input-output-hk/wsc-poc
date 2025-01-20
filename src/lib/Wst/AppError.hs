@@ -16,6 +16,7 @@ data AppError era =
   | BlockfrostErr BlockfrostError
   | NoTokensToSeize -- ^ No tokens to seize
   | DuplicateBlacklistNode -- ^ Attempting to add a duplicate blacklist node
+  | BlacklistNodeNotFound -- ^ Attempting to remove a blacklist node that does not exist
   | TransferBlacklistedCredential Credential -- ^ Attempting to transfer funds from a blacklisted address
   | SubmitError (ValidationError era)
   deriving stock (Show)

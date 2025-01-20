@@ -17,7 +17,7 @@ module Wst.Server.Types (
   -- * Build tx arguments
   IssueProgrammableTokenArgs(..),
   TransferProgrammableTokenArgs(..),
-  AddToBlacklistArgs(..),
+  BlacklistNodeArgs(..),
   SeizeAssetsArgs(..),
   AddVKeyWitnessArgs(..),
 
@@ -148,21 +148,21 @@ instance FromJSON TransferProgrammableTokenArgs where
 instance ToSchema TransferProgrammableTokenArgs where
   declareNamedSchema = Schema.genericDeclareNamedSchema (SchemaOptions.fromAesonOptions jsonOptions3)
 
-data AddToBlacklistArgs =
-  AddToBlacklistArgs
-    { atbIssuer           :: C.Address C.ShelleyAddr
-    , atbBlacklistAddress :: C.Address C.ShelleyAddr
+data BlacklistNodeArgs =
+  BlacklistNodeArgs
+    { bnaIssuer           :: C.Address C.ShelleyAddr
+    , bnaBlacklistAddress :: C.Address C.ShelleyAddr
     }
     deriving stock (Eq, Show, Generic)
 
-instance ToJSON AddToBlacklistArgs where
+instance ToJSON BlacklistNodeArgs where
   toJSON = JSON.genericToJSON jsonOptions3
   toEncoding = JSON.genericToEncoding jsonOptions3
 
-instance FromJSON AddToBlacklistArgs where
+instance FromJSON BlacklistNodeArgs where
   parseJSON = JSON.genericParseJSON jsonOptions3
 
-instance ToSchema AddToBlacklistArgs where
+instance ToSchema BlacklistNodeArgs where
   declareNamedSchema = Schema.genericDeclareNamedSchema (SchemaOptions.fromAesonOptions jsonOptions3)
 
 data SeizeAssetsArgs =
@@ -203,7 +203,8 @@ type BuildTxAPI era =
   "programmable-token" :>
     ( "issue" :> Description "Create some programmable tokens" :> ReqBody '[JSON] IssueProgrammableTokenArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
       :<|> "transfer" :> Description "Transfer programmable tokens from one address to another" :> ReqBody '[JSON] TransferProgrammableTokenArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
-      :<|> "blacklist" :> Description "Add a credential to the blacklist" :> ReqBody '[JSON] AddToBlacklistArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
+      :<|> "blacklist" :> Description "Add a credential to the blacklist" :> ReqBody '[JSON] BlacklistNodeArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
+      :<|> "unblacklist" :> Description "Remove a credential from the blacklist" :> ReqBody '[JSON] BlacklistNodeArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
       :<|> "seize" :> Description "Seize a user's funds" :> ReqBody '[JSON] SeizeAssetsArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
     )
   :<|>

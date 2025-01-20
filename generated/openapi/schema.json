@@ -1,21 +1,6 @@
 {
     "components": {
         "schemas": {
-            "AddToBlacklistArgs": {
-                "properties": {
-                    "blacklist_address": {
-                        "$ref": "#/components/schemas/Address"
-                    },
-                    "issuer": {
-                        "$ref": "#/components/schemas/Address"
-                    }
-                },
-                "required": [
-                    "issuer",
-                    "blacklist_address"
-                ],
-                "type": "object"
-            },
             "AddVKeyWitnessArgs_ConwayEra": {
                 "properties": {
                     "w_tx": {
@@ -38,6 +23,21 @@
             },
             "Asset name": {
                 "type": "string"
+            },
+            "BlacklistNodeArgs": {
+                "properties": {
+                    "blacklist_address": {
+                        "$ref": "#/components/schemas/Address"
+                    },
+                    "issuer": {
+                        "$ref": "#/components/schemas/Address"
+                    }
+                },
+                "required": [
+                    "issuer",
+                    "blacklist_address"
+                ],
+                "type": "object"
             },
             "Hash PaymentKey": {
                 "description": "Hash of a payment key",
@@ -417,7 +417,7 @@
                     "content": {
                         "application/json;charset=utf-8": {
                             "schema": {
-                                "$ref": "#/components/schemas/AddToBlacklistArgs"
+                                "$ref": "#/components/schemas/BlacklistNodeArgs"
                             }
                         }
                     }
@@ -505,6 +505,35 @@
                         "application/json;charset=utf-8": {
                             "schema": {
                                 "$ref": "#/components/schemas/TransferProgrammableTokenArgs"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TextEnvelopeJSON"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/api/v1/tx/programmable-token/unblacklist": {
+            "post": {
+                "description": "Remove a credential from the blacklist",
+                "requestBody": {
+                    "content": {
+                        "application/json;charset=utf-8": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BlacklistNodeArgs"
                             }
                         }
                     }

@@ -55,6 +55,7 @@ scriptTargetTests target =
         , testCase "smart token issuance" (mockchainSucceedsWithTarget target issueSmartTokensScenario)
         , testCase "smart token transfer" (mockchainSucceedsWithTarget target $ deployDirectorySet >>= transferSmartTokens)
         , testCase "blacklist credential" (mockchainSucceedsWithTarget target $ void $ deployDirectorySet >>= blacklistCredential)
+        , testCase "unblacklist credential" (mockchainSucceedsWithTarget target $ void $ deployDirectorySet >>= unblacklistCredential)
         , testCase "blacklisted transfer" (mockchainFails blacklistTransfer assertBlacklistedAddressException)
         , testCase "seize user output" (mockchainSucceedsWithTarget target $ deployDirectorySet >>= seizeUserOutput)
         , testCase "deploy all" (mockchainSucceedsWithTarget target deployAll)
@@ -173,11 +174,37 @@ blacklistCredential scriptRoot = failOnError $ Env.withEnv $ do
       >>= void . expectSingleton "blacklist output"
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
-    Endpoints.blacklistCredentialTx paymentCred
+    Endpoints.insertBlacklistNodeTx paymentCred
       >>= void . sendTx . signTxOperator admin
 
     Query.blacklistNodes @C.ConwayEra
       >>= void . expectN 2 "blacklist output"
+
+  pure paymentCred
+
+unblacklistCredential :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m C.PaymentCredential
+unblacklistCredential scriptRoot = failOnError $ Env.withEnv $ do
+  userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
+  let paymentCred = C.PaymentCredentialByKey userPkh
+
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
+    Endpoints.deployBlacklistTx
+      >>= void . sendTx . signTxOperator admin
+    Query.blacklistNodes @C.ConwayEra
+      >>= void . expectSingleton "blacklist output"
+
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
+    Endpoints.insertBlacklistNodeTx paymentCred
+      >>= void . sendTx . signTxOperator admin
+
+    Query.blacklistNodes @C.ConwayEra
+      >>= void . expectN 2 "blacklist output"
+
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
+    Endpoints.removeBlacklistNodeTx paymentCred
+      >>= void . sendTx . signTxOperator admin
+    Query.blacklistNodes @C.ConwayEra
+      >>= void . expectSingleton "blacklist output"
 
   pure paymentCred
 
@@ -200,7 +227,7 @@ blacklistTransfer = failOnError $ Env.withEnv $ do
 
   transferLogic <- Env.withDirectoryFor scriptRoot $ Env.transferLogicForDirectory (C.verificationKeyHash . Operator.verificationKey . Operator.oPaymentKey $ admin)
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ Endpoints.blacklistCredentialTx userPaymentCred
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ Endpoints.insertBlacklistNodeTx userPaymentCred
     >>= void . sendTx . signTxOperator admin
 
   asWallet Wallet.w2 $ Env.withDirectoryFor scriptRoot $ Env.withTransfer transferLogic $ Endpoints.transferSmartTokensTx aid 30 (C.PaymentCredentialByKey opPkh)
