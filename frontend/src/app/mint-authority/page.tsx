@@ -183,6 +183,7 @@ export default function Home() {
     const requestData = {
       issuer: mintAccount.address,
       blacklist_address: freezeAccountNumber,
+      reason: freezeReason,
     };
     try {
       const response = await axios.post(
@@ -273,6 +274,7 @@ export default function Home() {
     const requestData = {
       issuer: mintAccount.address,
       target: seizeAccountNumber,
+      reason: seizeReason,
     };
     try {
       const response = await axios.post(
