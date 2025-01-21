@@ -17,12 +17,12 @@ where
 
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
-import Control.Lens (over, (^.))
+import Control.Lens (at, over, set, (^.))
 import Control.Monad (when)
 import Control.Monad.Except (MonadError (throwError))
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx (addTxBuilder), TxBuilder (TxBuilder),
-                       addRequiredSignature, addScriptWithdrawal,
+                       addBtx, addRequiredSignature, addScriptWithdrawal,
                        addWithdrawalWithTxBody, buildScriptWitness,
                        findIndexReference, mintPlutus, payToAddress,
                        prependTxOut, spendPlutusInlineDatum)
@@ -38,6 +38,7 @@ import Data.Foldable (maximumBy)
 import Data.Function (on)
 import Data.List (find, nub, sort)
 import Data.Monoid (Last (..))
+import Data.Text (Text)
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.Data.V3 (Credential (..), PubKeyHash (PubKeyHash),
                                 ScriptHash (..))
@@ -93,8 +94,8 @@ initBlacklist = Utils.inBabbage @era $ do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   addRequiredSignature opPkh
 
-insertBlacklistNode :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError (AppError era) m) => C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
-insertBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
+insertBlacklistNode :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError (AppError era) m) => Text -> C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
+insertBlacklistNode reason cred blacklistNodes = Utils.inBabbage @era $ do
   -- mint new blacklist token
   mintingScript <- asks (Env.tleBlacklistMintingScript . Env.transferLogicEnv)
   let newAssetName = C.AssetName $  case transCredential cred of
@@ -130,6 +131,9 @@ insertBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
   prependTxOut newPrevNodeOutput
   -- set new node output
   prependTxOut newNodeOutput
+
+  -- add reason to metadata
+  addBtx (set (L.txMetadata . L._TxMetadata . at 0) (Just (C.TxMetaMap [(C.TxMetaText "reason", C.metaTextChunks reason)])))
 
   -- add operator signature
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)

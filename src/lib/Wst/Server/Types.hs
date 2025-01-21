@@ -39,6 +39,7 @@ import Data.OpenApi.ParamSchema (ToParamSchema (..))
 import Data.OpenApi.Schema qualified as Schema
 import Data.OpenApi.SchemaOptions qualified as SchemaOptions
 import Data.Proxy (Proxy (..))
+import Data.Text (Text)
 import GHC.Generics (Generic)
 import Servant (FromHttpApiData (..), ToHttpApiData (toUrlPiece))
 import Servant.API (Capture, Description, Get, JSON, NoContent, Post, ReqBody,
@@ -152,6 +153,7 @@ data BlacklistNodeArgs =
   BlacklistNodeArgs
     { bnaIssuer           :: C.Address C.ShelleyAddr
     , bnaBlacklistAddress :: C.Address C.ShelleyAddr
+    , bnaReason           :: Text
     }
     deriving stock (Eq, Show, Generic)
 

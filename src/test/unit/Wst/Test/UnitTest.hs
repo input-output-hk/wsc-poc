@@ -174,7 +174,7 @@ blacklistCredential scriptRoot = failOnError $ Env.withEnv $ do
       >>= void . expectSingleton "blacklist output"
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
-    Endpoints.insertBlacklistNodeTx paymentCred
+    Endpoints.insertBlacklistNodeTx "" paymentCred
       >>= void . sendTx . signTxOperator admin
 
     Query.blacklistNodes @C.ConwayEra
@@ -194,7 +194,7 @@ unblacklistCredential scriptRoot = failOnError $ Env.withEnv $ do
       >>= void . expectSingleton "blacklist output"
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
-    Endpoints.insertBlacklistNodeTx paymentCred
+    Endpoints.insertBlacklistNodeTx "" paymentCred
       >>= void . sendTx . signTxOperator admin
 
     Query.blacklistNodes @C.ConwayEra
@@ -227,7 +227,7 @@ blacklistTransfer = failOnError $ Env.withEnv $ do
 
   transferLogic <- Env.withDirectoryFor scriptRoot $ Env.transferLogicForDirectory (C.verificationKeyHash . Operator.verificationKey . Operator.oPaymentKey $ admin)
 
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ Endpoints.insertBlacklistNodeTx userPaymentCred
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ Endpoints.insertBlacklistNodeTx "" userPaymentCred
     >>= void . sendTx . signTxOperator admin
 
   asWallet Wallet.w2 $ Env.withDirectoryFor scriptRoot $ Env.withTransfer transferLogic $ Endpoints.transferSmartTokensTx aid 30 (C.PaymentCredentialByKey opPkh)

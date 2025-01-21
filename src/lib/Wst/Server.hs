@@ -235,13 +235,13 @@ addToBlacklistEndpoint :: forall era env m.
   , MonadUtxoQuery m
   )
   => BlacklistNodeArgs -> m (TextEnvelopeJSON (C.Tx era))
-addToBlacklistEndpoint BlacklistNodeArgs{bnaIssuer, bnaBlacklistAddress} = do
+addToBlacklistEndpoint BlacklistNodeArgs{bnaIssuer, bnaBlacklistAddress, bnaReason} = do
   let badCred = paymentCredentialFromAddress bnaBlacklistAddress
   operatorEnv <- Env.loadOperatorEnvFromAddress bnaIssuer
   dirEnv <- asks Env.directoryEnv
   transferLogic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress bnaIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
-    TextEnvelopeJSON <$> Endpoints.insertBlacklistNodeTx badCred
+    TextEnvelopeJSON <$> Endpoints.insertBlacklistNodeTx bnaReason badCred
 
 removeFromBlacklistEndpoint :: forall era env m.
   ( MonadReader env m
