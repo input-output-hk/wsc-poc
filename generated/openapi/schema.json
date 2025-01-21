@@ -33,7 +33,7 @@
                         "$ref": "#/components/schemas/Address"
                     },
                     "reason": {
-                        "type": "string"
+                        "$ref": "#/components/schemas/BlacklistReason"
                     }
                 },
                 "required": [
@@ -42,6 +42,10 @@
                     "reason"
                 ],
                 "type": "object"
+            },
+            "BlacklistReason": {
+                "description": "Reason for adding an address to the blacklist",
+                "type": "string"
             },
             "Hash PaymentKey": {
                 "description": "Hash of a payment key",

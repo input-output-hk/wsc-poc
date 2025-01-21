@@ -24,7 +24,6 @@ import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Convex.CoinSelection qualified
 import Data.Foldable (maximumBy)
 import Data.Function (on)
-import Data.Text (Text)
 import GHC.IsList (IsList (..))
 import SmartTokens.Core.Scripts (ScriptTarget (..))
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
@@ -33,6 +32,7 @@ import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (inaNewKey))
 import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
 import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
 import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
+import Wst.Offchain.BuildTx.TransferLogic (BlacklistReason)
 import Wst.Offchain.BuildTx.TransferLogic qualified as BuildTx
 import Wst.Offchain.Env (DirectoryScriptRoot (..))
 import Wst.Offchain.Env qualified as Env
@@ -127,7 +127,7 @@ deployBlacklistTx = do
               $ Env.balanceTxEnv_ BuildTx.initBlacklist
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
-insertBlacklistNodeTx :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m) => Text -> C.PaymentCredential -> m (C.Tx era)
+insertBlacklistNodeTx :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m) => BlacklistReason -> C.PaymentCredential -> m (C.Tx era)
 insertBlacklistNodeTx reason cred = do
   blacklist <- Query.blacklistNodes @era
   (tx, _)  <- Env.balanceTxEnv_ (BuildTx.insertBlacklistNode reason cred blacklist)

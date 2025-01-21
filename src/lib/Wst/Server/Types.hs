@@ -39,13 +39,13 @@ import Data.OpenApi.ParamSchema (ToParamSchema (..))
 import Data.OpenApi.Schema qualified as Schema
 import Data.OpenApi.SchemaOptions qualified as SchemaOptions
 import Data.Proxy (Proxy (..))
-import Data.Text (Text)
 import GHC.Generics (Generic)
 import Servant (FromHttpApiData (..), ToHttpApiData (toUrlPiece))
 import Servant.API (Capture, Description, Get, JSON, NoContent, Post, ReqBody,
                     type (:>), (:<|>) (..))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import Wst.JSON.Utils qualified as JSON
+import Wst.Offchain.BuildTx.TransferLogic (BlacklistReason)
 import Wst.Offchain.Query (UTxODat (..))
 
 type APIInEra = "api" :> "v1" :> API C.ConwayEra
@@ -153,7 +153,7 @@ data BlacklistNodeArgs =
   BlacklistNodeArgs
     { bnaIssuer           :: C.Address C.ShelleyAddr
     , bnaBlacklistAddress :: C.Address C.ShelleyAddr
-    , bnaReason           :: Text
+    , bnaReason           :: BlacklistReason
     }
     deriving stock (Eq, Show, Generic)
 

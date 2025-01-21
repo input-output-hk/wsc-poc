@@ -8,6 +8,7 @@ module Wst.Offchain.BuildTx.TransferLogic
     issueSmartTokens,
     seizeSmartTokens,
     initBlacklist,
+    BlacklistReason(..),
     insertBlacklistNode,
     removeBlacklistNode,
     paySmartTokensToDestination,
@@ -17,7 +18,7 @@ where
 
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
-import Control.Lens (at, over, set, (^.))
+import Control.Lens (at, over, set, (&), (?~), (^.))
 import Control.Monad (when)
 import Control.Monad.Except (MonadError (throwError))
 import Control.Monad.Reader (MonadReader, asks)
@@ -34,10 +35,15 @@ import Convex.Scripts qualified as C
 import Convex.Utils qualified as Utils
 import Convex.Utxos (UtxoSet (UtxoSet))
 import Convex.Wallet (selectMixedInputsCovering)
+import Data.Aeson (FromJSON, ToJSON)
 import Data.Foldable (maximumBy)
 import Data.Function (on)
 import Data.List (find, nub, sort)
 import Data.Monoid (Last (..))
+import Data.OpenApi (NamedSchema (..), OpenApiType (OpenApiString),
+                     ToSchema (..))
+import Data.OpenApi.Lens qualified as L
+import Data.String (IsString)
 import Data.Text (Text)
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.Data.V3 (Credential (..), PubKeyHash (PubKeyHash),
@@ -94,7 +100,25 @@ initBlacklist = Utils.inBabbage @era $ do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   addRequiredSignature opPkh
 
-insertBlacklistNode :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError (AppError era) m) => Text -> C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
+{-| Reason for adding an address to the blacklist
+-}
+newtype BlacklistReason = BlacklistReason Text
+  deriving newtype (Eq, Show, IsString, ToJSON, FromJSON)
+
+instance ToSchema BlacklistReason where
+  declareNamedSchema _ = pure
+    $ NamedSchema (Just "BlacklistReason")
+    $ mempty
+        & L.type_ ?~ OpenApiString
+        & L.description ?~ "Reason for adding an address to the blacklist"
+
+{-| Add an entry for the blacklist reason to the transaction metadata
+-}
+addReasonToMetadata :: (C.IsShelleyBasedEra era, MonadBuildTx era m) => BlacklistReason -> m ()
+addReasonToMetadata (BlacklistReason reason) =
+  addBtx (set (L.txMetadata . L._TxMetadata . at 0) (Just (C.TxMetaMap [(C.TxMetaText "reason", C.metaTextChunks reason)])))
+
+insertBlacklistNode :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError (AppError era) m) => BlacklistReason -> C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
 insertBlacklistNode reason cred blacklistNodes = Utils.inBabbage @era $ do
   -- mint new blacklist token
   mintingScript <- asks (Env.tleBlacklistMintingScript . Env.transferLogicEnv)
@@ -132,8 +156,7 @@ insertBlacklistNode reason cred blacklistNodes = Utils.inBabbage @era $ do
   -- set new node output
   prependTxOut newNodeOutput
 
-  -- add reason to metadata
-  addBtx (set (L.txMetadata . L._TxMetadata . at 0) (Just (C.TxMetaMap [(C.TxMetaText "reason", C.metaTextChunks reason)])))
+  addReasonToMetadata reason
 
   -- add operator signature
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
