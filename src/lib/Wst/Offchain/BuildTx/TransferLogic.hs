@@ -6,8 +6,10 @@
 module Wst.Offchain.BuildTx.TransferLogic
   ( transferSmartTokens,
     issueSmartTokens,
+    SeizeReason(..),
     seizeSmartTokens,
     initBlacklist,
+    BlacklistReason(..),
     insertBlacklistNode,
     removeBlacklistNode,
     paySmartTokensToDestination,
@@ -17,12 +19,12 @@ where
 
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
-import Control.Lens (over, (^.))
+import Control.Lens (at, over, set, (&), (?~), (^.))
 import Control.Monad (when)
 import Control.Monad.Except (MonadError (throwError))
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx (addTxBuilder), TxBuilder (TxBuilder),
-                       addRequiredSignature, addScriptWithdrawal,
+                       addBtx, addRequiredSignature, addScriptWithdrawal,
                        addWithdrawalWithTxBody, buildScriptWitness,
                        findIndexReference, mintPlutus, payToAddress,
                        prependTxOut, spendPlutusInlineDatum)
@@ -34,10 +36,16 @@ import Convex.Scripts qualified as C
 import Convex.Utils qualified as Utils
 import Convex.Utxos (UtxoSet (UtxoSet))
 import Convex.Wallet (selectMixedInputsCovering)
+import Data.Aeson (FromJSON, ToJSON)
 import Data.Foldable (maximumBy)
 import Data.Function (on)
 import Data.List (find, nub, sort)
 import Data.Monoid (Last (..))
+import Data.OpenApi (NamedSchema (..), OpenApiType (OpenApiString),
+                     ToSchema (..))
+import Data.OpenApi.Lens qualified as L
+import Data.String (IsString)
+import Data.Text (Text)
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.Data.V3 (Credential (..), PubKeyHash (PubKeyHash),
                                 ScriptHash (..))
@@ -93,8 +101,26 @@ initBlacklist = Utils.inBabbage @era $ do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   addRequiredSignature opPkh
 
-insertBlacklistNode :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError (AppError era) m) => C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
-insertBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
+{-| Reason for adding an address to the blacklist
+-}
+newtype BlacklistReason = BlacklistReason Text
+  deriving newtype (Eq, Show, IsString, ToJSON, FromJSON, Semigroup, Monoid)
+
+instance ToSchema BlacklistReason where
+  declareNamedSchema _ = pure
+    $ NamedSchema (Just "BlacklistReason")
+    $ mempty
+        & L.type_ ?~ OpenApiString
+        & L.description ?~ "Reason for adding an address to the blacklist"
+
+{-| Add an entry for the blacklist reason to the transaction metadata
+-}
+addBlacklistReason :: (C.IsShelleyBasedEra era, MonadBuildTx era m) => BlacklistReason -> m ()
+addBlacklistReason (BlacklistReason reason) =
+  addBtx (set (L.txMetadata . L._TxMetadata . at 0) (Just (C.TxMetaMap [(C.TxMetaText "blacklist.reason", C.metaTextChunks reason)])))
+
+insertBlacklistNode :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError (AppError era) m) => BlacklistReason -> C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
+insertBlacklistNode reason cred blacklistNodes = Utils.inBabbage @era $ do
   -- mint new blacklist token
   mintingScript <- asks (Env.tleBlacklistMintingScript . Env.transferLogicEnv)
   let newAssetName = C.AssetName $  case transCredential cred of
@@ -130,6 +156,8 @@ insertBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
   prependTxOut newPrevNodeOutput
   -- set new node output
   prependTxOut newNodeOutput
+
+  addBlacklistReason reason
 
   -- add operator signature
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
@@ -228,8 +256,27 @@ transferSmartTokens paramsTxIn blacklistNodes directoryList spendingUserOutputs 
       returnOutput = C.TxOut returnAddr returnVal C.TxOutDatumNone C.ReferenceScriptNone
   prependTxOut returnOutput -- Add the seized output to the transaction
 
-seizeSmartTokens :: forall env era a m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era a -> C.PaymentCredential -> [UTxODat era DirectorySetNode] -> m ()
-seizeSmartTokens paramsTxIn seizingTxo destinationCred directoryList = Utils.inBabbage @era $ do
+{-| Reason for adding an address to the blacklist
+-}
+newtype SeizeReason = SeizeReason Text
+  deriving newtype (Eq, Show, IsString, ToJSON, FromJSON, Semigroup, Monoid)
+
+instance ToSchema SeizeReason where
+  declareNamedSchema _ = pure
+    $ NamedSchema (Just "SeizeReason")
+    $ mempty
+        & L.type_ ?~ OpenApiString
+        & L.description ?~ "Reason for seizing funds"
+
+{-| Add an entry for the blacklist reason to the transaction metadata
+-}
+addSeizeReason :: (C.IsShelleyBasedEra era, MonadBuildTx era m) => SeizeReason -> m ()
+addSeizeReason (SeizeReason reason) =
+  addBtx (set (L.txMetadata . L._TxMetadata . at 1) (Just (C.TxMetaMap [(C.TxMetaText "seize.reason", C.metaTextChunks reason)])))
+
+
+seizeSmartTokens :: forall env era a m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => SeizeReason -> UTxODat era ProgrammableLogicGlobalParams -> UTxODat era a -> C.PaymentCredential -> [UTxODat era DirectorySetNode] -> m ()
+seizeSmartTokens reason paramsTxIn seizingTxo destinationCred directoryList = Utils.inBabbage @era $ do
   nid <- queryNetworkId
 
   let -- NOTE: Assumes only a single programmable token per UTxO is allowed
@@ -254,6 +301,7 @@ seizeSmartTokens paramsTxIn seizingTxo destinationCred directoryList = Utils.inB
       -- NOTE: Assumes only a single programmable token per UTxO is allowed
       seizedVal = fromList [(C.AssetId progTokenPolId an, q)]
 
+  addSeizeReason reason
   -- Send seized funds to destinationCred
   payToAddress destinationAddress seizedVal
 

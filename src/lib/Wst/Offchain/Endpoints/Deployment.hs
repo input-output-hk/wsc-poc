@@ -32,6 +32,7 @@ import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (inaNewKey))
 import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
 import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
 import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
+import Wst.Offchain.BuildTx.TransferLogic (BlacklistReason)
 import Wst.Offchain.BuildTx.TransferLogic qualified as BuildTx
 import Wst.Offchain.Env (DirectoryScriptRoot (..))
 import Wst.Offchain.Env qualified as Env
@@ -126,10 +127,10 @@ deployBlacklistTx = do
               $ Env.balanceTxEnv_ BuildTx.initBlacklist
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
-insertBlacklistNodeTx :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m) => C.PaymentCredential -> m (C.Tx era)
-insertBlacklistNodeTx cred = do
+insertBlacklistNodeTx :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m) => BlacklistReason -> C.PaymentCredential -> m (C.Tx era)
+insertBlacklistNodeTx reason cred = do
   blacklist <- Query.blacklistNodes @era
-  (tx, _)  <- Env.balanceTxEnv_ (BuildTx.insertBlacklistNode cred blacklist)
+  (tx, _)  <- Env.balanceTxEnv_ (BuildTx.insertBlacklistNode reason cred blacklist)
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 removeBlacklistNodeTx :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m) => C.PaymentCredential -> m (C.Tx era)
@@ -201,9 +202,10 @@ seizeCredentialAssetsTx :: forall era env m.
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadUtxoQuery m
   )
-  => C.PaymentCredential -- ^ Source/User credential
+  => BuildTx.SeizeReason
+  -> C.PaymentCredential -- ^ Source/User credential
   -> m (C.Tx era)
-seizeCredentialAssetsTx sanctionedCred = do
+seizeCredentialAssetsTx reason sanctionedCred = do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   directory <- Query.registryNodes @era
   let getTxOutValue (C.TxOut _a v _d _r) = v
@@ -219,5 +221,5 @@ seizeCredentialAssetsTx sanctionedCred = do
     throwError NoTokensToSeize
   paramsTxIn <- Query.globalParamsNode @era
   (tx, _) <- Env.balanceTxEnv_ $ do
-    BuildTx.seizeSmartTokens paramsTxIn seizeTxo (C.PaymentCredentialByKey opPkh) directory
+    BuildTx.seizeSmartTokens reason paramsTxIn seizeTxo (C.PaymentCredentialByKey opPkh) directory
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)

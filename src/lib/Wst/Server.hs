@@ -235,13 +235,13 @@ addToBlacklistEndpoint :: forall era env m.
   , MonadUtxoQuery m
   )
   => BlacklistNodeArgs -> m (TextEnvelopeJSON (C.Tx era))
-addToBlacklistEndpoint BlacklistNodeArgs{bnaIssuer, bnaBlacklistAddress} = do
+addToBlacklistEndpoint BlacklistNodeArgs{bnaIssuer, bnaBlacklistAddress, bnaReason} = do
   let badCred = paymentCredentialFromAddress bnaBlacklistAddress
   operatorEnv <- Env.loadOperatorEnvFromAddress bnaIssuer
   dirEnv <- asks Env.directoryEnv
   transferLogic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress bnaIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
-    TextEnvelopeJSON <$> Endpoints.insertBlacklistNodeTx badCred
+    TextEnvelopeJSON <$> Endpoints.insertBlacklistNodeTx bnaReason badCred
 
 removeFromBlacklistEndpoint :: forall era env m.
   ( MonadReader env m
@@ -271,13 +271,13 @@ seizeAssetsEndpoint :: forall era env m.
   , MonadUtxoQuery m
   )
   => SeizeAssetsArgs -> m (TextEnvelopeJSON (C.Tx era))
-seizeAssetsEndpoint SeizeAssetsArgs{saIssuer, saTarget} = do
+seizeAssetsEndpoint SeizeAssetsArgs{saIssuer, saTarget, saReason} = do
   let badCred = paymentCredentialFromAddress saTarget
   operatorEnv <- Env.loadOperatorEnvFromAddress saIssuer
   dirEnv <- asks Env.directoryEnv
   transferLogic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress saIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
-    TextEnvelopeJSON <$> Endpoints.seizeCredentialAssetsTx badCred
+    TextEnvelopeJSON <$> Endpoints.seizeCredentialAssetsTx saReason badCred
 
 addWitnessEndpoint :: forall era. AddVKeyWitnessArgs era -> TextEnvelopeJSON (C.Tx era)
 addWitnessEndpoint AddVKeyWitnessArgs{avwTx, avwVKeyWitness} =
