@@ -202,9 +202,10 @@ seizeCredentialAssetsTx :: forall era env m.
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadUtxoQuery m
   )
-  => C.PaymentCredential -- ^ Source/User credential
+  => BuildTx.SeizeReason
+  -> C.PaymentCredential -- ^ Source/User credential
   -> m (C.Tx era)
-seizeCredentialAssetsTx sanctionedCred = do
+seizeCredentialAssetsTx reason sanctionedCred = do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   directory <- Query.registryNodes @era
   let getTxOutValue (C.TxOut _a v _d _r) = v
@@ -220,5 +221,5 @@ seizeCredentialAssetsTx sanctionedCred = do
     throwError NoTokensToSeize
   paramsTxIn <- Query.globalParamsNode @era
   (tx, _) <- Env.balanceTxEnv_ $ do
-    BuildTx.seizeSmartTokens paramsTxIn seizeTxo (C.PaymentCredentialByKey opPkh) directory
+    BuildTx.seizeSmartTokens reason paramsTxIn seizeTxo (C.PaymentCredentialByKey opPkh) directory
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)

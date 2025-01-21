@@ -253,7 +253,7 @@ seizeUserOutput scriptRoot = failOnError $ Env.withEnv $ do
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
-    Endpoints.seizeCredentialAssetsTx userPaymentCred
+    Endpoints.seizeCredentialAssetsTx mempty userPaymentCred
       >>= void . sendTx . signTxOperator admin
     Query.programmableLogicOutputs @C.ConwayEra
       >>= void . expectN 3 "programmable logic outputs"

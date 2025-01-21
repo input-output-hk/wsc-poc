@@ -45,7 +45,7 @@ import Servant.API (Capture, Description, Get, JSON, NoContent, Post, ReqBody,
                     type (:>), (:<|>) (..))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import Wst.JSON.Utils qualified as JSON
-import Wst.Offchain.BuildTx.TransferLogic (BlacklistReason)
+import Wst.Offchain.BuildTx.TransferLogic (BlacklistReason, SeizeReason)
 import Wst.Offchain.Query (UTxODat (..))
 
 type APIInEra = "api" :> "v1" :> API C.ConwayEra
@@ -171,6 +171,7 @@ data SeizeAssetsArgs =
   SeizeAssetsArgs
     { saIssuer  :: C.Address C.ShelleyAddr
     , saTarget  :: C.Address C.ShelleyAddr
+    , saReason  :: SeizeReason
     }
     deriving stock (Eq, Show, Generic)
 

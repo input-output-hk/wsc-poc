@@ -104,15 +104,23 @@
                     "issuer": {
                         "$ref": "#/components/schemas/Address"
                     },
+                    "reason": {
+                        "$ref": "#/components/schemas/SeizeReason"
+                    },
                     "target": {
                         "$ref": "#/components/schemas/Address"
                     }
                 },
                 "required": [
                     "issuer",
-                    "target"
+                    "target",
+                    "reason"
                 ],
                 "type": "object"
+            },
+            "SeizeReason": {
+                "description": "Reason for seizing funds",
+                "type": "string"
             },
             "TextEnvelopeJSON": {
                 "description": "Text envelope",
