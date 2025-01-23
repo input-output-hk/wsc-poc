@@ -21,7 +21,7 @@ const drawerWidth = 200;
 
 const iconMapping = {
   'Mint Actions': <ImportExportIcon />,
-  'Accounts': <FormatListBulletedIcon />,
+  'Addresses': <FormatListBulletedIcon />,
   'Wallet': <AccountBalanceWalletIcon />
 };
 
@@ -30,7 +30,7 @@ export default function NavDrawer() {
 
   // Define list items based on the current user
   const listItems: MenuTab[] = currentUser === 'Mint Authority' ? 
-    ['Mint Actions', 'Accounts'] : 
+    ['Mint Actions', 'Addresses'] : 
     ['Wallet'];
 
     const handleListItemClick = (item: MenuTab) => {

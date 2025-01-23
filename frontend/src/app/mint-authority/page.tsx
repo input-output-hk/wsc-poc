@@ -33,10 +33,10 @@ export default function Home() {
   const [sendTokensAmount, setSendTokens] = useState(0);
   const [mintRecipientAddress, setMintRecipientAddress] = useState('mint recipient address');
   const [sendRecipientAddress, setsendRecipientAddress] = useState('send recipient address');
-  const [freezeAccountNumber, setFreezeAccountNumber] = useState('account to freeze');
-  const [unfreezeAccountNumber, setUnfreezeAccountNumber] = useState('account to unfreeze');
+  const [freezeAccountNumber, setFreezeAccountNumber] = useState('address to freeze');
+  const [unfreezeAccountNumber, setUnfreezeAccountNumber] = useState('address to unfreeze');
   const [freezeReason, setFreezeReason] = useState('Enter reason here');
-  const [seizeAccountNumber, setSeizeAccountNumber] = useState('account to seize');
+  const [seizeAccountNumber, setSeizeAccountNumber] = useState('address to seize');
   const [seizeReason, setSeizeReason] = useState('Enter reason here');
   
   useEffect(() => {
@@ -177,7 +177,7 @@ export default function Home() {
   };
 
   const onFreeze = async () => {
-    console.log('freeze an account');
+    console.log('freeze an address');
     lucid.selectWallet.fromSeed(mintAccount.mnemonic);
     changeAlertInfo({severity: 'info', message: 'Freeze request processing', open: true, link: ''});
     const requestData = {
@@ -198,7 +198,7 @@ export default function Home() {
       console.log('Freeze response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       const txId = await signAndSentTx(lucid, tx);
-      changeAlertInfo({severity: 'success', message: 'Account successfully frozen', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
+      changeAlertInfo({severity: 'success', message: 'Address successfully frozen', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
       const frozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].address === freezeAccountNumber
       );
@@ -243,7 +243,7 @@ export default function Home() {
       console.log('Unfreeze response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       const txId = await signAndSentTx(lucid, tx);
-      changeAlertInfo({severity: 'success', message: 'Account successfully unfrozen', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
+      changeAlertInfo({severity: 'success', message: 'Address successfully unfrozen', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
       const unfrozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].address === freezeAccountNumber
       );
@@ -330,7 +330,7 @@ export default function Home() {
   <WSTTextField 
   value={freezeAccountNumber}
   onChange={(e) => setFreezeAccountNumber(e.target.value)}
-  label="Account Number"
+  label="Address"
   fullWidth={true}
   />
   <WSTTextField 
@@ -348,7 +348,7 @@ export default function Home() {
   <WSTTextField 
   value={unfreezeAccountNumber}
   onChange={(e) => setUnfreezeAccountNumber(e.target.value)}
-  label="Account Number"
+  label="Address"
   fullWidth={true}
   />
   </Box>
@@ -357,7 +357,7 @@ const seizeContent =  <Box>
 <WSTTextField 
 value={seizeAccountNumber}
 onChange={(e) => setSeizeAccountNumber(e.target.value)}
-label="Account Number"
+label="Address"
 fullWidth={true}
 />
 <WSTTextField 
@@ -446,10 +446,10 @@ maxRows={3}
             ]}/>
           </div>
         </>;
-      case 'Accounts':
+      case 'Addresses':
         return <>
           <Box sx={{marginBottom: '16px'}}>
-            <Typography variant='h1'>User Accounts</Typography>
+            <Typography variant='h1'>Addresses</Typography>
           </Box> 
           <WSTTable />
         </>;

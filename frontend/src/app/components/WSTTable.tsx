@@ -51,8 +51,8 @@ export default function WSTTable() {
       <TableHead>
         <TableRow>
           <TableCell>Address</TableCell>
-          <TableCell>Account Status</TableCell>
-          <TableCell align="right">Account Balance</TableCell>
+          <TableCell>Address Status</TableCell>
+          <TableCell align="right">Address Balance</TableCell>
         </TableRow>
       </TableHead>
       <TableBody>

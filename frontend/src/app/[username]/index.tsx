@@ -41,7 +41,7 @@ export default function Profile() {
     if (getUserAccountDetails()?.status === 'Frozen') {
       changeAlertInfo({
         severity: 'error',
-        message: 'Cannot send WST with frozen account.',
+        message: 'Cannot send WST with frozen address.',
         open: true,
         link: ''
       });
@@ -51,7 +51,7 @@ export default function Profile() {
     changeAlertInfo({severity: 'info', message: 'Transaction processing', open: true, link: ''});
     const accountInfo = getUserAccountDetails();
     if (!accountInfo) {
-      console.error("No valid send account found! Cannot send.");
+      console.error("No valid send address found! Cannot send.");
       return;
     }
     lucid.selectWallet.fromSeed(accountInfo.mnemonic);
@@ -125,7 +125,7 @@ export default function Profile() {
     <div className="page">
     <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'end', marginBottom: '16px'}}>
         <Box>
-          <Typography variant='h4'>Account Balance</Typography>
+          <Typography variant='h4'>Address Balance</Typography>
           <Typography variant='h1'>{getUserAccountDetails()?.balance} WST</Typography>
         </Box>
         <Typography variant='h5'>{getUserAccountDetails()?.address.slice(0,15)}</Typography>
