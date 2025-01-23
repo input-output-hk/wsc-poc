@@ -77,7 +77,7 @@ export default function Profile() {
       const txId = await signAndSentTx(lucid, tx);
       await updateAccountBalance(sendRecipientAddress);
       await updateAccountBalance(accountInfo.address);
-      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
+      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
     } catch (error) {
       console.error('Send failed:', error);
     }
