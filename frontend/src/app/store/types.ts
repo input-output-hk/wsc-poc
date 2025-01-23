@@ -1,4 +1,4 @@
-export type UserName = 'Mint Authority' | 'User A' | 'User B' | 'Connected Wallet';
+export type UserName = 'Mint Authority' | 'Alice' | 'Bob' | 'Connected Wallet';
 export type MenuTab = 'Mint Actions' | 'Addresses' | 'Wallet';
 export type AccountInfo = {
     address: string,
@@ -6,10 +6,10 @@ export type AccountInfo = {
     balance: number,
     status?: 'Active' | 'Frozen',
 };
-export type AccountKey = 'userA' | 'userB' | 'walletUser';
+export type AccountKey = 'alice' | 'bob' | 'walletUser';
 export type Accounts = {
-    userA: AccountInfo;
-    userB: AccountInfo;
+    alice: AccountInfo;
+    bob: AccountInfo;
     walletUser: AccountInfo;
 };
 export type Severity = 'success' | 'error' | 'info' | 'warning';

@@ -86,9 +86,9 @@ export default function ProfileSwitcher() {
         onClose={handleClose}
       >
         <MenuItem onClick={() => handleSelect('Mint Authority')}>Mint Authority</MenuItem>
-        <MenuItem onClick={() => handleSelect('User A')}>User A</MenuItem>
-        <MenuItem onClick={() => handleSelect('User B')}>User B</MenuItem>
-        <MenuItem onClick={() => handleWalletConnect('Connected Wallet')}>Lace</MenuItem>
+        <MenuItem onClick={() => handleSelect('Alice')}>Alice</MenuItem>
+        <MenuItem onClick={() => handleSelect('Bob')}>Bob</MenuItem>
+        {/* <MenuItem onClick={() => handleWalletConnect('Connected Wallet')}>Lace</MenuItem> */}
       </Menu>
     </>
   );

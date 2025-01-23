@@ -27,8 +27,8 @@ export default function Profile() {
 
   const getUserAccountDetails = () => {
     switch (currentUser) {
-      case "User A": return accounts.userA;
-      case "User B": return accounts.userB;
+      case "Alice": return accounts.alice;
+      case "Bob": return accounts.bob;
       case "Connected Wallet": return accounts.walletUser;
     };
   };

@@ -32,13 +32,13 @@ const useStore = create<State & Actions>((set) => ({
       balance: 0,
     },
     accounts: {
-      userA: {
+      alice: {
         address: '',
         mnemonic: 'during dolphin crop lend pizza guilt hen earn easy direct inhale deputy detect season army inject exhaust apple hard front bubble emotion short portion',
         balance: 0,
         status: 'Active',
       },
-      userB: {
+      bob: {
         address: '',
         mnemonic: 'silver legal flame powder fence kiss stable margin refuse hold unknown valid wolf kangaroo zero able waste jewel find salad sadness exhibit hello tape',
         balance: 0,
@@ -82,8 +82,8 @@ const useStore = create<State & Actions>((set) => ({
           case 'Mint Authority':
             firstAccessibleTab = 'Mint Actions'; 
             break;
-          case 'User A':
-          case 'User B':
+          case 'Alice':
+          case 'Bob':
             firstAccessibleTab = 'Wallet'; 
             break;
           case 'Connected Wallet':

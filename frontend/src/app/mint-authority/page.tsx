@@ -49,13 +49,13 @@ export default function Home() {
 
   const fetchUserDetails = async () => {
     const mintBalance = await getWalletBalance(mintAccount.address);
-    const userABalance = await getWalletBalance(accounts.userA.address);
-    const userBBalance = await getWalletBalance(accounts.userB.address);
+    const userABalance = await getWalletBalance(accounts.alice.address);
+    const userBBalance = await getWalletBalance(accounts.bob.address);
 
     // Update Zustand store with the initialized wallet information
     await changeMintAccountDetails({ ...mintAccount, balance: mintBalance});
-    await changeWalletAccountDetails('userA', { ...accounts.userA, balance: userABalance});
-    await changeWalletAccountDetails('userB', { ...accounts.userB, balance: userBBalance});
+    await changeWalletAccountDetails('alice', { ...accounts.alice, balance: userABalance});
+    await changeWalletAccountDetails('bob', { ...accounts.bob, balance: userBBalance});
   };
 
   const fetchBlacklistStatus = async () => {
@@ -400,7 +400,7 @@ maxRows={3}
         return <>
           <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'end', marginBottom: '16px'}}>
           <Box>
-            <Typography variant='h4'>Mint Balance</Typography>
+            <Typography variant='h4'>Mint Authority Balance</Typography>
             <Typography variant='h1'>{mintAccount.balance} WST</Typography>
           </Box>
           <Typography variant='h5'>UserID: {mintAccount.address.slice(0,15)}</Typography>
