@@ -126,7 +126,7 @@ export default function Home() {
       const txId = await cmlClonedSignedTx.submit();
       await lucid.awaitTx(txId);
       
-      changeAlertInfo({severity: 'success', message: 'Successful new WST mint. View the transaction here:', open: true, link: `https://preview.cardanoscan.io/transaction/${txIDObject.inputs[0].transaction_id}`});
+      changeAlertInfo({severity: 'success', message: 'Successful new WST mint. View the transaction here:', open: true, link: `https://preview.cexplorer.io/tx/${txIDObject.inputs[0].transaction_id}`});
       
       
       await fetchUserDetails();
@@ -169,7 +169,7 @@ export default function Home() {
           balance: newAccountBalance,
         });
       }
-      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
+      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
       await fetchUserDetails();
     } catch (error) {
       console.error('Send failed:', error);
@@ -198,7 +198,8 @@ export default function Home() {
       console.log('Freeze response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       const txId = await signAndSentTx(lucid, tx);
-      changeAlertInfo({severity: 'success', message: 'Address successfully frozen', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
+      console.log(txId);
+      changeAlertInfo({severity: 'success', message: 'Address successfully frozen', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
       const frozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].address === freezeAccountNumber
       );
@@ -244,7 +245,7 @@ export default function Home() {
       console.log('Unfreeze response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       const txId = await signAndSentTx(lucid, tx);
-      changeAlertInfo({severity: 'success', message: 'Address successfully unfrozen', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
+      changeAlertInfo({severity: 'success', message: 'Address successfully unfrozen', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
       const unfrozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].address === freezeAccountNumber
       );
@@ -300,7 +301,7 @@ export default function Home() {
           balance: newAccountBalance,
         });
       }
-      changeAlertInfo({severity: 'success', message: 'Funds successfully seized', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
+      changeAlertInfo({severity: 'success', message: 'Funds successfully seized', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
       await fetchUserDetails();
     } catch (error) {
       console.error('Seize failed:', error);

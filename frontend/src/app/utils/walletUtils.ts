@@ -82,7 +82,7 @@ export async function getBlacklist(){
   }
 }
 
-export async function signAndSentTx(lucid: LucidEvolution, tx: TxSignBuilder) {
+export async function signAndSentTx(lucid: LucidEvolution, tx: TxSignBuilder): Promise<string> {
   const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
   const cmlTx = txBuilder.toTransaction();
   const witnessSet = txBuilder.toTransaction().witness_set();
@@ -99,7 +99,7 @@ export async function signAndSentTx(lucid: LucidEvolution, tx: TxSignBuilder) {
   const txId = await cmlClonedSignedTx.submit();
   await lucid.awaitTx(txId);
   console.log(cmlClonedSignedTx);
-  return txIDObject
+  return txId
 }
 
 export type WalletType = "Lace" | "Eternl" | "Nami" | "Yoroi";
