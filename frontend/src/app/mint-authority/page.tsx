@@ -229,6 +229,7 @@ export default function Home() {
     const requestData = {
       issuer: mintAccount.address,
       blacklist_address: unfreezeAccountNumber,
+      reason: "(unfreeze)"
     };
     try {
       const response = await axios.post(

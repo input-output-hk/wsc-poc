@@ -117,7 +117,7 @@ instance ToSchema BlacklistReason where
 -}
 addBlacklistReason :: (C.IsShelleyBasedEra era, MonadBuildTx era m) => BlacklistReason -> m ()
 addBlacklistReason (BlacklistReason reason) =
-  addBtx (set (L.txMetadata . L._TxMetadata . at 0) (Just (C.TxMetaMap [(C.TxMetaText "blacklist.reason", C.metaTextChunks reason)])))
+  addBtx (set (L.txMetadata . L._TxMetadata . at 1) (Just (C.TxMetaMap [(C.TxMetaText "reason", C.metaTextChunks reason)])))
 
 insertBlacklistNode :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError (AppError era) m) => BlacklistReason -> C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
 insertBlacklistNode reason cred blacklistNodes = Utils.inBabbage @era $ do
@@ -272,8 +272,7 @@ instance ToSchema SeizeReason where
 -}
 addSeizeReason :: (C.IsShelleyBasedEra era, MonadBuildTx era m) => SeizeReason -> m ()
 addSeizeReason (SeizeReason reason) =
-  addBtx (set (L.txMetadata . L._TxMetadata . at 1) (Just (C.TxMetaMap [(C.TxMetaText "seize.reason", C.metaTextChunks reason)])))
-
+  addBtx (set (L.txMetadata . L._TxMetadata . at 1) (Just (C.TxMetaMap [(C.TxMetaText "reason", C.metaTextChunks reason)])))
 
 seizeSmartTokens :: forall env era a m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => SeizeReason -> UTxODat era ProgrammableLogicGlobalParams -> UTxODat era a -> C.PaymentCredential -> [UTxODat era DirectorySetNode] -> m ()
 seizeSmartTokens reason paramsTxIn seizingTxo destinationCred directoryList = Utils.inBabbage @era $ do
