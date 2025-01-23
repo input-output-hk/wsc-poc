@@ -1,6 +1,8 @@
 # Regulated stablecoin POC
 
-This is a proof-of-concept for a regulated stablecoin. It is NOT a finished product.
+This is a proof-of-concept for a regulated token with freeze and seize capabilities.
+
+![Screenshot of the UI showing the minting authority.](image.png)
 
 # Overview
 
@@ -19,6 +21,7 @@ This repository contains
 * Emulator tests for the nominal cases (happy path) based on the actual ledger implementation and mainnet protocol parameters.
 * A user interface that implements the use cases using browser-based wallets. Based on next.js and lucid.
 * An OCI container image with the on-chain code, the off-chain code and the UI
+
 
 With the container image it is possible to run the complete system locally with just a single command.
 There is no need to install the build toolchain or to operate a cardano node or related infrastructure.
