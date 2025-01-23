@@ -106,28 +106,9 @@ export default function Home() {
       );
       console.log('Mint response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
-      // await signAndSentTx(lucid, tx);
-      const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
-      const cmlTx = txBuilder.toTransaction()
-      // console.log("TxBody: " + cmlTx.body().to_json());
-      const witnessSet = txBuilder.toTransaction().witness_set();
-      const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
-      // console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
-      const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());
-      // console.log("TxBody: " + cmlTxBodyClone.to_json());
-      const txIDinAlert = await cmlTxBodyClone.to_json();
-      const txIDObject = JSON.parse(txIDinAlert);      
-      // console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
-      cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash!);
-      // console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
-      const cmlClonedTx = CML.Transaction.new(cmlTxBodyClone, cmlTx!.witness_set(), true, cmlTx!.auxiliary_data());
-      const cmlClonedSignedTx = await makeTxSignBuilder(lucid.wallet(), cmlClonedTx).sign.withWallet().complete();
-
-      const txId = await cmlClonedSignedTx.submit();
-      await lucid.awaitTx(txId);
+      const txId = await signAndSentTx(lucid, tx);
       
-      changeAlertInfo({severity: 'success', message: 'Successful new WST mint. View the transaction here:', open: true, link: `https://preview.cexplorer.io/tx/${txIDObject.inputs[0].transaction_id}`});
-      
+      changeAlertInfo({severity: 'success', message: 'Successful new WST mint. View the transaction here:', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
       
       await fetchUserDetails();
     } catch (error) {
