@@ -48,7 +48,7 @@ export default function Profile() {
       return;
     }
     console.log('start sending tokens');
-    changeAlertInfo({severity: 'info', message: 'Transaction processing', open: true,});
+    changeAlertInfo({severity: 'info', message: 'Transaction processing', open: true, link: ''});
     const accountInfo = getUserAccountDetails();
     if (!accountInfo) {
       console.error("No valid send account found! Cannot send.");
