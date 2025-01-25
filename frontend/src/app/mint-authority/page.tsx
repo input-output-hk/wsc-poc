@@ -384,7 +384,8 @@ maxRows={3}
           <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'end', marginBottom: '16px'}}>
           <Box>
             <Typography variant='h4'>Mint Authority Balance</Typography>
-            <Typography variant='h1'>{mintAccount.balance} WST</Typography>
+            <Typography variant='h1'>{mintAccount.balance.wst} WST</Typography>
+            <Typography variant='h5'>{mintAccount.balance.ada} Ada</Typography>
           </Box>
           <Typography variant='h5'>UserID: {mintAccount.address.slice(0,15)}</Typography>
           </Box>

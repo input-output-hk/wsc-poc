@@ -127,7 +127,8 @@ export default function Profile() {
     <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'end', marginBottom: '16px'}}>
         <Box>
           <Typography variant='h4'>Address Balance</Typography>
-          <Typography variant='h1'>{getUserAccountDetails()?.balance} WST</Typography>
+          <Typography variant='h1'>{getUserAccountDetails()?.balance.wst} WST</Typography>
+          <Typography variant='h5'>{getUserAccountDetails()?.balance.ada} Ada</Typography>
         </Box>
         <Typography variant='h5'>{getUserAccountDetails()?.address.slice(0,15)}</Typography>
         </Box>

@@ -4,6 +4,7 @@ import axios from 'axios';
 //Lucis imports
 import { Address, Assets, Blockfrost, CML, credentialToAddress, Lucid, LucidEvolution, makeTxSignBuilder, paymentCredentialOf, toUnit, TxSignBuilder, Unit, valueToAssets, walletFromSeed } from "@lucid-evolution/lucid";
 import type { Credential as LucidCredential } from "@lucid-evolution/core-types";
+import { WalletBalance } from '../store/types';
 
 async function loadKey() {
   const response = await axios.get("/blockfrost-key",
@@ -39,9 +40,7 @@ export async function getWalletFromSeed(mnemonic: string) {
   }
 }
 
-export type WalletBalance = { wst: number, ada: number }
-
-export async function getWalletBalance(address: string): Promise<number> {
+export async function getWalletBalance(address: string): Promise<WalletBalance> {
   try {
     const response = await axios.get(
       `/api/v1/query/user-funds/${address}`,  
@@ -55,17 +54,15 @@ export async function getWalletBalance(address: string): Promise<number> {
     const stableTokenUnit = "575354"; 
     let stableBalance = 0;
     let adaBalance = 0;
-    console.log(response.data);
     if (response?.data && response.data[balance] && response.data[balance][stableTokenUnit]) {
       stableBalance = response.data[balance][stableTokenUnit];
-      
+      adaBalance = response.data["lovelace"] / 1000000;
     }
     
-    // console.log('Get wallet balance:', response.data);
-    return stableBalance;
+    return {wst: stableBalance, ada: adaBalance };
   } catch (error) {
     console.error('Failed to get balance', error);
-    return 0;
+    return { wst: 0, ada: 0};
   }
 }
 

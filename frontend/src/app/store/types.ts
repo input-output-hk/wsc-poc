@@ -3,8 +3,7 @@ export type MenuTab = 'Mint Actions' | 'Addresses' | 'Wallet';
 export type AccountInfo = {
     address: string,
     mnemonic: string,
-    balance: number,
-    adaBalance: number,
+    balance: WalletBalance,
     status?: 'Active' | 'Frozen',
 };
 export type AccountKey = 'alice' | 'bob' | 'walletUser';
@@ -20,3 +19,4 @@ export type AlertInfo = {
     message: string,
     link?: string,
 };
+export type WalletBalance = { wst: number, ada: number }
