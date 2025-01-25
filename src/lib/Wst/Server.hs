@@ -224,7 +224,7 @@ transferProgrammableTokenEndpoint TransferProgrammableTokenArgs{ttaSender, ttaRe
   dirEnv <- asks Env.directoryEnv
   logic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress ttaIssuer)
   assetId <- Env.programmableTokenAssetId dirEnv <$> Env.transferLogicForDirectory (paymentKeyHashFromAddress ttaIssuer) <*> pure ttaAssetName
-  let policy = maybe DontSubmitFailingTx (\k -> if k then SubmitFailingTx else DontSubmitFailingTx) ttaSubmitFailingTx
+  let policy = if ttaSubmitFailingTx then SubmitFailingTx else DontSubmitFailingTx
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer logic $ do
     TextEnvelopeJSON <$> Endpoints.transferSmartTokensTx policy assetId ttaQuantity (paymentCredentialFromAddress ttaRecipient)
 
