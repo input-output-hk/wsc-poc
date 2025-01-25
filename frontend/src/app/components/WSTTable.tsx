@@ -72,7 +72,7 @@ export default function WSTTable() {
                   {acct.status}
               </TableCell>
               <TableCell align="right">
-                  {`${acct?.balance} WST`}
+                  {`${acct?.balance.wst} WST`}
               </TableCell>
             </TableRow>
           ))

@@ -6,7 +6,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
 //Mui imports
-import { Box, Typography } from '@mui/material';
+import { Box, Checkbox, FormControlLabel, Typography } from '@mui/material';
 
 //Local components
 import useStore from '../store/store'; 
@@ -19,6 +19,7 @@ import CopyTextField from '../components/CopyTextField';
 export default function Profile() {
   const { lucid, currentUser, mintAccount, changeAlertInfo, changeWalletAccountDetails } = useStore();
   const accounts = useStore((state) => state.accounts);
+  const [overrideTx, setOverrideTx] = useState<boolean>(false);
 
   useEffect(() => {
     useStore.getState();
@@ -38,7 +39,7 @@ export default function Profile() {
   const [sendRecipientAddress, setsendRecipientAddress] = useState('address');
 
   const onSend = async () => {
-    if (getUserAccountDetails()?.status === 'Frozen') {
+    if (getUserAccountDetails()?.status === 'Frozen' && !overrideTx) {
       changeAlertInfo({
         severity: 'error',
         message: 'Cannot send WST with frozen address.',
@@ -61,7 +62,7 @@ export default function Profile() {
       quantity: sendTokenAmount,
       recipient: sendRecipientAddress,
       sender: accountInfo.address,
-      submit_failing_tx: false
+      submit_failing_tx: overrideTx
     };
     try {
       const response = await axios.post(
@@ -112,6 +113,12 @@ export default function Profile() {
       label="Recipient’s Address"
       fullWidth={true}
   />
+    <FormControlLabel
+      control={<Checkbox size="small" checked={overrideTx} onChange={x => setOverrideTx(x.target.checked)} />}
+      label="Force send failing transaction"
+      sx={{ mb: 2 }}
+  />
+  
   </Box>;
 
   const receiveContent =  <Box>
