@@ -31,6 +31,7 @@ import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, testCase)
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..))
+import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy (..))
 import Wst.Offchain.BuildTx.Utils (addConwayStakeCredentialCertificate)
 import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Env (DirectoryScriptRoot)
@@ -56,7 +57,8 @@ scriptTargetTests target =
         , testCase "smart token transfer" (mockchainSucceedsWithTarget target $ deployDirectorySet >>= transferSmartTokens)
         , testCase "blacklist credential" (mockchainSucceedsWithTarget target $ void $ deployDirectorySet >>= blacklistCredential)
         , testCase "unblacklist credential" (mockchainSucceedsWithTarget target $ void $ deployDirectorySet >>= unblacklistCredential)
-        , testCase "blacklisted transfer" (mockchainFails blacklistTransfer assertBlacklistedAddressException)
+        , testCase "blacklisted transfer" (mockchainFails (blacklistTransfer DontSubmitFailingTx) assertBlacklistedAddressException)
+        , testCase "blacklisted transfer (failing tx)" (mockchainSucceedsWithTarget target (blacklistTransfer SubmitFailingTx))
         , testCase "seize user output" (mockchainSucceedsWithTarget target $ deployDirectorySet >>= seizeUserOutput)
         , testCase "deploy all" (mockchainSucceedsWithTarget target deployAll)
         ]
@@ -152,7 +154,7 @@ transferSmartTokens scriptRoot = failOnError $ Env.withEnv $ do
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
 
-    Endpoints.transferSmartTokensTx aid 80 (C.PaymentCredentialByKey userPkh)
+    Endpoints.transferSmartTokensTx DontSubmitFailingTx aid 80 (C.PaymentCredentialByKey userPkh)
       >>= void . sendTx . signTxOperator admin
 
     Query.programmableLogicOutputs @C.ConwayEra
@@ -208,8 +210,8 @@ unblacklistCredential scriptRoot = failOnError $ Env.withEnv $ do
 
   pure paymentCred
 
-blacklistTransfer :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m ()
-blacklistTransfer = failOnError $ Env.withEnv $ do
+blacklistTransfer :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => BlacklistedTransferPolicy -> m ()
+blacklistTransfer policy = failOnError $ Env.withEnv $ do
   scriptRoot <- runReaderT deployDirectorySet Production
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
   let userPaymentCred = C.PaymentCredentialByKey userPkh
@@ -221,7 +223,7 @@ blacklistTransfer = failOnError $ Env.withEnv $ do
 
   opPkh <- asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
-    Endpoints.transferSmartTokensTx aid 50 (C.PaymentCredentialByKey userPkh)
+    Endpoints.transferSmartTokensTx policy aid 50 (C.PaymentCredentialByKey userPkh)
       >>= void . sendTx . signTxOperator admin
     pure opPkh
 
@@ -230,7 +232,7 @@ blacklistTransfer = failOnError $ Env.withEnv $ do
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ Endpoints.insertBlacklistNodeTx "" userPaymentCred
     >>= void . sendTx . signTxOperator admin
 
-  asWallet Wallet.w2 $ Env.withDirectoryFor scriptRoot $ Env.withTransfer transferLogic $ Endpoints.transferSmartTokensTx aid 30 (C.PaymentCredentialByKey opPkh)
+  asWallet Wallet.w2 $ Env.withDirectoryFor scriptRoot $ Env.withTransfer transferLogic $ Endpoints.transferSmartTokensTx policy aid 30 (C.PaymentCredentialByKey opPkh)
     >>= void . sendTx . signTxOperator (user Wallet.w2)
 
 seizeUserOutput :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m ()
@@ -244,7 +246,7 @@ seizeUserOutput scriptRoot = failOnError $ Env.withEnv $ do
     >>= void . sendTx . signTxOperator admin
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
-    Endpoints.transferSmartTokensTx aid 50 (C.PaymentCredentialByKey userPkh)
+    Endpoints.transferSmartTokensTx DontSubmitFailingTx aid 50 (C.PaymentCredentialByKey userPkh)
       >>= void . sendTx . signTxOperator admin
     Query.programmableLogicOutputs @C.ConwayEra
       >>= void . expectN 2 "programmable logic outputs"

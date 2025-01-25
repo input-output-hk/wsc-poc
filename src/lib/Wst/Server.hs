@@ -33,6 +33,7 @@ import SmartTokens.Types.PTokenDirectory (blnKey)
 import System.Environment qualified
 import Wst.App (WstApp, runWstAppServant)
 import Wst.AppError (AppError (..))
+import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy (..), IsEra)
 import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (uDatum))
@@ -215,15 +216,17 @@ transferProgrammableTokenEndpoint :: forall era env m.
   , C.IsBabbageBasedEra era
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadUtxoQuery m
+  , IsEra era
   )
   => TransferProgrammableTokenArgs -> m (TextEnvelopeJSON (C.Tx era))
-transferProgrammableTokenEndpoint TransferProgrammableTokenArgs{ttaSender, ttaRecipient, ttaAssetName, ttaQuantity, ttaIssuer} = do
+transferProgrammableTokenEndpoint TransferProgrammableTokenArgs{ttaSender, ttaRecipient, ttaAssetName, ttaQuantity, ttaIssuer, ttaSubmitFailingTx} = do
   operatorEnv <- Env.loadOperatorEnvFromAddress ttaSender
   dirEnv <- asks Env.directoryEnv
   logic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress ttaIssuer)
   assetId <- Env.programmableTokenAssetId dirEnv <$> Env.transferLogicForDirectory (paymentKeyHashFromAddress ttaIssuer) <*> pure ttaAssetName
+  let policy = maybe DontSubmitFailingTx (\k -> if k then SubmitFailingTx else DontSubmitFailingTx) ttaSubmitFailingTx
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer logic $ do
-    TextEnvelopeJSON <$> Endpoints.transferSmartTokensTx assetId ttaQuantity (paymentCredentialFromAddress ttaRecipient)
+    TextEnvelopeJSON <$> Endpoints.transferSmartTokensTx policy assetId ttaQuantity (paymentCredentialFromAddress ttaRecipient)
 
 addToBlacklistEndpoint :: forall era env m.
   ( MonadReader env m

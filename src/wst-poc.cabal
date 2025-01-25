@@ -76,6 +76,7 @@ library
     Wst.Client
     Wst.JSON.Utils
     Wst.Offchain.BuildTx.DirectorySet
+    Wst.Offchain.BuildTx.Failing
     Wst.Offchain.BuildTx.LinkedList
     Wst.Offchain.BuildTx.ProgrammableLogic
     Wst.Offchain.BuildTx.ProtocolParams
@@ -100,6 +101,8 @@ library
     , blockfrost-client
     , blockfrost-client-core
     , cardano-api
+    , cardano-ledger-api
+    , cardano-ledger-binary
     , cardano-ledger-shelley
     , containers
     , convex-base
@@ -123,6 +126,7 @@ library
     , servant-client-core
     , servant-server
     , text
+    , transformers
     , wai-cors
     , warp
 
