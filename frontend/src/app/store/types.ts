@@ -4,6 +4,7 @@ export type AccountInfo = {
     address: string,
     mnemonic: string,
     balance: number,
+    adaBalance: number,
     status?: 'Active' | 'Frozen',
 };
 export type AccountKey = 'alice' | 'bob' | 'walletUser';

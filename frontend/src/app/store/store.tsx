@@ -30,24 +30,28 @@ const useStore = create<State & Actions>((set) => ({
       address: 'addr_test1qq986m3uel86pl674mkzneqtycyg7csrdgdxj6uf7v7kd857kquweuh5kmrj28zs8czrwkl692jm67vna2rf7xtafhpqk3hecm',
       mnemonic: 'problem alert infant glance toss gospel tonight sheriff match else hover upset chicken desert anxiety cliff moment song large seed purpose chalk loan onion',
       balance: 0,
+      adaBalance: 0,
     },
     accounts: {
       alice: {
         address: '',
         mnemonic: 'during dolphin crop lend pizza guilt hen earn easy direct inhale deputy detect season army inject exhaust apple hard front bubble emotion short portion',
         balance: 0,
+        adaBalance: 0,
         status: 'Active',
       },
       bob: {
         address: '',
         mnemonic: 'silver legal flame powder fence kiss stable margin refuse hold unknown valid wolf kangaroo zero able waste jewel find salad sadness exhibit hello tape',
         balance: 0,
+        adaBalance: 0,
         status: 'Active',
       },
       walletUser: {
         address: '',
         mnemonic: '',
         balance: 0,
+        adaBalance: 0,
         status: 'Active',
       },
     },

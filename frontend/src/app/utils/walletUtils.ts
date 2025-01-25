@@ -39,7 +39,9 @@ export async function getWalletFromSeed(mnemonic: string) {
   }
 }
 
-export async function getWalletBalance(address: string){
+export type WalletBalance = { wst: number, ada: number }
+
+export async function getWalletBalance(address: string): Promise<number> {
   try {
     const response = await axios.get(
       `/api/v1/query/user-funds/${address}`,  
@@ -52,9 +54,13 @@ export async function getWalletBalance(address: string){
     const balance = "b34a184f1f2871aa4d33544caecefef5242025f45c3fa5213d7662a9";
     const stableTokenUnit = "575354"; 
     let stableBalance = 0;
+    let adaBalance = 0;
+    console.log(response.data);
     if (response?.data && response.data[balance] && response.data[balance][stableTokenUnit]) {
       stableBalance = response.data[balance][stableTokenUnit];
+      
     }
+    
     // console.log('Get wallet balance:', response.data);
     return stableBalance;
   } catch (error) {
