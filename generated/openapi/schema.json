@@ -156,6 +156,9 @@
                     },
                     "sender": {
                         "$ref": "#/components/schemas/Address"
+                    },
+                    "submit_failing_tx": {
+                        "type": "boolean"
                     }
                 },
                 "required": [

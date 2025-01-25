@@ -89,7 +89,6 @@ export async function signAndSentTx(lucid: LucidEvolution, tx: TxSignBuilder): P
   const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
   // console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
   const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());
-  const txIDinAlert = await cmlTxBodyClone.to_json();
   // console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
   cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash!);
   // console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());

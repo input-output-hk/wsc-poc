@@ -61,6 +61,7 @@ export default function Profile() {
       quantity: sendTokenAmount,
       recipient: sendRecipientAddress,
       sender: accountInfo.address,
+      submit_failing_tx: false
     };
     try {
       const response = await axios.post(

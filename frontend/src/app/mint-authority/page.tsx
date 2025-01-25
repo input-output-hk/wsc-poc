@@ -6,7 +6,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
 //Lucid imports
-import { CML, makeTxSignBuilder, paymentCredentialOf } from '@lucid-evolution/lucid';
+import { paymentCredentialOf } from '@lucid-evolution/lucid';
 import type { Credential as LucidCredential } from "@lucid-evolution/core-types";
 
 //Mui imports
