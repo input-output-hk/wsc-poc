@@ -74,9 +74,10 @@ export default function Profile() {
           },
         }
       );
-      console.log('Send response:', response.data);
+      const isValid = !(getUserAccountDetails()?.status === 'Frozen');
+      console.log('Send response:', response.data, isValid);
       const tx = await lucid.fromTx(response.data.cborHex);
-      const txId = await signAndSentTx(lucid, tx);
+      const txId = await signAndSentTx(lucid, tx, isValid);
       await updateAccountBalance(sendRecipientAddress);
       await updateAccountBalance(accountInfo.address);
       changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});

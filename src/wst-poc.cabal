@@ -101,7 +101,6 @@ library
     , blockfrost-client
     , blockfrost-client-core
     , cardano-api
-    , cardano-ledger-api
     , cardano-ledger-shelley
     , containers
     , convex-base
@@ -125,7 +124,6 @@ library
     , servant-client-core
     , servant-server
     , text
-    , transformers
     , wai-cors
     , warp
 

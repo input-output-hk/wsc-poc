@@ -30,7 +30,7 @@ import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.AppError (AppError (NoTokensToSeize))
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (inaNewKey))
 import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
-import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy, IsEra,
+import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy,
                                      balanceTxEnvFailing)
 import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
 import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
@@ -177,7 +177,6 @@ transferSmartTokensTx :: forall era env m.
   , C.IsBabbageBasedEra era
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadUtxoQuery m
-  , IsEra era
   )
   => BlacklistedTransferPolicy
   -> C.AssetId -- ^ AssetId to transfer
@@ -190,7 +189,6 @@ transferSmartTokensTx policy assetId quantity destCred = do
   userOutputsAtProgrammable <- Env.operatorPaymentCredential >>= Query.userProgrammableOutputs
   paramsTxIn <- Query.globalParamsNode @era
   (tx, _) <- balanceTxEnvFailing policy $ do
-    -- TODO: use a different balancing mechanism if we expect the scripts to fail
     BuildTx.transferSmartTokens paramsTxIn blacklist directory userOutputsAtProgrammable (assetId, quantity) destCred
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 

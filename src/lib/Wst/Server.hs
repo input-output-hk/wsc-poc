@@ -12,6 +12,8 @@ module Wst.Server(
   defaultServerArgs
   ) where
 
+import Blammo.Logging.Simple (HasLogger, Message ((:#)), MonadLogger, logInfo,
+                              (.=))
 import Blockfrost.Client.Types qualified as Blockfrost
 import Cardano.Api.Shelley qualified as C
 import Control.Lens qualified as L
@@ -20,6 +22,7 @@ import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain (sendTx), MonadUtxoQuery)
+import Data.Aeson.Types (KeyValue)
 import Data.Data (Proxy (..))
 import Data.List (nub)
 import Network.Wai.Handler.Warp qualified as Warp
@@ -33,7 +36,7 @@ import SmartTokens.Types.PTokenDirectory (blnKey)
 import System.Environment qualified
 import Wst.App (WstApp, runWstAppServant)
 import Wst.AppError (AppError (..))
-import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy (..), IsEra)
+import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy (..))
 import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (uDatum))
@@ -77,7 +80,7 @@ defaultServerArgs =
     , saStaticFiles = Nothing
     }
 
-runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env) => env -> ServerArgs -> IO ()
+runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env, HasLogger env) => env -> ServerArgs -> IO ()
 runServer env ServerArgs{saPort, saStaticFiles} = do
   let bf   = Blockfrost.projectId $ Env.envBlockfrost $ Env.runtimeEnv env
       app  = cors (const $ Just simpleCorsResourcePolicy)
@@ -87,7 +90,7 @@ runServer env ServerArgs{saPort, saStaticFiles} = do
       port = saPort
   Warp.run port app
 
-server :: forall env. (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env) => env -> Server APIInEra
+server :: forall env. (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env, HasLogger env) => env -> Server APIInEra
 server env = hoistServer (Proxy @APIInEra) (runWstAppServant env) $
   healthcheck
   :<|> queryApi @env
@@ -104,7 +107,7 @@ queryApi =
   :<|> queryAllFunds @C.ConwayEra @env (Proxy @C.ConwayEra)
   :<|> computeUserAddress (Proxy @C.ConwayEra)
 
-txApi :: forall env. (Env.HasDirectoryEnv env) => ServerT (BuildTxAPI C.ConwayEra) (WstApp env C.ConwayEra)
+txApi :: forall env. (Env.HasDirectoryEnv env, HasLogger env) => ServerT (BuildTxAPI C.ConwayEra) (WstApp env C.ConwayEra)
 txApi =
   (issueProgrammableTokenEndpoint @C.ConwayEra @env
   :<|> transferProgrammableTokenEndpoint @C.ConwayEra @env
@@ -216,7 +219,7 @@ transferProgrammableTokenEndpoint :: forall era env m.
   , C.IsBabbageBasedEra era
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadUtxoQuery m
-  , IsEra era
+  , MonadLogger m
   )
   => TransferProgrammableTokenArgs -> m (TextEnvelopeJSON (C.Tx era))
 transferProgrammableTokenEndpoint TransferProgrammableTokenArgs{ttaSender, ttaRecipient, ttaAssetName, ttaQuantity, ttaIssuer, ttaSubmitFailingTx} = do
@@ -225,6 +228,7 @@ transferProgrammableTokenEndpoint TransferProgrammableTokenArgs{ttaSender, ttaRe
   logic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress ttaIssuer)
   assetId <- Env.programmableTokenAssetId dirEnv <$> Env.transferLogicForDirectory (paymentKeyHashFromAddress ttaIssuer) <*> pure ttaAssetName
   let policy = if ttaSubmitFailingTx then SubmitFailingTx else DontSubmitFailingTx
+  logInfo $ "Transfer programmable tokens" :# [logPolicy policy, logSender ttaSender, logRecipient ttaRecipient]
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer logic $ do
     TextEnvelopeJSON <$> Endpoints.transferSmartTokensTx policy assetId ttaQuantity (paymentCredentialFromAddress ttaRecipient)
 
@@ -296,3 +300,14 @@ submitTxEndpoint :: forall era m.
   =>  TextEnvelopeJSON (C.Tx era) -> m C.TxId
 submitTxEndpoint (TextEnvelopeJSON tx) = do
   either (throwError . SubmitError) pure =<< sendTx tx
+
+-- structured Logging
+
+logPolicy :: (KeyValue e kv) => BlacklistedTransferPolicy -> kv
+logPolicy p = "policy" .= p
+
+logSender :: (KeyValue e kv) => C.Address C.ShelleyAddr -> kv
+logSender p = "sender" .= p
+
+logRecipient :: (KeyValue e kv) => C.Address C.ShelleyAddr -> kv
+logRecipient p = "recipient" .= p

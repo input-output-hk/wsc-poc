@@ -1,3 +1,4 @@
+{-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Wst.Test.UnitTest(
   tests
@@ -9,10 +10,11 @@ import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Plutus.ExUnits (ExUnits (..))
 import Control.Lens ((%~), (&), (^.))
 import Control.Monad (void)
+import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader (ask), ReaderT (runReaderT), asks)
 import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain (queryProtocolParameters, sendTx),
-                     MonadMockchain, MonadUtxoQuery)
+                     MonadMockchain, MonadUtxoQuery, ValidationError, getTxById)
 import Convex.CoinSelection (ChangeOutputPosition (TrailingChange))
 import Convex.MockChain (MockchainT)
 import Convex.MockChain.CoinSelection (tryBalanceAndSubmit)
@@ -29,7 +31,7 @@ import Data.String (IsString (..))
 import GHC.Exception (SomeException, throw)
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, testCase)
+import Test.Tasty.HUnit (Assertion, assertEqual, testCase)
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..))
 import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy (..))
 import Wst.Offchain.BuildTx.Utils (addConwayStakeCredentialCertificate)
@@ -58,7 +60,7 @@ scriptTargetTests target =
         , testCase "blacklist credential" (mockchainSucceedsWithTarget target $ void $ deployDirectorySet >>= blacklistCredential)
         , testCase "unblacklist credential" (mockchainSucceedsWithTarget target $ void $ deployDirectorySet >>= unblacklistCredential)
         , testCase "blacklisted transfer" (mockchainFails (blacklistTransfer DontSubmitFailingTx) assertBlacklistedAddressException)
-        , testCase "blacklisted transfer (failing tx)" (mockchainSucceedsWithTarget target (blacklistTransfer SubmitFailingTx))
+        , testCase "blacklisted transfer (failing tx)" (mockchainSucceedsWithTarget target (blacklistTransfer SubmitFailingTx >>= assertFailingTx))
         , testCase "seize user output" (mockchainSucceedsWithTarget target $ deployDirectorySet >>= seizeUserOutput)
         , testCase "deploy all" (mockchainSucceedsWithTarget target deployAll)
         ]
@@ -210,7 +212,7 @@ unblacklistCredential scriptRoot = failOnError $ Env.withEnv $ do
 
   pure paymentCred
 
-blacklistTransfer :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => BlacklistedTransferPolicy -> m ()
+blacklistTransfer :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => BlacklistedTransferPolicy -> m (Either (ValidationError C.ConwayEra) C.TxId)
 blacklistTransfer policy = failOnError $ Env.withEnv $ do
   scriptRoot <- runReaderT deployDirectorySet Production
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
@@ -233,7 +235,7 @@ blacklistTransfer policy = failOnError $ Env.withEnv $ do
     >>= void . sendTx . signTxOperator admin
 
   asWallet Wallet.w2 $ Env.withDirectoryFor scriptRoot $ Env.withTransfer transferLogic $ Endpoints.transferSmartTokensTx policy aid 30 (C.PaymentCredentialByKey opPkh)
-    >>= void . sendTx . signTxOperator (user Wallet.w2)
+    >>= sendTx . signTxOperator (user Wallet.w2)
 
 seizeUserOutput :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m ()
 seizeUserOutput scriptRoot = failOnError $ Env.withEnv $ do
@@ -352,3 +354,13 @@ nodeParamsFor = \case
 mockchainSucceedsWithTarget :: ScriptTarget -> ReaderT ScriptTarget (MockchainT C.ConwayEra IO) a -> Assertion
 mockchainSucceedsWithTarget target =
   mockchainSucceedsWith (nodeParamsFor target) . flip runReaderT target
+
+{-| Assert that the transaction exists on the mockchain and that its script validity flag
+is set to 'C.ScriptInvalid'
+-}
+assertFailingTx :: (MonadMockchain era m, C.IsAlonzoBasedEra era, MonadFail m, MonadIO m) => Either (ValidationError era) C.TxId -> m ()
+assertFailingTx = \case
+  Left err  -> fail $ "Expected TxId, got: " <> show err
+  Right txId -> do
+    C.TxBody C.TxBodyContent{C.txScriptValidity} <- getTxById txId >>= maybe (fail $ "Tx not found: " <> show txId) (pure . C.getTxBody)
+    liftIO (assertEqual "Tx validity" (C.TxScriptValidity C.alonzoBasedEra C.ScriptInvalid) txScriptValidity)
