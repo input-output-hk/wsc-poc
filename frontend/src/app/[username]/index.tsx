@@ -74,10 +74,9 @@ export default function Profile() {
           },
         }
       );
-      const isValid = !(getUserAccountDetails()?.status === 'Frozen');
-      console.log('Send response:', response.data, isValid);
+      console.log('Send response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
-      const txId = await signAndSentTx(lucid, tx, isValid);
+      const txId = await signAndSentTx(lucid, tx);
       await updateAccountBalance(sendRecipientAddress);
       await updateAccountBalance(accountInfo.address);
       changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
@@ -116,7 +115,7 @@ export default function Profile() {
   />
     <FormControlLabel
       control={<Checkbox size="small" checked={overrideTx} onChange={x => setOverrideTx(x.target.checked)} />}
-      label="Force send failing transaction"
+      label="⚠️ Force send failing transaction"
       sx={{ mb: 2 }}
   />
   

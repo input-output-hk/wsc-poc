@@ -101,25 +101,25 @@ export async function submitTx(tx: string): Promise<AxiosResponse<any, any>> {
     );
   }
 
-export async function signAndSentTx(lucid: LucidEvolution, tx: TxSignBuilder, isValid: boolean = true): Promise<string> {
-  console.log("tx.toTransaction().isValid()", tx.toTransaction().is_valid());
+export async function signAndSentTx(lucid: LucidEvolution, tx: TxSignBuilder): Promise<string> {
+  const isValid = tx.toTransaction().is_valid();
   const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
-  console.log("txBuilder.toTransaction().isValid()", txBuilder.toTransaction().is_valid())
   const cmlTx = txBuilder.toTransaction();
   const witnessSet = txBuilder.toTransaction().witness_set();
   const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
   const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());
-  // console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
   cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash!);
-  // console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
+  
   const cmlClonedTx = CML.Transaction.new(cmlTxBodyClone, cmlTx!.witness_set(), isValid, cmlTx!.auxiliary_data());
   const cmlClonedSignedTx = await makeTxSignBuilder(lucid.wallet(), cmlClonedTx).sign.withWallet().complete();
-  // const txId = await cmlClonedSignedTx.submit();
-  const txId = await submitTx(cmlClonedSignedTx.toCBOR());
+
+  // We need to reconstruct the transaction from CBOR again, using CML, because the 'cmlClonedSignedTx.toTransaction().is_valid' always
+  // returns true (overriding what we specified when we created cmlClonedTx)
+  const clonedTx2 = CML.Transaction.new(CML.TransactionBody.from_cbor_hex(cmlClonedSignedTx.toTransaction().body().to_cbor_hex()), cmlClonedSignedTx!.toTransaction().witness_set(), isValid, cmlClonedSignedTx.toTransaction()!.auxiliary_data());
+  const txId = await submitTx(clonedTx2.to_cbor_hex());
   const i = txId.data;
   console.log(txId);
   await lucid.awaitTx(txId.data);
-  // console.log(cmlClonedSignedTx);
   return i
 }
 
