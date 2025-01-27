@@ -16,20 +16,22 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 
 //Local Imports
 import useStore from '../store/store'; 
-import { useEffect } from "react";
+import { useContext, useEffect } from "react";
 import IconButton from './WSTIconButton';
+import DemoEnvironmentContext from "../context/demoEnvironmentContext";
 
-const progLogicBase : LucidCredential = {
-  type: "Script",
-  hash: "fca77bcce1e5e73c97a0bfa8c90f7cd2faff6fd6ed5b6fec1c04eefa"
-}
-
-const stableCoin : Unit = toUnit("b34a184f1f2871aa4d33544caecefef5242025f45c3fa5213d7662a9", "575354")
 
 
 export default function WSTTable() {
   const { lucid, accounts } = useStore();
   const accountArray = Object.values(accounts);
+  const demoEnv = useContext(DemoEnvironmentContext);
+  const stableCoin : Unit = toUnit(demoEnv.minting_policy, demoEnv.token_name);
+  
+  const progLogicBase : LucidCredential = {
+    type: "Script",
+    hash: demoEnv.prog_logic_base_hash
+  }
 
   const getAccounts = async () => {
     const progUTxOs : UTxO[] = await lucid.utxosAtWithUnit(progLogicBase, stableCoin);

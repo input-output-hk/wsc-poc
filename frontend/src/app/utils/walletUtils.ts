@@ -4,28 +4,17 @@ import axios, { AxiosResponse } from 'axios';
 //Lucis imports
 import { Address, Assets, Blockfrost, CML, credentialToAddress, Lucid, LucidEvolution, makeTxSignBuilder, paymentCredentialOf, toUnit, TxSignBuilder, Unit, valueToAssets, walletFromSeed } from "@lucid-evolution/lucid";
 import type { Credential as LucidCredential } from "@lucid-evolution/core-types";
-import { WalletBalance } from '../store/types';
+import { WalletBalance, DemoEnvironment } from '../store/types';
 
-async function loadKey() {
-  const response = await axios.get("/blockfrost-key",
-    {
-      headers: {
-        'Content-Type': 'application/json;charset=utf-8', 
-      },
-    });
-  const BE_KEY = response?.data;
-  return BE_KEY;
-}
-
-export async function makeLucid() {
+export async function makeLucid(demoEnvironment: DemoEnvironment) {
   const API_KEY_ENV = process.env.NEXT_PUBLIC_BLOCKFROST_API_KEY;
-  const API_KEY = (API_KEY_ENV) ? API_KEY_ENV : await loadKey();
+  const API_KEY = (API_KEY_ENV) ? API_KEY_ENV : demoEnvironment.blockfrost_key;
 
-  const blockfrostURL = "https://cardano-preview.blockfrost.io/api/v0"
+  const blockfrostURL = demoEnvironment.blockfrost_url;
 
   const blockfrost = new Blockfrost(blockfrostURL, API_KEY);
 
-  const lucid = await Lucid(blockfrost, "Preview");
+  const lucid = await Lucid(blockfrost, demoEnvironment.network);
 
   return lucid;
 }
@@ -40,7 +29,7 @@ export async function getWalletFromSeed(mnemonic: string) {
   }
 }
 
-export async function getWalletBalance(address: string): Promise<WalletBalance> {
+export async function getWalletBalance(demoEnv: DemoEnvironment, address: string): Promise<WalletBalance> {
   try {
     const response = await axios.get(
       `/api/v1/query/user-funds/${address}`,  
@@ -50,8 +39,8 @@ export async function getWalletBalance(address: string): Promise<WalletBalance> 
         },
       }
     );
-    const balance = "b34a184f1f2871aa4d33544caecefef5242025f45c3fa5213d7662a9";
-    const stableTokenUnit = "575354"; 
+    const balance = demoEnv.minting_policy;
+    const stableTokenUnit = demoEnv.token_name; 
     let stableBalance = 0;
     let adaBalance = 0;
     if (response?.data && response.data[balance] && response.data[balance][stableTokenUnit]) {
@@ -66,10 +55,10 @@ export async function getWalletBalance(address: string): Promise<WalletBalance> 
   }
 }
 
-export async function getBlacklist(){
+export async function getBlacklist(demoEnv: DemoEnvironment){
   try {
     const response = await axios.get(
-      '/api/v1/query/blacklist/addr_test1qq986m3uel86pl674mkzneqtycyg7csrdgdxj6uf7v7kd857kquweuh5kmrj28zs8czrwkl692jm67vna2rf7xtafhpqk3hecm',  
+      `/api/v1/query/blacklist/${demoEnv.transfer_logic_address}`,  
       {
         headers: {
           'Content-Type': 'application/json;charset=utf-8', 
@@ -130,17 +119,12 @@ export async function selectLucidWallet(lucid: LucidEvolution, wallet: WalletTyp
   lucid.selectWallet.fromAPI(api);
 }
 
-const progLogicBase : LucidCredential = {
-  type: "Script",
-  hash: "fca77bcce1e5e73c97a0bfa8c90f7cd2faff6fd6ed5b6fec1c04eefa"
-}
 
-const stableCoin : Unit = toUnit("b34a184f1f2871aa4d33544caecefef5242025f45c3fa5213d7662a9", "575354");
-
-export function adjustMintOutput(tx: CML.Transaction, receiverAddress: Address, mintedAmount: bigint) {
+export function adjustMintOutput(demoEnv: DemoEnvironment, tx: CML.Transaction, receiverAddress: Address, mintedAmount: bigint) {
   const txB : CML.TransactionBody = tx.body()
   const new_outputs = CML.TransactionOutputList.new()
-
+  const stableCoin : Unit = toUnit(demoEnv.minting_policy, demoEnv.token_name);
+  
   const outputs : CML.TransactionOutputList = txB.outputs()
   const outputsLen = outputs.len()
   for (let i = 0; i < outputsLen; i++) {
@@ -237,11 +221,15 @@ export function adjustMintOutput(tx: CML.Transaction, receiverAddress: Address, 
 
 }
 
-export async function deriveProgrammableAddress(lucid: LucidEvolution, userAddress: Address){
+export async function deriveProgrammableAddress(demoEnv: DemoEnvironment, lucid: LucidEvolution, userAddress: Address){
   const network = lucid.config().network!;
   // user's payment credential
   const ownerCred : LucidCredential = paymentCredentialOf(userAddress);
 
+  const progLogicBase : LucidCredential = {
+    type: "Script",
+    hash: demoEnv.prog_logic_base_hash
+  }
   // construct the user's programmable token address
   // payment credential is always the programmable token base script hash
   // staking credential is the user's payment credential        

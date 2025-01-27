@@ -1,6 +1,6 @@
 'use client';
 //React imports
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 
 //Axios imports
 import axios from 'axios';
@@ -15,11 +15,13 @@ import { getWalletBalance, signAndSentTx } from '../utils/walletUtils';
 import WalletCard from '../components/Card';
 import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
+import DemoEnvironmentContext from '../context/demoEnvironmentContext';
 
 export default function Profile() {
   const { lucid, currentUser, mintAccount, changeAlertInfo, changeWalletAccountDetails } = useStore();
   const accounts = useStore((state) => state.accounts);
   const [overrideTx, setOverrideTx] = useState<boolean>(false);
+  const demoEnv = useContext(DemoEnvironmentContext);
 
   useEffect(() => {
     useStore.getState();
@@ -33,6 +35,16 @@ export default function Profile() {
       case "Connected Wallet": return accounts.walletUser;
     };
   };
+
+  const getUserMnemonic = () => {
+    switch (currentUser) {
+      case "Alice": return demoEnv.user_a;
+      case "Bob": return demoEnv.user_b;
+      case "Mint Authority": return demoEnv.mint_authority;
+      case "Connected Wallet": return ""; //TODO: this seems to be broken
+    };
+
+  }
 
   // temp state for each text field
   const [sendTokenAmount, setMintTokens] = useState(0);
@@ -55,7 +67,7 @@ export default function Profile() {
       console.error("No valid send address found! Cannot send.");
       return;
     }
-    lucid.selectWallet.fromSeed(accountInfo.mnemonic);
+    lucid.selectWallet.fromSeed(getUserMnemonic());
     const requestData = {
       asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
       issuer: mintAccount.address,
@@ -79,14 +91,14 @@ export default function Profile() {
       const txId = await signAndSentTx(lucid, tx);
       await updateAccountBalance(sendRecipientAddress);
       await updateAccountBalance(accountInfo.address);
-      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
+      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `${demoEnv.explorer_url}/${txId}`});
     } catch (error) {
       console.error('Send failed:', error);
     }
   };
 
   const updateAccountBalance = async (address: string) => {
-    const newAccountBalance = await getWalletBalance(address);
+    const newAccountBalance = await getWalletBalance(demoEnv, address);
       const walletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].address === address
       );
