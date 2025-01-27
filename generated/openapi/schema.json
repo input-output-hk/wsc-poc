@@ -166,7 +166,8 @@
                     "recipient",
                     "issuer",
                     "asset_name",
-                    "quantity"
+                    "quantity",
+                    "submit_failing_tx"
                 ],
                 "type": "object"
             },
