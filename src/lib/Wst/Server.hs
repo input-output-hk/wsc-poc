@@ -41,7 +41,7 @@ import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (uDatum))
 import Wst.Offchain.Query qualified as Query
-import Wst.Server.BlockfrostKey (BlockfrostKey, runBlockfrostKey)
+import Wst.Server.DemoEnvironment (DemoEnvRoute, runDemoEnvRoute)
 import Wst.Server.Types (APIInEra, AddVKeyWitnessArgs (..),
                          BlacklistNodeArgs (..), BuildTxAPI,
                          IssueProgrammableTokenArgs (..), QueryAPI,
@@ -53,7 +53,7 @@ import Wst.Server.Types (APIInEra, AddVKeyWitnessArgs (..),
 --   for static files
 type CombinedAPI =
   APIInEra
-  :<|> BlockfrostKey
+  :<|> DemoEnvRoute
   :<|> Raw
 
 data ServerArgs =
@@ -86,7 +86,7 @@ runServer env ServerArgs{saPort, saStaticFiles} = do
       app  = cors (const $ Just simpleCorsResourcePolicy)
         $ case saStaticFiles of
             Nothing -> serve (Proxy @APIInEra) (server env)
-            Just fp -> serve (Proxy @CombinedAPI) (server env :<|> runBlockfrostKey bf :<|> serveDirectoryWebApp fp)
+            Just fp -> serve (Proxy @CombinedAPI) (server env :<|> runDemoEnvRoute bf :<|> serveDirectoryWebApp fp)
       port = saPort
   Warp.run port app
 

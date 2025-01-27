@@ -16,6 +16,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import useStore from '../store/store'; 
 import { UserName } from '../store/types';
 import { selectLucidWallet, getWalletBalance } from '../utils/walletUtils';
+import DemoEnvironmentContext from '../context/demoEnvironmentContext';
 
 export default function ProfileSwitcher() {
   const [anchorEl, setAnchorEl] = React.useState<HTMLElement | null>(null);
@@ -23,6 +24,7 @@ export default function ProfileSwitcher() {
   const lucid = useStore(state => state.lucid);
   const changeUserAccount = useStore(state => state.changeUserAccount);
   const router = useRouter();
+  const demoContext = React.useContext(DemoEnvironmentContext);
 
   React.useEffect(() => {
     // Check the current path and redirect if the currentUser doesn't match
@@ -62,7 +64,7 @@ export default function ProfileSwitcher() {
   const handleWalletConnect = async (user: UserName) => {
     await selectLucidWallet(lucid, "Lace");
     const userAddress = await lucid.wallet().address();
-    const userBalance = await getWalletBalance(userAddress);
+    const userBalance = await getWalletBalance(demoContext, userAddress);
     changeWalletAccountDetails('walletUser', {
       ...accounts.walletUser,
       address: userAddress,

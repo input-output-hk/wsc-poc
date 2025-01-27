@@ -51,6 +51,7 @@ import Wst.Offchain.Query (UTxODat (..))
 type APIInEra = "api" :> "v1" :> API C.ConwayEra
 
 newtype TextEnvelopeJSON a = TextEnvelopeJSON{ unTextEnvelopeJSON :: a }
+  deriving newtype (Eq, Show)
 
 instance C.HasTextEnvelope a => ToJSON (TextEnvelopeJSON a) where
   toJSON = toJSON . C.serialiseToTextEnvelope Nothing . unTextEnvelopeJSON
@@ -71,6 +72,7 @@ instance C.HasTextEnvelope a => ToSchema (TextEnvelopeJSON a) where
           ]
 
 newtype SerialiseAddress a = SerialiseAddress{unSerialiseAddress :: a }
+  deriving newtype (Eq, Show)
 
 deriving newtype instance ToJSON (SerialiseAddress (C.Address C.ShelleyAddr))
 deriving newtype instance FromJSON (SerialiseAddress (C.Address C.ShelleyAddr))
