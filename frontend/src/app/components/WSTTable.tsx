@@ -12,10 +12,12 @@ import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import Paper from "@mui/material/Paper";
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 
 //Local Imports
 import useStore from '../store/store'; 
 import { useEffect } from "react";
+import IconButton from './WSTIconButton';
 
 const progLogicBase : LucidCredential = {
   type: "Script",
@@ -43,6 +45,9 @@ export default function WSTTable() {
     getAccounts();
   }, []);
 
+  const copyToClipboard = (str: string) => {
+    navigator.clipboard.writeText(str);
+  }
 
   return (
     <Box className="tableContainerBox">
@@ -51,8 +56,8 @@ export default function WSTTable() {
       <TableHead>
         <TableRow>
           <TableCell>Address</TableCell>
-          <TableCell>Account Status</TableCell>
-          <TableCell align="right">Account Balance</TableCell>
+          <TableCell>Address Status</TableCell>
+          <TableCell align="right">Address Balance</TableCell>
         </TableRow>
       </TableHead>
       <TableBody>
@@ -61,12 +66,13 @@ export default function WSTTable() {
             <TableRow key={i}>
               <TableCell>
                   {`${acct?.address.slice(0,15)}...${acct?.address.slice(104,108)}`}
+                  <IconButton onClick={() => copyToClipboard(acct.address)} icon={<ContentCopyIcon />}/>
               </TableCell>
               <TableCell sx={{color: acct.status === 'Frozen' ? 'error.main' : 'success.main', fontWeight: '500'}}>
                   {acct.status}
               </TableCell>
               <TableCell align="right">
-                  {`${acct?.balance} WST`}
+                  {`${acct?.balance.wst} WST`}
               </TableCell>
             </TableRow>
           ))

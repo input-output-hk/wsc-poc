@@ -3,7 +3,7 @@
 let
   sha256map = {
     # "https://github.com/j-mueller/sc-tools"."dbff9d50478fbce9ee5c718f0536f4183685edd9" = "sha256-b47wr0xuUZohxPnL3Zi6iAYhkY0K7NFHpsv8TXr9LHM=";
-    "https://github.com/amirmrad/sc-tools"."6c63efe07015e87719d77fa3fabfe07f959c7227" = "sha256-f1qpkjL0YgK2/k8M1BgFYT7bcE14sm0qucbqRjtCbU8=";
+    "https://github.com/j-mueller/sc-tools"."a3662e093f40082dd6fa525bb0640a10caa1bd70" = "sha256-4GfNKmbSf1fbBEGmQFFZoSahVssBVFfCqU3tjfR1uYs=";
     "https://github.com/colll78/plutarch-plutus"."b2379767c7f1c70acf28206bf922f128adc02f28" = "sha256-mhuW2CHxnc6FDWuMcjW/51PKuPOdYc4yxz+W5RmlQew=";
     "https://github.com/input-output-hk/catalyst-onchain-libs"."650a3435f8efbd4bf36e58768fac266ba5beede4" = "sha256-NUh+l97+eO27Ppd8Bx0yMl0E5EV+p7+7GuFun1B8gRc=";
   };

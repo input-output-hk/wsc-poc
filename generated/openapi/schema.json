@@ -156,6 +156,9 @@
                     },
                     "sender": {
                         "$ref": "#/components/schemas/Address"
+                    },
+                    "submit_failing_tx": {
+                        "type": "boolean"
                     }
                 },
                 "required": [
@@ -163,7 +166,8 @@
                     "recipient",
                     "issuer",
                     "asset_name",
-                    "quantity"
+                    "quantity",
+                    "submit_failing_tx"
                 ],
                 "type": "object"
             },

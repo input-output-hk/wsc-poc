@@ -76,6 +76,7 @@ library
     Wst.Client
     Wst.JSON.Utils
     Wst.Offchain.BuildTx.DirectorySet
+    Wst.Offchain.BuildTx.Failing
     Wst.Offchain.BuildTx.LinkedList
     Wst.Offchain.BuildTx.ProgrammableLogic
     Wst.Offchain.BuildTx.ProtocolParams

@@ -6,7 +6,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
 //Mui imports
-import { Box, Typography } from '@mui/material';
+import { Box, Checkbox, FormControlLabel, Typography } from '@mui/material';
 
 //Local components
 import useStore from '../store/store'; 
@@ -19,6 +19,7 @@ import CopyTextField from '../components/CopyTextField';
 export default function Profile() {
   const { lucid, currentUser, mintAccount, changeAlertInfo, changeWalletAccountDetails } = useStore();
   const accounts = useStore((state) => state.accounts);
+  const [overrideTx, setOverrideTx] = useState<boolean>(false);
 
   useEffect(() => {
     useStore.getState();
@@ -27,8 +28,8 @@ export default function Profile() {
 
   const getUserAccountDetails = () => {
     switch (currentUser) {
-      case "User A": return accounts.userA;
-      case "User B": return accounts.userB;
+      case "Alice": return accounts.alice;
+      case "Bob": return accounts.bob;
       case "Connected Wallet": return accounts.walletUser;
     };
   };
@@ -38,10 +39,10 @@ export default function Profile() {
   const [sendRecipientAddress, setsendRecipientAddress] = useState('address');
 
   const onSend = async () => {
-    if (getUserAccountDetails()?.status === 'Frozen') {
+    if (getUserAccountDetails()?.status === 'Frozen' && !overrideTx) {
       changeAlertInfo({
         severity: 'error',
-        message: 'Cannot send WST with frozen account.',
+        message: 'Cannot send WST with frozen address.',
         open: true,
         link: ''
       });
@@ -51,7 +52,7 @@ export default function Profile() {
     changeAlertInfo({severity: 'info', message: 'Transaction processing', open: true, link: ''});
     const accountInfo = getUserAccountDetails();
     if (!accountInfo) {
-      console.error("No valid send account found! Cannot send.");
+      console.error("No valid send address found! Cannot send.");
       return;
     }
     lucid.selectWallet.fromSeed(accountInfo.mnemonic);
@@ -61,6 +62,7 @@ export default function Profile() {
       quantity: sendTokenAmount,
       recipient: sendRecipientAddress,
       sender: accountInfo.address,
+      submit_failing_tx: overrideTx
     };
     try {
       const response = await axios.post(
@@ -77,7 +79,7 @@ export default function Profile() {
       const txId = await signAndSentTx(lucid, tx);
       await updateAccountBalance(sendRecipientAddress);
       await updateAccountBalance(accountInfo.address);
-      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
+      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
     } catch (error) {
       console.error('Send failed:', error);
     }
@@ -111,6 +113,12 @@ export default function Profile() {
       label="Recipient’s Address"
       fullWidth={true}
   />
+    <FormControlLabel
+      control={<Checkbox size="small" checked={overrideTx} onChange={x => setOverrideTx(x.target.checked)} />}
+      label="⚠️ Force send failing transaction"
+      sx={{ mb: 2 }}
+  />
+  
   </Box>;
 
   const receiveContent =  <Box>
@@ -125,8 +133,9 @@ export default function Profile() {
     <div className="page">
     <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'end', marginBottom: '16px'}}>
         <Box>
-          <Typography variant='h4'>Account Balance</Typography>
-          <Typography variant='h1'>{getUserAccountDetails()?.balance} WST</Typography>
+          <Typography variant='h4'>Address Balance</Typography>
+          <Typography variant='h1'>{getUserAccountDetails()?.balance.wst} WST</Typography>
+          <Typography variant='h5'>{getUserAccountDetails()?.balance.ada} Ada</Typography>
         </Box>
         <Typography variant='h5'>{getUserAccountDetails()?.address.slice(0,15)}</Typography>
         </Box>

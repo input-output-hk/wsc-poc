@@ -30,6 +30,8 @@ import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.AppError (AppError (NoTokensToSeize))
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (inaNewKey))
 import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
+import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy,
+                                     balanceTxEnvFailing)
 import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
 import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
 import Wst.Offchain.BuildTx.TransferLogic (BlacklistReason)
@@ -38,7 +40,6 @@ import Wst.Offchain.Env (DirectoryScriptRoot (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Query qualified as Query
-
 
 {-| Build a transaction that deploys the directory and global params. Returns the
 transaction and the 'TxIn' that was selected for the one-shot NFTs.
@@ -177,16 +178,17 @@ transferSmartTokensTx :: forall era env m.
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadUtxoQuery m
   )
-  => C.AssetId -- ^ AssetId to transfer
+  => BlacklistedTransferPolicy
+  -> C.AssetId -- ^ AssetId to transfer
   -> Quantity -- ^ Amount of tokens to be minted
   -> C.PaymentCredential -- ^ Destination credential
   -> m (C.Tx era)
-transferSmartTokensTx assetId quantity destCred = do
+transferSmartTokensTx policy assetId quantity destCred = do
   directory <- Query.registryNodes @era
   blacklist <- Query.blacklistNodes @era
   userOutputsAtProgrammable <- Env.operatorPaymentCredential >>= Query.userProgrammableOutputs
   paramsTxIn <- Query.globalParamsNode @era
-  (tx, _) <- Env.balanceTxEnv_ $ do
+  (tx, _) <- balanceTxEnvFailing policy $ do
     BuildTx.transferSmartTokens paramsTxIn blacklist directory userOutputsAtProgrammable (assetId, quantity) destCred
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 

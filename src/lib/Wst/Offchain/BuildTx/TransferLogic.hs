@@ -5,6 +5,7 @@
 
 module Wst.Offchain.BuildTx.TransferLogic
   ( transferSmartTokens,
+    FindProofResult(..),
     issueSmartTokens,
     SeizeReason(..),
     seizeSmartTokens,
@@ -14,6 +15,7 @@ module Wst.Offchain.BuildTx.TransferLogic
     removeBlacklistNode,
     paySmartTokensToDestination,
     registerTransferScripts,
+    blacklistInitialNode
   )
 where
 
@@ -54,7 +56,7 @@ import SmartTokens.Contracts.ExampleTransferLogic (BlacklistProof (..))
 import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (BlacklistNode (..),
                                           DirectorySetNode (..))
-import Wst.AppError (AppError (BlacklistNodeNotFound, DuplicateBlacklistNode, TransferBlacklistedCredential))
+import Wst.AppError (AppError (BlacklistNodeNotFound, DuplicateBlacklistNode))
 import Wst.Offchain.BuildTx.ProgrammableLogic (issueProgrammableToken,
                                                seizeProgrammableToken,
                                                transferProgrammableToken)
@@ -117,7 +119,7 @@ instance ToSchema BlacklistReason where
 -}
 addBlacklistReason :: (C.IsShelleyBasedEra era, MonadBuildTx era m) => BlacklistReason -> m ()
 addBlacklistReason (BlacklistReason reason) =
-  addBtx (set (L.txMetadata . L._TxMetadata . at 0) (Just (C.TxMetaMap [(C.TxMetaText "blacklist.reason", C.metaTextChunks reason)])))
+  addBtx (set (L.txMetadata . L._TxMetadata . at 1) (Just (C.TxMetaMap [(C.TxMetaText "reason", C.metaTextChunks reason)])))
 
 insertBlacklistNode :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError (AppError era) m) => BlacklistReason -> C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
 insertBlacklistNode reason cred blacklistNodes = Utils.inBabbage @era $ do
@@ -222,7 +224,7 @@ issueSmartTokens paramsTxOut (an, q) directoryList destinationCred = Utils.inBab
   paySmartTokensToDestination (an, q) issuedPolicyId destinationCred
   pure $ C.AssetId issuedPolicyId an
 
-transferSmartTokens :: forall env era a m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env, MonadError (AppError era) m) => UTxODat era ProgrammableLogicGlobalParams -> [UTxODat era BlacklistNode] -> [UTxODat era DirectorySetNode] -> [UTxODat era a] -> (C.AssetId, C.Quantity) -> C.PaymentCredential -> m ()
+transferSmartTokens :: forall env era a m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env, MonadError (AppError era) m) => UTxODat era ProgrammableLogicGlobalParams -> [UTxODat era BlacklistNode] -> [UTxODat era DirectorySetNode] -> [UTxODat era a] -> (C.AssetId, C.Quantity) -> C.PaymentCredential -> m (FindProofResult era)
 transferSmartTokens paramsTxIn blacklistNodes directoryList spendingUserOutputs (assetId, q) destinationCred = Utils.inBabbage @era $ do
   nid <- queryNetworkId
   userCred <- Env.operatorPaymentCredential
@@ -238,7 +240,7 @@ transferSmartTokens paramsTxIn blacklistNodes directoryList spendingUserOutputs 
         C.AdaAssetId -> error "Ada is not programmable"
 
   transferProgrammableToken paramsTxIn txins (transPolicyId programmablePolicyId) directoryList -- Invoking the programmableBase and global scripts
-  addTransferWitness blacklistNodes -- Proof of non-membership of the blacklist
+  result <- addTransferWitness blacklistNodes -- Proof of non-membership of the blacklist
 
   -- Send outputs to destinationCred
   destStakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential destinationCred
@@ -255,6 +257,7 @@ transferSmartTokens paramsTxIn blacklistNodes directoryList spendingUserOutputs 
       returnAddr = C.makeShelleyAddressInEra C.shelleyBasedEra nid progLogicBaseCred (C.StakeAddressByValue srcStakeCred)
       returnOutput = C.TxOut returnAddr returnVal C.TxOutDatumNone C.ReferenceScriptNone
   prependTxOut returnOutput -- Add the seized output to the transaction
+  pure result
 
 {-| Reason for adding an address to the blacklist
 -}
@@ -272,8 +275,7 @@ instance ToSchema SeizeReason where
 -}
 addSeizeReason :: (C.IsShelleyBasedEra era, MonadBuildTx era m) => SeizeReason -> m ()
 addSeizeReason (SeizeReason reason) =
-  addBtx (set (L.txMetadata . L._TxMetadata . at 1) (Just (C.TxMetaMap [(C.TxMetaText "seize.reason", C.metaTextChunks reason)])))
-
+  addBtx (set (L.txMetadata . L._TxMetadata . at 1) (Just (C.TxMetaMap [(C.TxMetaText "reason", C.metaTextChunks reason)])))
 
 seizeSmartTokens :: forall env era a m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => SeizeReason -> UTxODat era ProgrammableLogicGlobalParams -> UTxODat era a -> C.PaymentCredential -> [UTxODat era DirectorySetNode] -> m ()
 seizeSmartTokens reason paramsTxIn seizingTxo destinationCred directoryList = Utils.inBabbage @era $ do
@@ -339,6 +341,7 @@ tryFindProof :: [UTxODat era BlacklistNode] -> Credential -> UTxODat era Blackli
 tryFindProof blacklistNodes cred =
   case findProof blacklistNodes cred of
     CredentialNotBlacklisted r -> r
+    CredentialBlacklisted r -> r
     _ -> error $ "tryFindProof failed for " <> show cred
 
 {-| Find the blacklist node that covers the credential.
@@ -353,18 +356,10 @@ findProof blacklistNodes cred =
       then CredentialBlacklisted node
       else CredentialNotBlacklisted node
 
-{-| Check that the credential is not blacklisted. Throw an error if the
-  credential is blacklisted.
--}
-checkNotBlacklisted :: forall era m. MonadError (AppError era) m => [UTxODat era BlacklistNode] -> Credential -> m ()
-checkNotBlacklisted nodes cred = case findProof nodes cred of
-  CredentialNotBlacklisted{} -> pure ()
-  _ -> throwError (TransferBlacklistedCredential cred)
-
 {-| Add a proof that the user is allowed to transfer programmable tokens.
 Uses the user from 'HasOperatorEnv env'. Fails if the user is blacklisted.
 -}
-addTransferWitness :: forall env era m. (MonadError (AppError era) m, MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => [UTxODat era BlacklistNode] -> m ()
+addTransferWitness :: forall env era m. (MonadError (AppError era) m, MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => [UTxODat era BlacklistNode] -> m (FindProofResult era)
 addTransferWitness blacklistNodes = Utils.inBabbage @era $ do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv) -- In this case 'operator' is the user
   nid <- queryNetworkId
@@ -391,7 +386,7 @@ addTransferWitness blacklistNodes = Utils.inBabbage @era $ do
   -- This means we're traversing the list of blacklist nodes an additional time.
   -- But here is the only place where we can use MonadError. So we have to do it
   -- here to allow the client code to handle the error properly.
-  checkNotBlacklisted blacklistNodes (transCredential $ C.PaymentCredentialByKey opPkh)
+  let proofResult = findProof blacklistNodes (transCredential $ C.PaymentCredentialByKey opPkh)
 
   addRequiredSignature opPkh
   addReferencesWithTxBody witnessReferences
@@ -399,11 +394,11 @@ addTransferWitness blacklistNodes = Utils.inBabbage @era $ do
     (C.makeStakeAddress nid transferStakeCred)
     (C.Quantity 0)
     $ C.ScriptWitness C.ScriptWitnessForStakeAddr . transferStakeWitness
+  pure proofResult
 
 addReferencesWithTxBody :: (MonadBuildTx era m, C.IsBabbageBasedEra era) => (C.TxBodyContent C.BuildTx era -> [C.TxIn]) -> m ()
 addReferencesWithTxBody f =
   addTxBuilder (TxBuilder $ \body -> over (L.txInsReference . L._TxInsReferenceIso) (nub . (f body <>)))
-
 
 addSeizeWitness :: forall env era m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => m ()
 addSeizeWitness = Utils.inBabbage @era $ do

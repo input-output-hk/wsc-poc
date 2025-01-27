@@ -1,9 +1,10 @@
 //Axios imports
-import axios from 'axios';
+import axios, { AxiosResponse } from 'axios';
 
 //Lucis imports
 import { Address, Assets, Blockfrost, CML, credentialToAddress, Lucid, LucidEvolution, makeTxSignBuilder, paymentCredentialOf, toUnit, TxSignBuilder, Unit, valueToAssets, walletFromSeed } from "@lucid-evolution/lucid";
 import type { Credential as LucidCredential } from "@lucid-evolution/core-types";
+import { WalletBalance } from '../store/types';
 
 async function loadKey() {
   const response = await axios.get("/blockfrost-key",
@@ -39,7 +40,7 @@ export async function getWalletFromSeed(mnemonic: string) {
   }
 }
 
-export async function getWalletBalance(address: string){
+export async function getWalletBalance(address: string): Promise<WalletBalance> {
   try {
     const response = await axios.get(
       `/api/v1/query/user-funds/${address}`,  
@@ -52,14 +53,16 @@ export async function getWalletBalance(address: string){
     const balance = "b34a184f1f2871aa4d33544caecefef5242025f45c3fa5213d7662a9";
     const stableTokenUnit = "575354"; 
     let stableBalance = 0;
+    let adaBalance = 0;
     if (response?.data && response.data[balance] && response.data[balance][stableTokenUnit]) {
       stableBalance = response.data[balance][stableTokenUnit];
+      adaBalance = response.data["lovelace"] / 1000000;
     }
-    // console.log('Get wallet balance:', response.data);
-    return stableBalance;
+    
+    return {wst: stableBalance, ada: adaBalance };
   } catch (error) {
     console.error('Failed to get balance', error);
-    return 0;
+    return { wst: 0, ada: 0};
   }
 }
 
@@ -82,24 +85,42 @@ export async function getBlacklist(){
   }
 }
 
-export async function signAndSentTx(lucid: LucidEvolution, tx: TxSignBuilder) {
+export async function submitTx(tx: string): Promise<AxiosResponse<any, any>> {
+  return axios.post(
+      '/api/v1/tx/submit',
+      {
+        description: "",
+        type: "Tx ConwayEra",
+        cborHex: tx
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json;charset=utf-8', 
+        },
+      }
+    );
+  }
+
+export async function signAndSentTx(lucid: LucidEvolution, tx: TxSignBuilder): Promise<string> {
+  const isValid = tx.toTransaction().is_valid();
   const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
   const cmlTx = txBuilder.toTransaction();
   const witnessSet = txBuilder.toTransaction().witness_set();
   const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
-  // console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
   const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());
-  const txIDinAlert = await cmlTxBodyClone.to_json();
-  const txIDObject = JSON.parse(txIDinAlert);   
-  // console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
   cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash!);
-  // console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
-  const cmlClonedTx = CML.Transaction.new(cmlTxBodyClone, cmlTx!.witness_set(), true, cmlTx!.auxiliary_data());
+  
+  const cmlClonedTx = CML.Transaction.new(cmlTxBodyClone, cmlTx!.witness_set(), isValid, cmlTx!.auxiliary_data());
   const cmlClonedSignedTx = await makeTxSignBuilder(lucid.wallet(), cmlClonedTx).sign.withWallet().complete();
-  const txId = await cmlClonedSignedTx.submit();
-  await lucid.awaitTx(txId);
-  console.log(cmlClonedSignedTx);
-  return txIDObject
+
+  // We need to reconstruct the transaction from CBOR again, using CML, because the 'cmlClonedSignedTx.toTransaction().is_valid' always
+  // returns true (overriding what we specified when we created cmlClonedTx)
+  const clonedTx2 = CML.Transaction.new(CML.TransactionBody.from_cbor_hex(cmlClonedSignedTx.toTransaction().body().to_cbor_hex()), cmlClonedSignedTx!.toTransaction().witness_set(), isValid, cmlClonedSignedTx.toTransaction()!.auxiliary_data());
+  const txId = await submitTx(clonedTx2.to_cbor_hex());
+  const i = txId.data;
+  console.log(txId);
+  await lucid.awaitTx(txId.data);
+  return i
 }
 
 export type WalletType = "Lace" | "Eternl" | "Nami" | "Yoroi";

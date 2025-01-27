@@ -6,7 +6,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
 //Lucid imports
-import { CML, makeTxSignBuilder, paymentCredentialOf } from '@lucid-evolution/lucid';
+import { paymentCredentialOf } from '@lucid-evolution/lucid';
 import type { Credential as LucidCredential } from "@lucid-evolution/core-types";
 
 //Mui imports
@@ -33,10 +33,10 @@ export default function Home() {
   const [sendTokensAmount, setSendTokens] = useState(0);
   const [mintRecipientAddress, setMintRecipientAddress] = useState('mint recipient address');
   const [sendRecipientAddress, setsendRecipientAddress] = useState('send recipient address');
-  const [freezeAccountNumber, setFreezeAccountNumber] = useState('account to freeze');
-  const [unfreezeAccountNumber, setUnfreezeAccountNumber] = useState('account to unfreeze');
+  const [freezeAccountNumber, setFreezeAccountNumber] = useState('address to freeze');
+  const [unfreezeAccountNumber, setUnfreezeAccountNumber] = useState('address to unfreeze');
   const [freezeReason, setFreezeReason] = useState('Enter reason here');
-  const [seizeAccountNumber, setSeizeAccountNumber] = useState('account to seize');
+  const [seizeAccountNumber, setSeizeAccountNumber] = useState('address to seize');
   const [seizeReason, setSeizeReason] = useState('Enter reason here');
   
   useEffect(() => {
@@ -49,13 +49,13 @@ export default function Home() {
 
   const fetchUserDetails = async () => {
     const mintBalance = await getWalletBalance(mintAccount.address);
-    const userABalance = await getWalletBalance(accounts.userA.address);
-    const userBBalance = await getWalletBalance(accounts.userB.address);
+    const userABalance = await getWalletBalance(accounts.alice.address);
+    const userBBalance = await getWalletBalance(accounts.bob.address);
 
     // Update Zustand store with the initialized wallet information
     await changeMintAccountDetails({ ...mintAccount, balance: mintBalance});
-    await changeWalletAccountDetails('userA', { ...accounts.userA, balance: userABalance});
-    await changeWalletAccountDetails('userB', { ...accounts.userB, balance: userBBalance});
+    await changeWalletAccountDetails('alice', { ...accounts.alice, balance: userABalance});
+    await changeWalletAccountDetails('bob', { ...accounts.bob, balance: userBBalance});
   };
 
   const fetchBlacklistStatus = async () => {
@@ -106,28 +106,9 @@ export default function Home() {
       );
       console.log('Mint response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
-      // await signAndSentTx(lucid, tx);
-      const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
-      const cmlTx = txBuilder.toTransaction()
-      // console.log("TxBody: " + cmlTx.body().to_json());
-      const witnessSet = txBuilder.toTransaction().witness_set();
-      const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
-      // console.log('Calculated Script Data Hash:', expectedScriptDataHash?.to_hex());
-      const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());
-      // console.log("TxBody: " + cmlTxBodyClone.to_json());
-      const txIDinAlert = await cmlTxBodyClone.to_json();
-      const txIDObject = JSON.parse(txIDinAlert);      
-      // console.log('Preclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
-      cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash!);
-      // console.log('Postclone script hash:', cmlTxBodyClone.script_data_hash()?.to_hex());
-      const cmlClonedTx = CML.Transaction.new(cmlTxBodyClone, cmlTx!.witness_set(), true, cmlTx!.auxiliary_data());
-      const cmlClonedSignedTx = await makeTxSignBuilder(lucid.wallet(), cmlClonedTx).sign.withWallet().complete();
-
-      const txId = await cmlClonedSignedTx.submit();
-      await lucid.awaitTx(txId);
+      const txId = await signAndSentTx(lucid, tx);
       
-      changeAlertInfo({severity: 'success', message: 'Successful new WST mint. View the transaction here:', open: true, link: `https://preview.cardanoscan.io/transaction/${txIDObject.inputs[0].transaction_id}`});
-      
+      changeAlertInfo({severity: 'success', message: 'Successful new WST mint. View the transaction here:', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
       
       await fetchUserDetails();
     } catch (error) {
@@ -169,7 +150,7 @@ export default function Home() {
           balance: newAccountBalance,
         });
       }
-      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
+      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
       await fetchUserDetails();
     } catch (error) {
       console.error('Send failed:', error);
@@ -177,7 +158,7 @@ export default function Home() {
   };
 
   const onFreeze = async () => {
-    console.log('freeze an account');
+    console.log('freeze an address');
     lucid.selectWallet.fromSeed(mintAccount.mnemonic);
     changeAlertInfo({severity: 'info', message: 'Freeze request processing', open: true, link: ''});
     const requestData = {
@@ -198,7 +179,8 @@ export default function Home() {
       console.log('Freeze response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       const txId = await signAndSentTx(lucid, tx);
-      changeAlertInfo({severity: 'success', message: 'Account successfully frozen', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
+      console.log(txId);
+      changeAlertInfo({severity: 'success', message: 'Address successfully frozen', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
       const frozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].address === freezeAccountNumber
       );
@@ -229,6 +211,7 @@ export default function Home() {
     const requestData = {
       issuer: mintAccount.address,
       blacklist_address: unfreezeAccountNumber,
+      reason: "(unfreeze)"
     };
     try {
       const response = await axios.post(
@@ -243,7 +226,7 @@ export default function Home() {
       console.log('Unfreeze response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       const txId = await signAndSentTx(lucid, tx);
-      changeAlertInfo({severity: 'success', message: 'Account successfully unfrozen', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
+      changeAlertInfo({severity: 'success', message: 'Address successfully unfrozen', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
       const unfrozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].address === freezeAccountNumber
       );
@@ -299,7 +282,7 @@ export default function Home() {
           balance: newAccountBalance,
         });
       }
-      changeAlertInfo({severity: 'success', message: 'Funds successfully seized', open: true, link: `https://preview.cardanoscan.io/transaction/${txId.inputs[0].transaction_id}`});
+      changeAlertInfo({severity: 'success', message: 'Funds successfully seized', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
       await fetchUserDetails();
     } catch (error) {
       console.error('Seize failed:', error);
@@ -330,7 +313,7 @@ export default function Home() {
   <WSTTextField 
   value={freezeAccountNumber}
   onChange={(e) => setFreezeAccountNumber(e.target.value)}
-  label="Account Number"
+  label="Address"
   fullWidth={true}
   />
   <WSTTextField 
@@ -348,7 +331,7 @@ export default function Home() {
   <WSTTextField 
   value={unfreezeAccountNumber}
   onChange={(e) => setUnfreezeAccountNumber(e.target.value)}
-  label="Account Number"
+  label="Address"
   fullWidth={true}
   />
   </Box>
@@ -357,7 +340,7 @@ const seizeContent =  <Box>
 <WSTTextField 
 value={seizeAccountNumber}
 onChange={(e) => setSeizeAccountNumber(e.target.value)}
-label="Account Number"
+label="Address"
 fullWidth={true}
 />
 <WSTTextField 
@@ -400,8 +383,9 @@ maxRows={3}
         return <>
           <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'end', marginBottom: '16px'}}>
           <Box>
-            <Typography variant='h4'>Mint Balance</Typography>
-            <Typography variant='h1'>{mintAccount.balance} WST</Typography>
+            <Typography variant='h4'>Mint Authority Balance</Typography>
+            <Typography variant='h1'>{mintAccount.balance.wst} WST</Typography>
+            <Typography variant='h5'>{mintAccount.balance.ada} Ada</Typography>
           </Box>
           <Typography variant='h5'>UserID: {mintAccount.address.slice(0,15)}</Typography>
           </Box>
@@ -446,10 +430,10 @@ maxRows={3}
             ]}/>
           </div>
         </>;
-      case 'Accounts':
+      case 'Addresses':
         return <>
           <Box sx={{marginBottom: '16px'}}>
-            <Typography variant='h1'>User Accounts</Typography>
+            <Typography variant='h1'>Addresses</Typography>
           </Box> 
           <WSTTable />
         </>;

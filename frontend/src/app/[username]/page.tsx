@@ -2,8 +2,8 @@ import Profile from '.';
 
 export async function generateStaticParams() {
   return [
-    { username: 'user-a' },
-    { username: 'user-b' },
+    { username: 'alice' },
+    { username: 'bob' },
     { username: 'connected-wallet' } // connected wallet
   ]
 }

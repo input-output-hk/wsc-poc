@@ -136,6 +136,7 @@ data TransferProgrammableTokenArgs =
     , ttaIssuer    :: C.Address C.ShelleyAddr
     , ttaAssetName :: AssetName
     , ttaQuantity  :: Quantity
+    , ttaSubmitFailingTx :: Bool
     }
     deriving stock (Eq, Show, Generic)
 
