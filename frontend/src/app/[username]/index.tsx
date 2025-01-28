@@ -68,6 +68,7 @@ export default function Profile() {
       return;
     }
     lucid.selectWallet.fromSeed(getUserMnemonic());
+    lucid.wallet().address().then(console.log);
     const requestData = {
       asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
       issuer: mintAccount.address,
@@ -137,7 +138,7 @@ export default function Profile() {
     <CopyTextField 
       value={getUserAccountDetails()?.address ?? ''}
       fullWidth={true}
-      label="Your Address"
+      label="Programmable Token Address"
       />
   </Box>;
 
