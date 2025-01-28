@@ -47,7 +47,7 @@ export async function getWalletBalance(demoEnv: DemoEnvironment, address: string
       stableBalance = response.data[balance][stableTokenUnit];
       adaBalance = response.data["lovelace"] / 1000000;
     }
-    
+
     return {wst: stableBalance, ada: adaBalance };
   } catch (error) {
     console.error('Failed to get balance', error);

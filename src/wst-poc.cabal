@@ -138,6 +138,17 @@ executable wst-poc-cli
     , base
     , wst-poc
 
+executable convert-key
+  import:         lang
+  main-is:        Main.hs
+  hs-source-dirs: exe/convert-key
+  ghc-options:    -threaded -rtsopts -O2 -with-rtsopts=-N
+  build-depends:
+    , base
+    , cardano-api
+    , convex-wallet
+    , text
+
 executable export-smart-tokens
   import:         lang
   main-is:        Main.hs

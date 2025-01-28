@@ -98,7 +98,7 @@ export default function Profile() {
   };
 
   const updateAccountBalance = async (address: string) => {
-    const newAccountBalance = await getWalletBalance(demoEnv, address);
+    const newAccountBalance = await getWalletBalance(demoEnv, address, lucid);
       const walletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].address === address
       );

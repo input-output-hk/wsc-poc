@@ -21,6 +21,9 @@ module Wst.Server.Types (
   SeizeAssetsArgs(..),
   AddVKeyWitnessArgs(..),
 
+  -- * Response types
+  UserBalanceResponse(..),
+
   -- * Newtypes
   TextEnvelopeJSON(..),
   SerialiseAddress(..)
@@ -31,7 +34,8 @@ import Cardano.Api qualified as C
 import Control.Lens ((&), (.~), (?~))
 import Data.Aeson (FromJSON (..), ToJSON (..))
 import Data.Aeson qualified as JSON
-import Data.OpenApi (NamedSchema (..), OpenApiType (OpenApiObject),
+import Data.OpenApi (NamedSchema (..),
+                     OpenApiType (OpenApiInteger, OpenApiObject),
                      Referenced (Inline), ToSchema (..))
 import Data.OpenApi.Internal (OpenApiType (OpenApiString))
 import Data.OpenApi.Lens qualified as L
@@ -100,7 +104,7 @@ type API era =
 type QueryAPI era =
   "global-params" :> Description "The UTxO with the global parameters" :> Get '[JSON] (UTxODat era ProgrammableLogicGlobalParams)
   :<|> "blacklist" :> Description "The list of addresses that have been blacklisted" :> Capture "address" (SerialiseAddress (C.Address C.ShelleyAddr)) :>  Get '[JSON] [C.Hash C.PaymentKey]
-  :<|> "user-funds" :> Description "Total value locked in programmable token outputs addressed to the user" :> Capture "address" (SerialiseAddress (C.Address C.ShelleyAddr)) :> Get '[JSON] C.Value
+  :<|> "user-funds" :> Description "Total value locked in programmable token outputs addressed to the user" :> Capture "address" (SerialiseAddress (C.Address C.ShelleyAddr)) :> Get '[JSON] UserBalanceResponse
   :<|> "all-funds" :> Description "Total value of all programmable tokens" :> Get '[JSON] C.Value
   :<|> "address" :> Description "The user's receiving address for programmable tokens" :> Capture "address" (SerialiseAddress (C.Address C.ShelleyAddr)) :> Get '[JSON] (C.Address C.ShelleyAddr)
 
@@ -217,3 +221,32 @@ type BuildTxAPI era =
   "add-vkey-witness" :> Description "Add a VKey witness to a transaction" :> ReqBody '[JSON] (AddVKeyWitnessArgs era) :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
   :<|>
   "submit" :> Description "Submit a transaction to the blockchain" :> ReqBody '[JSON] (TextEnvelopeJSON (C.Tx era)) :> Post '[JSON] C.TxId
+
+{-| Response to the user-balance query
+-}
+data UserBalanceResponse =
+  UserBalanceResponse
+    { ubrProgrammableTokens :: C.Value
+    , ubrUserLovelace       :: C.Quantity -- ^ Total Ada locked by the user's public key hash (that is, value NOT in programmable token outputs)
+    , ubrAdaOnlyOutputs     :: Int -- ^ Count of ada-only outputs locked by user's public key hash
+    }
+    deriving stock (Eq, Show, Generic)
+
+instance ToJSON UserBalanceResponse where
+  toJSON = JSON.genericToJSON jsonOptions3
+  toEncoding = JSON.genericToEncoding jsonOptions3
+
+instance FromJSON UserBalanceResponse where
+  parseJSON = JSON.genericParseJSON jsonOptions3
+
+instance ToSchema UserBalanceResponse where
+  declareNamedSchema _ = pure
+    $ NamedSchema (Just "UserBalanceResponse")
+    $ mempty
+        & L.type_ ?~ OpenApiObject
+        & L.description ?~ "Response to user-funds query"
+        & L.properties .~
+          [ ("programmable_tokens", Inline $ mempty & L.type_ ?~ OpenApiObject & L.description ?~ "Combined value locked in programmable token outputs addressed to the user")
+          , ("user_lovelace", Inline $ mempty & L.type_ ?~ OpenApiInteger & L.description ?~ "Total Ada locked by the user's public key hash")
+          , ("ada_only_outputs", Inline $ mempty & L.type_ ?~ OpenApiInteger & L.description ?~ "Count of ada-only outputs locked by user's public key hash")
+          ]
