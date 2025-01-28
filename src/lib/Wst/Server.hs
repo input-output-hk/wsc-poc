@@ -21,10 +21,13 @@ import Control.Monad.Error.Class (MonadError (throwError))
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.CardanoApi.Lenses qualified as L
-import Convex.Class (MonadBlockchain (sendTx), MonadUtxoQuery)
+import Convex.Class (MonadBlockchain (sendTx), MonadUtxoQuery,
+                     utxosByPaymentCredential)
+import Convex.Utxos qualified as Utxos
 import Data.Aeson.Types (KeyValue)
 import Data.Data (Proxy (..))
 import Data.List (nub)
+import Data.Map qualified as Map
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors
 import PlutusTx.Prelude qualified as P
@@ -47,7 +50,8 @@ import Wst.Server.Types (APIInEra, AddVKeyWitnessArgs (..),
                          IssueProgrammableTokenArgs (..), QueryAPI,
                          SeizeAssetsArgs (..), SerialiseAddress (..),
                          TextEnvelopeJSON (..),
-                         TransferProgrammableTokenArgs (..))
+                         TransferProgrammableTokenArgs (..),
+                         UserBalanceResponse (..))
 
 -- | Rest API combined with a Raw endpoint
 --   for static files
@@ -169,9 +173,19 @@ queryUserFunds :: forall era env m.
   )
   => Proxy era
   -> SerialiseAddress (C.Address C.ShelleyAddr)
-  -> m C.Value
-queryUserFunds _ (SerialiseAddress addr) =
-  foldMap (txOutValue . Query.uOut) <$> Query.userProgrammableOutputs @era @env (paymentCredentialFromAddress addr)
+  -> m UserBalanceResponse
+queryUserFunds _ (SerialiseAddress addr) = do
+  let credential = paymentCredentialFromAddress addr
+  ubrProgrammableTokens <- foldMap (txOutValue . Query.uOut) <$> Query.userProgrammableOutputs @era @env credential
+  otherUTxOs <- utxosByPaymentCredential credential
+  let userBalance = C.selectLovelace (Utxos.totalBalance otherUTxOs)
+      adaOnly     = Map.size $ Utxos._utxos $ Utxos.onlyAda otherUTxOs
+  pure
+    UserBalanceResponse
+      { ubrProgrammableTokens
+      , ubrUserLovelace   = C.lovelaceToQuantity userBalance
+      , ubrAdaOnlyOutputs = adaOnly
+      }
 
 queryAllFunds :: forall era env m.
   ( MonadUtxoQuery m
