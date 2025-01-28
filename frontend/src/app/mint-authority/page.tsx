@@ -388,7 +388,7 @@ maxRows={3}
           <Box>
             <Typography variant='h4'>Mint Authority Balance</Typography>
             <Typography variant='h1'>{mintAccount.balance.wst} WST</Typography>
-            <Typography variant='h5'>{mintAccount.balance.ada} Ada</Typography>
+            <Typography variant='h5'>{mintAccount.balance.ada} Ada { (mintAccount.balance.adaOnlyOutputs === 0) && (<span>({mintAccount.balance.adaOnlyOutputs} collateral UTxOs)</span>)}</Typography>
           </Box>
           <Typography variant='h5'>UserID: {mintAccount.address.slice(0,15)}</Typography>
           </Box>

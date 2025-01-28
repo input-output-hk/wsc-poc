@@ -20,7 +20,7 @@ export type AlertInfo = {
     message: string,
     link?: string,
 };
-export type WalletBalance = { wst: number, ada: number }
+export type WalletBalance = { wst: number, ada: number, adaOnlyOutputs: number }
 
 // This should correspond to
 // Wst.Server.DemoEnvironment.DemoEnvironment
