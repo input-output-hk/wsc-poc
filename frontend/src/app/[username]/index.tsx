@@ -98,7 +98,7 @@ export default function Profile() {
   };
 
   const updateAccountBalance = async (address: string) => {
-    const newAccountBalance = await getWalletBalance(demoEnv, address, lucid);
+    const newAccountBalance = await getWalletBalance(demoEnv, address);
       const walletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].address === address
       );
@@ -147,7 +147,7 @@ export default function Profile() {
         <Box>
           <Typography variant='h4'>Address Balance</Typography>
           <Typography variant='h1'>{getUserAccountDetails()?.balance.wst} WST</Typography>
-          <Typography variant='h5'>{getUserAccountDetails()?.balance.ada} Ada</Typography>
+          <Typography variant='h5'>{getUserAccountDetails()?.balance.ada} Ada { (getUserAccountDetails()?.balance.adaOnlyOutputs === 0) && (<span>({getUserAccountDetails()?.balance.adaOnlyOutputs} collateral UTxOs)</span>)}</Typography>
         </Box>
         <Typography variant='h5'>{getUserAccountDetails()?.address.slice(0,15)}</Typography>
         </Box>

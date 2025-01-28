@@ -29,9 +29,15 @@ export async function getWalletFromSeed(mnemonic: string) {
   }
 }
 
+export type UserBalanceResponse =
+  { programmable_tokens: any
+  , user_lovelace: number
+  , ada_only_outputs: number
+  }
+
 export async function getWalletBalance(demoEnv: DemoEnvironment, address: string): Promise<WalletBalance> {
   try {
-    const response = await axios.get(
+    const response = await axios.get<UserBalanceResponse>(
       `/api/v1/query/user-funds/${address}`,  
       {
         headers: {
@@ -42,16 +48,14 @@ export async function getWalletBalance(demoEnv: DemoEnvironment, address: string
     const balance = demoEnv.minting_policy;
     const stableTokenUnit = demoEnv.token_name; 
     let stableBalance = 0;
-    let adaBalance = 0;
-    if (response?.data && response.data[balance] && response.data[balance][stableTokenUnit]) {
-      stableBalance = response.data[balance][stableTokenUnit];
-      adaBalance = response.data["lovelace"] / 1000000;
+    if (response?.data && response.data.programmable_tokens[balance] && response.data.programmable_tokens[balance][stableTokenUnit]) {
+      stableBalance = response.data.programmable_tokens[balance][stableTokenUnit];
     }
 
-    return {wst: stableBalance, ada: adaBalance };
+    return {wst: stableBalance, ada: response.data.user_lovelace / 1000000, adaOnlyOutputs: response.data.ada_only_outputs };
   } catch (error) {
     console.error('Failed to get balance', error);
-    return { wst: 0, ada: 0};
+    return { wst: 0, ada: 0, adaOnlyOutputs: 0};
   }
 }
 
