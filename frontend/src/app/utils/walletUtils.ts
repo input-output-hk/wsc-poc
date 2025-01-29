@@ -19,9 +19,9 @@ export async function makeLucid(demoEnvironment: DemoEnvironment) {
   return lucid;
 }
 
-export async function getWalletFromSeed(mnemonic: string) {
+export async function getWalletFromSeed(demoEnvironment: DemoEnvironment, mnemonic: string) {
   try {
-    const wallet = walletFromSeed(mnemonic, {password: '', addressType: 'Base', accountIndex: 0, network: "Preview"});
+    const wallet = walletFromSeed(mnemonic, {password: '', addressType: 'Base', accountIndex: 0, network: demoEnvironment.network });
     return wallet;
   } catch (error) {
     console.error('Failed to initialize KeyAgent:', error);
@@ -54,7 +54,7 @@ export async function getWalletBalance(demoEnv: DemoEnvironment, address: string
 
     return {wst: stableBalance, ada: response.data.user_lovelace / 1000000, adaOnlyOutputs: response.data.ada_only_outputs };
   } catch (error) {
-    console.error('Failed to get balance', error);
+    console.warn('Failed to get balance', error);
     return { wst: 0, ada: 0, adaOnlyOutputs: 0};
   }
 }
@@ -227,6 +227,7 @@ export function adjustMintOutput(demoEnv: DemoEnvironment, tx: CML.Transaction, 
 
 export async function deriveProgrammableAddress(demoEnv: DemoEnvironment, lucid: LucidEvolution, userAddress: Address){
   const network = lucid.config().network!;
+  console.log("Network", network, demoEnv.network);
   // user's payment credential
   const ownerCred : LucidCredential = paymentCredentialOf(userAddress);
 
