@@ -28,22 +28,22 @@ const useStore = create<State & Actions>((set) => ({
     mintAccount: {
       name: 'Mint Authority',
       address: 'addr_test1qq986m3uel86pl674mkzneqtycyg7csrdgdxj6uf7v7kd857kquweuh5kmrj28zs8czrwkl692jm67vna2rf7xtafhpqk3hecm',
-      balance: {ada: 0, wst: 0},
+      balance: {ada: 0, wst: 0, adaOnlyOutputs: 0},
     },
     accounts: {
       alice: {
         address: '',
-        balance: {ada: 0, wst: 0},
+        balance: {ada: 0, wst: 0, adaOnlyOutputs: 0},
         status: 'Active',
       },
       bob: {
         address: '',
-        balance: {ada: 0, wst: 0},
+        balance: {ada: 0, wst: 0, adaOnlyOutputs: 0},
         status: 'Active',
       },
       walletUser: {
         address: '',
-        balance: {ada: 0, wst: 0},
+        balance: {ada: 0, wst: 0, adaOnlyOutputs: 0},
         status: 'Active',
       },
     },
