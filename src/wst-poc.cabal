@@ -175,6 +175,8 @@ executable export-smart-tokens
     , bytestring
     , cardano-api
     , cardano-binary
+    , directory
+    , filepath
     , mtl
     , optparse-applicative
     , plutarch
