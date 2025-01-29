@@ -67,7 +67,7 @@ export default function ProfileSwitcher() {
     const userBalance = await getWalletBalance(demoContext, userAddress);
     changeWalletAccountDetails('walletUser', {
       ...accounts.walletUser,
-      address: userAddress,
+      regular_address: userAddress,
       balance: userBalance,
     });
     handleSelect(user);
