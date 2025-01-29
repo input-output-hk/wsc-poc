@@ -71,10 +71,10 @@ export default function Profile() {
     lucid.wallet().address().then(console.log);
     const requestData = {
       asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
-      issuer: mintAccount.address,
+      issuer: mintAccount.regular_address,
       quantity: sendTokenAmount,
       recipient: sendRecipientAddress,
-      sender: accountInfo.address,
+      sender: accountInfo.regular_address,
       submit_failing_tx: overrideTx
     };
     try {
@@ -91,7 +91,7 @@ export default function Profile() {
       const tx = await lucid.fromTx(response.data.cborHex);
       const txId = await signAndSentTx(lucid, tx);
       await updateAccountBalance(sendRecipientAddress);
-      await updateAccountBalance(accountInfo.address);
+      await updateAccountBalance(accountInfo.regular_address);
       changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `${demoEnv.explorer_url}/${txId}`});
     } catch (error) {
       console.error('Send failed:', error);
@@ -101,7 +101,7 @@ export default function Profile() {
   const updateAccountBalance = async (address: string) => {
     const newAccountBalance = await getWalletBalance(demoEnv, address);
       const walletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
-        (key) => accounts[key].address === address
+        (key) => accounts[key].regular_address === address
       );
       if (walletKey) {
         changeWalletAccountDetails(walletKey, {
@@ -136,9 +136,9 @@ export default function Profile() {
 
   const receiveContent =  <Box>
     <CopyTextField 
-      value={getUserAccountDetails()?.address ?? ''}
+      value={getUserAccountDetails()?.regular_address ?? ''}
       fullWidth={true}
-      label="Programmable Token Address"
+      label="Regular Address"
       />
   </Box>;
 
@@ -150,7 +150,7 @@ export default function Profile() {
           <Typography variant='h1'>{getUserAccountDetails()?.balance.wst} WST</Typography>
           <Typography variant='h5'>{getUserAccountDetails()?.balance.ada} Ada { (getUserAccountDetails()?.balance.adaOnlyOutputs === 0) && (<span>({getUserAccountDetails()?.balance.adaOnlyOutputs} collateral UTxOs)</span>)}</Typography>
         </Box>
-        <Typography variant='h5'>{getUserAccountDetails()?.address.slice(0,15)}</Typography>
+        <Typography variant='h5'>{getUserAccountDetails()?.regular_address.slice(0,15)}</Typography>
         </Box>
         <div className="cardWrapperParent">
           <WalletCard tabs={[

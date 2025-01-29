@@ -66,6 +66,7 @@ parseServerArgs =
   ServerArgs
     <$> option auto (help "The port" <> value 8080 <> long "port" <> short 'p')
     <*> optional (strOption (help "Folder to serve static files from" <> long "static-files"))
+    <*> optional (strOption (help "JSON file with demo environment" <> long "demo-environment"))
 
 parseTxIn :: Parser TxIn
 parseTxIn =

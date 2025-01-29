@@ -27,6 +27,17 @@ async function loadDemoEnvironment(): Promise<DemoEnvironment> {
   return response?.data;
 }
 
+async function getProgrammableTokenAddress(regular_address: string) {
+  const response = await axios.get<string>(`/api/v1/query/address/${regular_address}`,
+    {
+      headers: {
+        'Content-Type': 'application/json;charset=utf-8', 
+      },
+    });
+  return response?.data;
+}
+
+
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
     const { mintAccount, accounts, changeMintAccountDetails, changeWalletAccountDetails, setLucidInstance } = useStore();
     const [demoEnv, setDemoEnv] = useState<DemoEnvironment>(previewEnv);
@@ -39,14 +50,17 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             setDemoEnv(demoEnv);
 
             // retrieve wallet info
-            const mintAuthorityWallet = await getWalletFromSeed(demoEnv.mint_authority);
-            const walletA = await getWalletFromSeed(demoEnv.user_a);
-            const walletB = await getWalletFromSeed(demoEnv.user_b);
+            const mintAuthorityWallet = await getWalletFromSeed(demoEnv, demoEnv.mint_authority);
+            const walletA = await getWalletFromSeed(demoEnv, demoEnv.user_a);
+            const walletB = await getWalletFromSeed(demoEnv, demoEnv.user_b);
+            const walletATokenAddr = await getProgrammableTokenAddress(walletA.address);
+            const walletBTokenAddr = await getProgrammableTokenAddress(walletB.address);
+            const mintAuthorityTokenAddr = await getProgrammableTokenAddress(mintAuthorityWallet.address);
     
             // Update Zustand store with the initialized wallet information
-            changeMintAccountDetails({ ...mintAccount, address: mintAuthorityWallet.address});
-            changeWalletAccountDetails('alice', { ...accounts.alice, address: walletA.address},);
-            changeWalletAccountDetails('bob', { ...accounts.bob, address: walletB.address});
+            changeMintAccountDetails({ ...mintAccount, regular_address: mintAuthorityWallet.address, programmable_token_address: mintAuthorityTokenAddr});
+            changeWalletAccountDetails('alice', { ...accounts.alice, regular_address: walletA.address, programmable_token_address: walletATokenAddr},);
+            changeWalletAccountDetails('bob', { ...accounts.bob, regular_address: walletB.address, programmable_token_address: walletBTokenAddr});
     
             const initialLucid = await makeLucid(demoEnv);
             setLucidInstance(initialLucid);
@@ -59,7 +73,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         fetchUserWallets();
       },[]);
 
-  if(accounts.bob.address === '') {
+  if(accounts.bob.regular_address === '') {
     return <div className="mainLoadingContainer">
     <div className="mainLoader" />
   </div>;

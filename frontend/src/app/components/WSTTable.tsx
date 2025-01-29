@@ -57,18 +57,23 @@ export default function WSTTable() {
       <Table size="small" aria-label="simple table" stickyHeader>
       <TableHead>
         <TableRow>
-          <TableCell>Address</TableCell>
+          <TableCell>Regular Address</TableCell>
+          <TableCell>Programmable Address</TableCell>
           <TableCell>Address Status</TableCell>
           <TableCell align="right">Address Balance</TableCell>
         </TableRow>
       </TableHead>
       <TableBody>
         {
-          accountArray.filter((acct) => acct.address !== "").map((acct, i) => (
+          accountArray.filter((acct) => acct.regular_address !== "").map((acct, i) => (
             <TableRow key={i}>
               <TableCell>
-                  {`${acct?.address.slice(0,15)}...${acct?.address.slice(104,108)}`}
-                  <IconButton onClick={() => copyToClipboard(acct.address)} icon={<ContentCopyIcon />}/>
+                  {`${acct?.regular_address.slice(0,15)}...${acct?.regular_address.slice(104,108)}`}
+                  <IconButton onClick={() => copyToClipboard(acct.regular_address)} icon={<ContentCopyIcon />}/>
+              </TableCell>
+              <TableCell>
+                  {`${acct?.programmable_token_address.slice(0,15)}...${acct?.programmable_token_address.slice(104,108)}`}
+                  <IconButton onClick={() => copyToClipboard(acct.programmable_token_address)} icon={<ContentCopyIcon />}/>
               </TableCell>
               <TableCell sx={{color: acct.status === 'Frozen' ? 'error.main' : 'success.main', fontWeight: '500'}}>
                   {acct.status}

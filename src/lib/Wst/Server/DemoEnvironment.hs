@@ -7,13 +7,17 @@ module Wst.Server.DemoEnvironment(
   DemoEnvRoute,
   DemoEnvironment(..),
   runDemoEnvRoute,
-  previewNetworkDemoEnvironment
+  previewNetworkDemoEnvironment,
+  loadFromFile,
+  writeToFile,
 ) where
 
 import Cardano.Api qualified as C
 import Control.Lens ((&), (?~))
 import Data.Aeson (FromJSON (..), ToJSON (..))
+import Data.Aeson qualified as Aeson
 import Data.Aeson qualified as JSON
+import Data.ByteString.Lazy qualified as BSL
 import Data.OpenApi (OpenApiType (OpenApiString), ToParamSchema (..),
                      ToSchema (..))
 import Data.OpenApi.Lens qualified as L
@@ -32,8 +36,8 @@ import Wst.Server.Types (SerialiseAddress (..))
 -}
 type DemoEnvRoute = "api" :> "v1" :> "demo-environment" :> Get '[JSON] DemoEnvironment
 
-runDemoEnvRoute :: Applicative m => Text -> ServerT DemoEnvRoute m
-runDemoEnvRoute = pure . previewNetworkDemoEnvironment
+runDemoEnvRoute :: Applicative m => DemoEnvironment -> ServerT DemoEnvRoute m
+runDemoEnvRoute = pure
 
 {-| Seed phrase
 -}
@@ -110,3 +114,13 @@ previewNetworkDemoEnvironment daBlockfrostKey
 
 jsonOptions2 :: JSON.Options
 jsonOptions2 = JSON.customJsonOptions 2
+
+loadFromFile :: FilePath -> IO DemoEnvironment
+loadFromFile fp = do
+  putStrLn $ "Loading demo env from file: " <> fp
+  fmap Aeson.decode (BSL.readFile fp) >>= \case
+    Nothing -> error "failed to decode JSON"
+    Just a  -> pure a
+
+writeToFile :: FilePath -> DemoEnvironment -> IO ()
+writeToFile fp = BSL.writeFile fp . Aeson.encode

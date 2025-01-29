@@ -3,7 +3,8 @@ export type MenuTab = 'Mint Actions' | 'Addresses' | 'Wallet';
 import { Network } from "@lucid-evolution/lucid";
 
 export type AccountInfo = {
-    address: string,
+    regular_address: string,
+    programmable_token_address: string,
     balance: WalletBalance,
     status?: 'Active' | 'Frozen',
 };

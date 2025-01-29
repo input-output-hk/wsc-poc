@@ -100,6 +100,7 @@ library
     , blockfrost-api
     , blockfrost-client
     , blockfrost-client-core
+    , bytestring
     , cardano-api
     , cardano-ledger-shelley
     , containers
@@ -148,6 +149,20 @@ executable convert-key
     , cardano-api
     , convex-wallet
     , text
+
+executable calculate-hashes
+  import:         lang
+  main-is:        Main.hs
+  hs-source-dirs: exe/calculate-hashes
+  ghc-options:    -threaded -rtsopts -O2 -with-rtsopts=-N
+  build-depends:
+    , aeson
+    , base
+    , bytestring
+    , cardano-api
+    , cardano-ledger-core
+    , text
+    , wst-poc
 
 executable export-smart-tokens
   import:         lang
