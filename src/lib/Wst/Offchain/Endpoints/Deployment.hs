@@ -92,7 +92,7 @@ insertNodeTx args = do
   (tx, _) <- Env.balanceTxEnv_ (BuildTx.insertDirectoryNode paramsNode headNode args)
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
-{-| Build a transaction that issues a progammable token
+{-| Build a transaction that issues a programmable token
 -}
 issueProgrammableTokenTx :: forall era env m.
   ( MonadReader env m
@@ -141,7 +141,7 @@ removeBlacklistNodeTx cred = do
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 
-{-| Build a transaction that issues a progammable token
+{-| Build a transaction that issues a programmable token
 -}
 issueSmartTokensTx :: forall era env m.
   ( MonadReader env m
@@ -165,7 +165,7 @@ issueSmartTokensTx assetName quantity destinationCred = do
     BuildTx.issueSmartTokens paramsNode (assetName, quantity) directory destinationCred
   pure (Convex.CoinSelection.signBalancedTxBody [] tx, aid)
 
-{-| Build a transaction that issues a progammable token
+{-| Build a transaction that issues a programmable token
 -}
 transferSmartTokensTx :: forall era env m.
   ( MonadReader env m

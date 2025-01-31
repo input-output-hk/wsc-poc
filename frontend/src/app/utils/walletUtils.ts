@@ -13,6 +13,7 @@ export async function makeLucid(demoEnvironment: DemoEnvironment) {
   const blockfrostURL = demoEnvironment.blockfrost_url;
 
   const blockfrost = new Blockfrost(blockfrostURL, API_KEY);
+  console.log("makeLucid", demoEnvironment, API_KEY);
 
   const lucid = await Lucid(blockfrost, demoEnvironment.network);
 

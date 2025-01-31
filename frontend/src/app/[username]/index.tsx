@@ -85,6 +85,7 @@ export default function Profile() {
           headers: {
             'Content-Type': 'application/json;charset=utf-8', 
           },
+          // timeout: 120 * 1000
         }
       );
       console.log('Send response:', response.data);

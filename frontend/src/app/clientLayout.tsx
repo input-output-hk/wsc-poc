@@ -23,6 +23,7 @@ async function loadDemoEnvironment(): Promise<DemoEnvironment> {
       headers: {
         'Content-Type': 'application/json;charset=utf-8', 
       },
+      timeout: 120 * 1000
     });
   return response?.data;
 }
@@ -33,6 +34,7 @@ async function getProgrammableTokenAddress(regular_address: string) {
       headers: {
         'Content-Type': 'application/json;charset=utf-8', 
       },
+      timeout: 120 * 1000
     });
   return response?.data;
 }

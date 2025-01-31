@@ -105,6 +105,7 @@ export default function Home() {
           headers: {
             'Content-Type': 'application/json;charset=utf-8', 
           },
+          timeout: 120 * 1000
         }
       );
       console.log('Mint response:', response.data);
@@ -138,6 +139,7 @@ export default function Home() {
           headers: {
             'Content-Type': 'application/json;charset=utf-8', 
           },
+          timeout: 120 * 1000
         }
       );
       console.log('Send response:', response.data);
@@ -177,6 +179,7 @@ export default function Home() {
           headers: {
             'Content-Type': 'application/json;charset=utf-8', 
           },
+          timeout: 120 * 1000
         }
       );
       console.log('Freeze response:', response.data);
@@ -224,6 +227,7 @@ export default function Home() {
           headers: {
             'Content-Type': 'application/json;charset=utf-8', 
           },
+          timeout: 120 * 1000
         }
       );
       console.log('Unfreeze response:', response.data);
@@ -270,6 +274,7 @@ export default function Home() {
           headers: {
             'Content-Type': 'application/json;charset=utf-8', 
           },
+          timeout: 120 * 1000
         }
       );
       console.log('Seize response:', response.data);

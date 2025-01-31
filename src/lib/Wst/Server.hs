@@ -287,6 +287,7 @@ removeFromBlacklistEndpoint :: forall era env m.
   , C.IsBabbageBasedEra era
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadUtxoQuery m
+  , MonadLogger m
   )
   => BlacklistNodeArgs -> m (TextEnvelopeJSON (C.Tx era))
 removeFromBlacklistEndpoint BlacklistNodeArgs{bnaIssuer, bnaBlacklistAddress} = do
@@ -294,6 +295,7 @@ removeFromBlacklistEndpoint BlacklistNodeArgs{bnaIssuer, bnaBlacklistAddress} = 
   operatorEnv <- Env.loadOperatorEnvFromAddress bnaIssuer
   dirEnv <- asks Env.directoryEnv
   transferLogic <- Env.transferLogicForDirectory (paymentKeyHashFromAddress bnaIssuer)
+  logInfo $ "Unfreeze address" :# []
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
     TextEnvelopeJSON <$> Endpoints.removeBlacklistNodeTx badCred
 
