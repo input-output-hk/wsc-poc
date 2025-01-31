@@ -4,8 +4,9 @@ This is a proof-of-concept for _WST_, a programmable token with freeze and seize
 
 ![Screenshot of the UI showing the minting authority.](image-1.png)
 
-## Integrations
+## Demos and Integrations
 
+* [Video](https://drive.google.com/file/d/1mRX4P-eGBTbKfGegTVLlBya_zGTAFNVa/view?usp=sharing) of the demo
 * Check out [this video](https://docs.fluidtokens.com/DemoWST.mp4) to see the WST token being used in the [FluidTokens](https://fluidtokens.com/) protocol!
 * Check out [this development build of Lace](https://github.com/input-output-hk/lace/compare/main...feat/programable-tokens-poc) that adds support for CIP-0143, incl. _WST_, to the wallet
 
