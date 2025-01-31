@@ -1,12 +1,13 @@
-# Regulated stablecoin POC
+# CIP-0143 and programmable token POC
 
-This is a proof-of-concept for a regulated token with freeze and seize capabilities.
+This is a proof-of-concept for _WST_, a programmable token with freeze and seize capabilities, based on [CIP-0143](https://github.com/colll78/CIPs/blob/patch-3/CIP-0143/README.md). The programmable logic of _WST_ checks whether the target address is blacklisted before allowing a transfer of the programmable token from one owner to another.
 
-![Screenshot of the UI showing the minting authority.](image.png)
+![Screenshot of the UI showing the minting authority.](image-1.png)
 
-# Overview
+## Integrations
 
-The POC is based on [CIP-0143](https://github.com/colll78/CIPs/blob/patch-3/CIP-0143/README.md), instantiated with a programmable logic that checks whether the target address is blacklisted before allowing a transfer of the programmable token from one owner to another.
+* Check out [this video](https://docs.fluidtokens.com/DemoWST.mp4) to see the WST token being used in the [FluidTokens](https://fluidtokens.com/) protocol!
+* Check out [this development build of Lace](https://github.com/input-output-hk/lace/compare/main...feat/programable-tokens-poc) that adds support for CIP-0143, incl. _WST_, to the wallet
 
 # Architecture
 
@@ -16,12 +17,11 @@ See [doc/architecture.md](doc/architecture.md)
 
 This repository contains 
 * Prototype implementation of CIP-0143 in Plutarch
-* Prototype implementation of Access Control Policy in Plutarch
+* Prototype implementation of _WST_, a programmable token with freeze-and-seize capbilities, in Plutarch
 * Transaction building code for initial deployment, minting programmable tokens, transferring programmable tokens, adding addresses to the blacklist (ie. freezing), and seizing funds from blacklisted addresses. Based on sc-tools and cardano-api.
 * Emulator tests for the nominal cases (happy path) based on the actual ledger implementation and mainnet protocol parameters.
 * A user interface that implements the use cases using browser-based wallets. Based on next.js and lucid.
 * An OCI container image with the on-chain code, the off-chain code and the UI
-
 
 With the container image it is possible to run the complete system locally with just a single command.
 There is no need to install the build toolchain or to operate a cardano node or related infrastructure.
