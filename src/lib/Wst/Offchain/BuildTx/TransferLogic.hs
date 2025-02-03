@@ -56,7 +56,7 @@ import SmartTokens.Contracts.ExampleTransferLogic (BlacklistProof (..))
 import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (BlacklistNode (..),
                                           DirectorySetNode (..))
-import Wst.AppError (AppError (BlacklistNodeNotFound, DuplicateBlacklistNode))
+import Wst.AppError (AppError (BlacklistNodeNotFound, DuplicateBlacklistNode, OperatorInsufficientFunds))
 import Wst.Offchain.BuildTx.ProgrammableLogic (issueProgrammableToken,
                                                seizeProgrammableToken,
                                                transferProgrammableToken)
@@ -232,7 +232,9 @@ transferSmartTokens paramsTxIn blacklistNodes directoryList spendingUserOutputs 
 
   -- Find sufficient inputs to cover the transfer
   let userOutputsMap = fromList $ map (\UTxODat {uIn, uOut, uDatum} -> (uIn, (C.inAnyCardanoEra (C.cardanoEra @era) uOut, uDatum))) spendingUserOutputs
-  (totalVal, txins) <- maybe (error "insufficient funds for transfer") pure $ selectMixedInputsCovering (UtxoSet userOutputsMap) [(assetId, q)]
+  (totalVal, txins) <- case selectMixedInputsCovering (UtxoSet userOutputsMap) [(assetId, q)] of
+    Nothing -> throwError OperatorInsufficientFunds
+    Just p -> pure p
 
   -- Spend the outputs via programmableLogicBaseScript
   let programmablePolicyId = case assetId of

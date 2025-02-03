@@ -19,7 +19,7 @@ const webpackConfig = (config, { isServer }) => {
     ...config.experiments,
     asyncWebAssembly: true, // Enable async WebAssembly
     topLevelAwait: true,
-    layers: true
+    layers: true,
   };
   if (!isServer) {
     config.output.environment = { ...config.output.environment, asyncFunction: true };
@@ -59,6 +59,7 @@ const webpackConfig = (config, { isServer }) => {
 const nextConfigExport = {
   output: 'export',
   webpack: webpackConfig,
+  
   experimental: {
     esmExternals: true, // Ensure modern module support
   },
@@ -108,6 +109,7 @@ const nextConfigDev = {
   },
   experimental: {
     esmExternals: true, // Ensure modern module support
+    proxyTimeout: 180_000
   },
   webpack: webpackConfig
 };

@@ -58,7 +58,7 @@ The following table lists the main scripts and their purposes.
 |`mkPermissionedTransfer`|ACP|`permissionedCred`||Checks that the transaction was signed by the `permissionedCred` payment credential|
 |`mkFreezeAndSeizeTransfer`|ACP|`programmableLogicBaseCred`, `blacklistNodeCS`|`proofs`|Checks that the transaction spends an output locked by `programmableLogicBaseCred`, and that none of the transaction's witnesses are in the blacklist with root `blacklistNodeCS`. For each witness a proof must be provided in `proofs`|
 |`mkProgrammableLogicMinting`|CIP|`programmableLogicBase`, `nodeCS`, `mintingLogicCred`|`mintingAction`|Handles minting policy registration, and issuance / burning of programmable tokens.|
-|`mkProgrammableLogicBase`|CIP|`stakeCred`|/|Validator script that locks progammable token outputs. Forwards all validation logic to the "global" programmable logic stake script `stakeCred`|
+|`mkProgrammableLogicBase`|CIP|`stakeCred`|/|Validator script that locks programmable token outputs. Forwards all validation logic to the "global" programmable logic stake script `stakeCred`|
 |`mkProgrammableLogicGlobal`|CIP|`protocolParamsCS`||The global programmable logic stake script. For each programmable token that is transferred/minted/burned, check that the corresponding programmable token logic is invoked.|
 |`mkProtocolParametersMinting`|CIP|`oref`||Protocol parameters minting policy. Creates the NFT that marks the protocol parameters output. Checks that `oref` is spent (making this a one-shot minting policy)|
 

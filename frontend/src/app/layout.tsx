@@ -6,7 +6,7 @@ import "./styles/globals.css";
 import ClientLayout from "./clientLayout";
 
 export const metadata: Metadata = {
-  title: "Wyoming Stable Token",
+  title: "WST - Programmable token demonstration",
   description: "Created by the djed team at IOG",
 };
 

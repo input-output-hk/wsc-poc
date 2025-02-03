@@ -19,4 +19,5 @@ data AppError era =
   | BlacklistNodeNotFound -- ^ Attempting to remove a blacklist node that does not exist
   | TransferBlacklistedCredential Credential -- ^ Attempting to transfer funds from a blacklisted address
   | SubmitError (ValidationError era)
+  | OperatorInsufficientFunds -- ^ Not enough Ada
   deriving stock (Show)
