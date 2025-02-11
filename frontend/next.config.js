@@ -1,7 +1,9 @@
+/** @type {import('next').NextConfig} */
+const { PHASE_DEVELOPMENT_SERVER } = require('next/constants');
 const TsconfigPathsPlugin = require('tsconfig-paths-webpack-plugin');
 
 /**
- * Webpack config used by export and dev builds
+ * Webpack config used in all environments
  * @param {*} config 
  * @param {*} param1 
  * @returns 
@@ -24,95 +26,65 @@ const webpackConfig = (config, { isServer }) => {
   if (!isServer) {
     config.output.environment = { ...config.output.environment, asyncFunction: true };
   }
-
-  // Add fallback and resolve configurations for browser compatibility
-  config.resolve = {
-    ...config.resolve,
-    extensions: ['.ts', '.tsx', '.js', '.mjs'],
-    fallback: {
-      https: require.resolve('https-browserify'),
-      http: require.resolve('stream-http'),
-      'get-port-please': false,
-      net: false,
-      fs: false,
-      os: false,
-      path: false,
-      events: require.resolve('events/'),
-      buffer: require.resolve('buffer/'),
-      stream: require.resolve('readable-stream'),
-      crypto: require.resolve('crypto-browserify'),
-      constants: require.resolve('constants-browserify'),
-      zlib: require.resolve('browserify-zlib'),
-      dns: false,
-      tls: false,
-      process: false,
-      child_process: false,
-    },
-  };
   
   return config;
 };
 
-/**
- * Next.js config that produces a static page
- */
-const nextConfigExport = {
-  output: 'export',
-  webpack: webpackConfig,
-  experimental: {
-    esmExternals: true, // Ensure modern module support
-  },
-
-  // https://github.com/Anastasia-Labs/lucid-evolution/issues/437
-  serverExternalPackages: [
-    "@lucid-evolution/lucid"
-  ]
-}
-
-  /** @type {import('next').NextConfig} */
-const nextConfigDev = {
-  // output: 'export',
-  serverExternalPackages: [
-    "@lucid-evolution/lucid",
-  ],
-  async headers() {
-    return [
-      {
-        // matching all API routes
-        source: "/api/v1/:path*",
-        headers: [
-          { key: "Access-Control-Allow-Credentials", value: "true" },
-          { key: "Access-Control-Allow-Origin", value: "*" },
-          { key: "Access-Control-Allow-Methods", value: "GET,OPTIONS,PATCH,DELETE,POST,PUT" },
-          { key: "Access-Control-Allow-Headers", value: "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version" },
+module.exports = (phase, {defaultConfig}) => {
+  if (phase === PHASE_DEVELOPMENT_SERVER) {
+    return {
+      /* NextJS development-only config options here */
+      serverExternalPackages: [
+        "@lucid-evolution/lucid",
+      ],
+      async headers() {
+        return [
+          {
+            // matching all API routes
+            source: "/api/v1/:path*",
+            headers: [
+              { key: "Access-Control-Allow-Credentials", value: "true" },
+              { key: "Access-Control-Allow-Origin", value: "*" },
+              { key: "Access-Control-Allow-Methods", value: "GET,OPTIONS,PATCH,DELETE,POST,PUT" },
+              { key: "Access-Control-Allow-Headers", value: "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version" },
+            ]
+          }
         ]
-      }
-    ]
-  },
-  async rewrites() {
-    return [
-      {
-        source: '/api/v1/:path*', // Match all routes starting with /api/v1/
-        destination: 'http://localhost:8080/api/v1/:path*', // Proxy to backend server
       },
-    ];
-  },
-  async redirects() {
-    return [
-      {
-        source: '/',
-        destination: '/mint-authority',
-        permanent: true, // Use true for a 301 redirect, false for 302
+      async rewrites() {
+        return [
+          {
+            source: '/api/v1/:path*', // Match all routes starting with /api/v1/
+            destination: 'http://localhost:8080/api/v1/:path*', // Proxy to backend server
+          },
+        ];
       },
-    ];
-  },
-  experimental: {
-    esmExternals: true, // Ensure modern module support
-  },
-  webpack: webpackConfig
-};
-
-const nextConfig = (process.env.WST_BUILD === 'export') ? nextConfigExport : nextConfigDev;
-
-module.exports = nextConfig;
+      async redirects() {
+        return [
+          {
+            source: '/',
+            destination: '/mint-authority',
+            permanent: true, // Use true for a 301 redirect, false for 302
+          },
+        ];
+      },
+      experimental: {
+        esmExternals: true, // Ensure modern module support
+      },
+      webpack: webpackConfig
+    }
+  }
+  // Default NextJS config for other phases (e.g., production, static export)
+  return { 
+    output: 'export',
+    webpack: webpackConfig,
+    experimental: {
+      esmExternals: true, // Ensure modern module support
+    },
   
+    // https://github.com/Anastasia-Labs/lucid-evolution/issues/437
+    serverExternalPackages: [
+      "@lucid-evolution/lucid"
+    ]
+  }
+}  
