@@ -19,7 +19,12 @@ index-state:
   , cardano-haskell-packages 2025-02-08T01:45:27Z
 
 constraints:
-  plutus-core == 1.37.0.0
+  plutus-core == 1.40.0.0,
+  plutus-ledger-api == 1.40.0.0
+
+allow-newer:
+  *:plutus-core,
+  *:plutus-ledger-api,
 
 allow-older:
   -- NOTE: Currently, plutarch depends on plutus-core version 1.40, while the rest of the (cardano) world is at 1.37.
