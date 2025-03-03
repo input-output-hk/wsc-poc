@@ -30,10 +30,6 @@
       inputs.hackage.follows = "hackage";
     };
 
-    plutarch = {
-      url = "github:colll78/plutarch-plutus/b2379767c7f1c70acf28206bf922f128adc02f28";
-    };
-    
     cardano-cli = {
       url = "github:intersectmbo/cardano-cli?ref=cardano-cli-10.1.0.0";
     };
