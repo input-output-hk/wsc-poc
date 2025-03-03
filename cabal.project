@@ -15,40 +15,55 @@ repository cardano-haskell-packages
     d4a35cd3121aa00d18544bb0ac01c3e1691d618f462c46129271bccf39f7e8ee
 
 index-state:
-  , hackage.haskell.org 2024-10-10T00:52:24Z
-  , cardano-haskell-packages 2024-10-24T10:49:32Z
+  , hackage.haskell.org 2025-02-08T01:45:27Z
+  , cardano-haskell-packages 2025-02-08T01:45:27Z
+
+constraints:
+  plutus-core == 1.37.0.0
+
+allow-older:
+  -- NOTE: Currently, plutarch depends on plutus-core version 1.40, while the rest of the (cardano) world is at 1.37.
+  -- TODO: Delete when plutarch is moving to 1.37
+  plutarch:plutus-core
+
 
 with-compiler: ghc-9.6.6
 
 packages:
     src
 
-source-repository-package
-    type: git
-    location: https://github.com/colll78/plutarch-plutus
-    tag: b2379767c7f1c70acf28206bf922f128adc02f28
-    subdir:
-      .
-      plutarch-ledger-api
-      plutarch-extra
-
-source-repository-package
-    type: git
-    location: https://github.com/input-output-hk/catalyst-onchain-libs
-    tag: 650a3435f8efbd4bf36e58768fac266ba5beede4
-    subdir:
-      src/plutarch-onchain-lib
 
 source-repository-package
   type: git
   location: https://github.com/j-mueller/sc-tools
-  tag: a3662e093f40082dd6fa525bb0640a10caa1bd70
+  tag: d091a671a7747e63fb88c3a7aecf16832963ac76
+  --sha256: sha256-pYYLpem/W2kFyC5Qat6zrVnLKYyhvWp2ey+VQSk1BpY=
   subdir:
     src/devnet
-    src/blockfrost
     src/coin-selection
     src/mockchain
     src/optics
     src/wallet
     src/base
     src/node-client
+    src/blockfrost
+
+source-repository-package
+    type: git
+    location: https://github.com/Plutonomicon/plutarch-plutus
+    tag: 7002ce59642daa3fff9c720cf3076844ac81ac26
+    --sha256: sha256-9FR+VOUCyA0/0oHqV/m6fUXBprD9AIgrUZU0jD3f9hQ=
+    subdir:
+      .
+      plutarch-ledger-api
+      plutarch-orphanage
+      plutarch-testlib
+
+source-repository-package
+    type: git
+    location: https://github.com/input-output-hk/catalyst-onchain-libs
+    tag: 508ee6cc586dda8157a674d1f3786f823a0c42b1
+    --sha256: sha256-lWtvKZNVMtqzWRr9Z3ACFzCPGj751oEjuOxMuMGaaE8=
+    subdir:
+      src/plutarch-onchain-lib
+
