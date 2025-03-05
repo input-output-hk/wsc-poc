@@ -18,6 +18,7 @@ import Data.String (IsString (..))
 import Data.Text (Text, pack)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
+import Options.Applicative
 import Options.Applicative (Parser, argument, customExecParser, disambiguate,
                             eitherReader, help, helper, idm, info, metavar,
                             prefs, showHelpOnEmpty, showHelpOnError)
@@ -95,6 +96,7 @@ runMain =
     >>= runExportCommand
 
 runExportCommand :: ExportCommand -> IO ()
+runExportCommand ExportUnapplied = exportUnapplied
 runExportCommand ExportCommand{ecTxIn, ecIssuerAddress=SerialiseAddress issuerAddr} = do
   let opkh = case issuerAddr of
               (C.ShelleyAddress _ntw (C.fromShelleyPaymentCredential -> C.PaymentCredentialByKey pmt) _stakeRef) -> pmt
@@ -184,13 +186,24 @@ exportUnapplied = do
   writePlutusScriptNoTrace "Directory Spending" "./compiled-prod/directorySpending.json" pmkDirectorySpending
   writePlutusScriptNoTrace "Blacklist Spending" "./compiled-prod/blacklistSpending.json" pmkBlacklistSpending
 
-data ExportCommand = ExportCommand
-  { ecTxIn :: C.TxIn
-  , ecIssuerAddress :: SerialiseAddress (C.Address C.ShelleyAddr)
-  }
+data ExportCommand =
+  ExportCommand
+    { ecTxIn :: C.TxIn
+    , ecIssuerAddress :: SerialiseAddress (C.Address C.ShelleyAddr)
+    }
+  | ExportUnapplied
 
 parseExportCommand :: Parser ExportCommand
-parseExportCommand = ExportCommand <$> parseTxIn <*> parseAddress
+parseExportCommand = parseUnapplied <|> parseExportCommandArgs
+
+parseExportCommandArgs :: Parser ExportCommand
+parseExportCommandArgs = ExportCommand <$> parseTxIn <*> parseAddress
+
+parseUnapplied :: Parser ExportCommand
+parseUnapplied = flag' ExportUnapplied
+  ( long "unapplied"
+  <> help "Export unapplied scripts"
+  )
 
 parseAddress :: Parser (SerialiseAddress (C.Address C.ShelleyAddr))
 parseAddress = argument (eitherReader (eitherDecode . LBS8.pack)) (help "The address to use for the issuer" <> metavar "ISSUER_ADDRESS")
