@@ -7,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE QualifiedDo           #-}
+{-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE UndecidableInstances  #-}
 
 module SmartTokens.Types.PTokenDirectory (
@@ -20,28 +21,23 @@ module SmartTokens.Types.PTokenDirectory (
   pmkDirectorySetNode,
   pisInsertedOnNode,
   pisInsertedNode,
-  pletFieldsBlacklistNode,
   pisEmptyNode,
   BlacklistNode(..),
-  pdeserializeCredential,
 ) where
 
 import Generics.SOP qualified as SOP
-import Plutarch (Config (NoTracing))
-import Plutarch.Builtin (pasByteStr, pasConstr, pasList, pforgetData, plistData)
-import Plutarch.Core.PlutusDataList (DerivePConstantViaDataList (..),
-                                     PlutusTypeDataList, ProductIsData (..))
-import Plutarch.Core.Utils (pcond, pheadSingleton, pmkBuiltinList)
-import Plutarch.DataRepr (PDataFields)
-import Plutarch.DataRepr.Internal (DerivePConstantViaData (..))
-import Plutarch.DataRepr.Internal.Field (HRec (..), Labeled (Labeled))
+import GHC.Generics (Generic)
+import Plutarch.Core.List
 import Plutarch.Evaluate (unsafeEvalTerm)
+import Plutarch.Internal.Lift
+import Plutarch.Internal.Term (Config (NoTracing))
 import Plutarch.LedgerApi.V3 (PCredential, PCurrencySymbol)
-import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (PLifted))
 import Plutarch.Prelude
+import Plutarch.Repr.Data
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V3 (BuiltinByteString, Credential, CurrencySymbol)
-import PlutusTx (Data (B, Constr), FromData, ToData, UnsafeFromData)
+import PlutusTx (Data (B, Constr))
+import PlutusTx qualified as PlutusTx
 
 -- $setup
 --
@@ -65,8 +61,7 @@ data BlacklistNode =
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (SOP.Generic)
-  deriving
-    (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData) via (ProductIsData BlacklistNode)
+PlutusTx.makeIsDataIndexed ''BlacklistNode [('BlacklistNode, 0)]
 
 -- instance PlutusTx.ToData BlacklistNode where
 --   toBuiltinData BlacklistNode{blnKey, blnNext} =
@@ -81,10 +76,6 @@ data BlacklistNode =
 --         fields1 = tail fields
 --         next = head fields1
 --      in Just $ undefined -- Don't know how to determine whether credential is pub key or script
-
-
-deriving via (DerivePConstantViaData BlacklistNode PBlacklistNode)
-  instance (PConstantDecl BlacklistNode)
 
 {-
 >>> _printTerm $ unsafeEvalTerm NoTracing (mkRecordConstr PBlacklistNode (#blnKey .= pconstant "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff" .& #blnNext .=  pconstant ""))
@@ -101,24 +92,17 @@ In the first argument of `(.&)', namely
        pconstant
          "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
 -}
-newtype PBlacklistNode (s :: S)
+data PBlacklistNode (s :: S)
   = PBlacklistNode
-      ( Term
-          s
-          ( PDataRecord
-              '[ "blnKey" ':= PByteString
-               , "blnNext" ':= PByteString
-               ]
-          )
-      )
+      { pblnKey :: Term s (PAsData PByteString)
+      , pblnNext :: Term s (PAsData PByteString)
+      }
   deriving stock (Generic)
-  deriving anyclass (PlutusType, PDataFields, PIsData)
+  deriving anyclass (SOP.Generic, PIsData, PShow, PEq)
+  deriving (PlutusType) via (DeriveAsDataStruct PBlacklistNode)
 
-instance DerivePlutusType PBlacklistNode where
-  type DPTStrat PBlacklistNode = PlutusTypeData
-
-instance PUnsafeLiftDecl PBlacklistNode where
-  type PLifted PBlacklistNode = BlacklistNode
+deriving via DeriveDataPLiftable PBlacklistNode BlacklistNode
+  instance PLiftable PBlacklistNode
 
 -- _printTerm (communicated by Philip) just print some term as string. The term we want to print is
 -- @
@@ -129,24 +113,8 @@ instance PUnsafeLiftDecl PBlacklistNode where
 -- language server. The lens will then replace the string starting with "program ..." with exactly
 -- the same string.
 --
--- >>> printTerm NoTracing (pconstantData $ BlacklistNode { blnKey = "a hi", blnNext = "a" })
+-- >>> printTerm NoTracing (pconstant $ BlacklistNode { blnKey = "a hi", blnNext = "a" })
 -- "program 1.0.0 (List [B #61206869, B #61])"
-
-type PBlacklistNodeHRec (s :: S) =
-  HRec
-    '[ '("key", Term s (PAsData PByteString))
-     , '("next", Term s (PAsData PByteString))
-     ]
-
--- | Helper function to extract fields from a 'PBlacklistNode' term.
--- >>> printTerm NoTracing $ unsafeEvalTerm NoTracing (pletFieldsBlacklistNode (unsafeEvalTerm NoTracing (pconstantData $ BlacklistNode { blnKey = "deadbeee", blnNext = "deadbeef" })) $ \fields -> fields.key)
--- "programs 1.0.0 (B #6465616462656565)"
-pletFieldsBlacklistNode :: forall {s :: S} {r :: PType}. Term s (PAsData PBlacklistNode) -> (PBlacklistNodeHRec s -> Term s r) -> Term s r
-pletFieldsBlacklistNode term = runTermCont $ do
-  fields <- tcont $ plet $ pasList # pforgetData term
-  let key_ = punsafeCoerce @_ @_ @(PAsData PByteString) $ phead # fields
-      next_ = punsafeCoerce @_ @_ @(PAsData PByteString) $ pheadSingleton # (ptail # fields)
-  tcont $ \f -> f $ HCons (Labeled @"key" key_) (HCons (Labeled @"next" next_) HNil)
 
 data DirectorySetNode = DirectorySetNode
   { key :: CurrencySymbol
@@ -156,16 +124,8 @@ data DirectorySetNode = DirectorySetNode
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (SOP.Generic)
-  deriving
-    (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData) via (ProductIsData DirectorySetNode)
 
-deriving via
-  ( DerivePConstantViaDataList
-      DirectorySetNode
-      PDirectorySetNode
-  )
-  instance
-    (PConstantDecl DirectorySetNode)
+PlutusTx.makeIsDataIndexed ''DirectorySetNode [('DirectorySetNode, 0)]
 
 -- Optimization:
 -- Use the following manual instances instead of the deriving via above if so that we can define key and next fields of type ByteString
@@ -190,35 +150,29 @@ deriving via
 --         issuerLogicScript = PlutusTx.unsafeFromBuiltinData $ BI.head fields3
 --      in Just $ DirectorySetNode (fromBuiltin $ BI.unsafeDataAsB key) (fromBuiltin $ BI.unsafeDataAsB next) transferLogicScript issuerLogicScript
 
-
-newtype PDirectorySetNode (s :: S)
+data PDirectorySetNode (s :: S)
   = PDirectorySetNode
-      ( Term
-          s
-          ( PDataRecord
-              '[ "key" ':= PCurrencySymbol
-               , "next" ':= PCurrencySymbol
-               , "transferLogicScript" ':= PCredential
-               , "issuerLogicScript" ':= PCredential
-               ]
-          )
-      )
+      { pkey :: Term s (PAsData PCurrencySymbol)
+      , pnext :: Term s (PAsData PCurrencySymbol)
+      , ptransferLogicScript :: Term s (PAsData PCredential)
+      , pissuerLogicScript :: Term s (PAsData PCredential)
+      }
   deriving stock (Generic)
-  deriving anyclass (PlutusType, PIsData, PEq, PShow, PDataFields)
+  deriving anyclass (SOP.Generic, PIsData, PEq, PShow)
+  deriving (PlutusType) via (DeriveAsDataRec PDirectorySetNode)
 
-instance DerivePlutusType PDirectorySetNode where
-  type DPTStrat _ = PlutusTypeDataList
+deriving via DeriveDataPLiftable (PAsData PDirectorySetNode) DirectorySetNode
+  instance PLiftable PDirectorySetNode
 
-instance PUnsafeLiftDecl PDirectorySetNode where
-  type PLifted PDirectorySetNode = DirectorySetNode
+isHeadNode :: Term s (PAsData PDirectorySetNode) -> Term s PBool
+isHeadNode node =
+  pmatch (pfromData node) $ \node' ->
+    pkey node' #== pemptyCSData
 
-isHeadNode :: ClosedTerm (PAsData PDirectorySetNode :--> PBool)
-isHeadNode = plam $ \node ->
-  pfield @"key" # node #== pemptyCSData
-
-isTailNode :: ClosedTerm (PAsData PDirectorySetNode :--> PBool)
-isTailNode = plam $ \node ->
-  pfield @"next" # node #== ptailNextData
+isTailNode :: Term s (PAsData PDirectorySetNode) -> Term s PBool
+isTailNode node =
+  pmatch (pfromData node) $ \node' ->
+    pnext node' #== ptailNextData
 
 {-|
 
@@ -231,15 +185,15 @@ emptyNode =
       nullIssuerLogicCred = pconstant (Constr 0 [PlutusTx.B ""])
   in punsafeCoerce $ plistData # pmkBuiltinList [pforgetData pemptyBSData, pforgetData ptailNextData, nullTransferLogicCred, nullIssuerLogicCred]
 
-pisEmptyNode :: ClosedTerm (PAsData PDirectorySetNode :--> PBool)
-pisEmptyNode = plam $ \node ->
+pisEmptyNode :: Term s (PAsData PDirectorySetNode) -> Term s PBool
+pisEmptyNode node =
   node #== emptyNode
 
 pemptyBSData :: ClosedTerm (PAsData PByteString)
-pemptyBSData = unsafeEvalTerm NoTracing (punsafeCoerce (pconstant $ PlutusTx.B ""))
+pemptyBSData = unsafeEvalTerm NoTracing (punsafeCoerce (pconstant @PData $ PlutusTx.B ""))
 
 pemptyCSData :: ClosedTerm (PAsData PCurrencySymbol)
-pemptyCSData = unsafeEvalTerm NoTracing (punsafeCoerce (pconstant $ PlutusTx.B ""))
+pemptyCSData = unsafeEvalTerm NoTracing (punsafeCoerce (pconstant @PData $ PlutusTx.B ""))
 
 ptailNextData  :: ClosedTerm (PAsData PCurrencySymbol)
 ptailNextData = unsafeEvalTerm NoTracing (punsafeCoerce $ pdata (phexByteStr "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"))
@@ -258,9 +212,9 @@ pisInsertedOnNode = phoistAcyclic $
 pisInsertedNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PDirectorySetNode :--> PBool)
 pisInsertedNode = phoistAcyclic $
   plam $ \insertedKey coveringNext outputNode ->
-    pletFields @'["transferLogicScript", "issuerLogicScript"] outputNode $ \outputNodeDatumF ->
-      let transferLogicCred_ = ptraceInfoShowId outputNodeDatumF.transferLogicScript
-          issuerLogicCred_ = ptraceInfoShowId outputNodeDatumF.issuerLogicScript
+    pmatch (pfromData outputNode) $ \(PDirectorySetNode {ptransferLogicScript, pissuerLogicScript}) ->
+      let transferLogicCred_ = ptraceInfoShowId ptransferLogicScript
+          issuerLogicCred_ = ptraceInfoShowId pissuerLogicScript
           expectedDirectoryNode =
             pmkDirectorySetNode # insertedKey # coveringNext # pdeserializeDirectoryCredential transferLogicCred_ # pdeserializeDirectoryCredential issuerLogicCred_
       in outputNode #== expectedDirectoryNode
@@ -270,21 +224,6 @@ pdeserializeDirectoryCredential term =
   plet (pasConstr # pforgetData term) $ \constrPair ->
     plet (pfstBuiltin # constrPair) $ \constrIdx ->
       pif (plengthBS # (pasByteStr # (pheadSingleton # (psndBuiltin # constrPair))) #<= 28)
-          (
-            pcond
-              [ ( constrIdx #== 0 , term)
-              , ( constrIdx #== 1 , term)
-              ]
-              (ptraceInfoError "Invalid credential")
-          )
-          (ptraceInfoError $ pconstant "Invalid credential len" <> pshow (plengthBS # (pasByteStr # (pheadSingleton # (psndBuiltin # constrPair)))))
-
--- TODO: move to catalyst library
-pdeserializeCredential :: Term s (PAsData PCredential) -> Term s (PAsData PCredential)
-pdeserializeCredential term =
-  plet (pasConstr # pforgetData term) $ \constrPair ->
-    plet (pfstBuiltin # constrPair) $ \constrIdx ->
-      pif (plengthBS # (pasByteStr # (pheadSingleton # (psndBuiltin # constrPair))) #== 28)
           (
             pcond
               [ ( constrIdx #== 0 , term)

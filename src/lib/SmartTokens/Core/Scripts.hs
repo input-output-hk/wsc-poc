@@ -11,7 +11,8 @@ module SmartTokens.Core.Scripts (
 
 import Data.Aeson (FromJSON, ToJSON)
 import GHC.Generics (Generic)
-import Plutarch
+import Plutarch.Internal.Term (ClosedTerm, Config (..), LogLevel (LogInfo),
+                               Script, TracingMode (DoTracingAndBinds), compile)
 
 {-| Script target environment
 -}

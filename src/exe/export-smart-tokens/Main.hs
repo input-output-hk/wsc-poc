@@ -22,10 +22,12 @@ import Options.Applicative (Parser, argument, customExecParser, disambiguate,
                             eitherReader, help, helper, idm, info, metavar,
                             prefs, showHelpOnEmpty, showHelpOnError)
 import Options.Applicative.Builder (ReadM)
-import Plutarch (Config (..), LogLevel (..), TracingMode (..), compile)
 import Plutarch.Evaluate (applyArguments, evalScript)
+import Plutarch.Internal.Term (Config (..), LogLevel (LogInfo), Script,
+                               TracingMode (DoTracing, DoTracingAndBinds),
+                               compile)
 import Plutarch.Prelude
-import Plutarch.Script (Script, serialiseScript)
+import Plutarch.Script (serialiseScript)
 import PlutusLedgerApi.V2 (Data, ExBudget)
 import SmartTokens.Contracts.ExampleTransferLogic (mkFreezeAndSeizeTransfer,
                                                    mkPermissionedTransfer)

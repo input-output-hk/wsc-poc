@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+
 module SmartTokens.Types.Constants(
     protocolParamsToken,
     pprotocolParamsToken,
@@ -11,23 +12,24 @@ module SmartTokens.Types.Constants(
 ) where
 
 import Plutarch.LedgerApi.V1 (PTokenName (..))
-import Plutarch.Prelude (ClosedTerm, PAsData, pconstant, pconstantData)
+import Plutarch.Prelude (ClosedTerm, PAsData, pconstant)
 import PlutusLedgerApi.V1 (TokenName (..))
+import PlutusTx.Builtins.HasOpaque (stringToBuiltinByteString)
 
 protocolParamsToken :: TokenName
-protocolParamsToken = "ProtocolParams"
+protocolParamsToken = TokenName (stringToBuiltinByteString "ProtocolParams")
 
 pprotocolParamsToken :: ClosedTerm PTokenName
 pprotocolParamsToken = pconstant protocolParamsToken
 
 pprotocolParamsTokenData :: ClosedTerm (PAsData PTokenName)
-pprotocolParamsTokenData = pconstantData protocolParamsToken
+pprotocolParamsTokenData = pconstant protocolParamsToken
 
 directoryNodeToken :: TokenName
-directoryNodeToken = ""
+directoryNodeToken = TokenName ""
 
 pdirectoryNodeToken :: ClosedTerm PTokenName
 pdirectoryNodeToken = pconstant directoryNodeToken
 
 pdirectoryNodeTokenData :: ClosedTerm (PAsData PTokenName)
-pdirectoryNodeTokenData = pconstantData directoryNodeToken
+pdirectoryNodeTokenData = pconstant directoryNodeToken

@@ -67,8 +67,8 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/input-output-hk/catalyst-onchain-libs
-    tag: 508ee6cc586dda8157a674d1f3786f823a0c42b1
-    --sha256: sha256-lWtvKZNVMtqzWRr9Z3ACFzCPGj751oEjuOxMuMGaaE8=
+    tag: 0b997ba7e62ee5c9aa41212d24f44553410f57d7
+    --sha256: sha256-vaUFPrR8RFhEGgXbO1npwo5uSK1jRtKtg+FEVbEGuV0=
     subdir:
       src/plutarch-onchain-lib
 

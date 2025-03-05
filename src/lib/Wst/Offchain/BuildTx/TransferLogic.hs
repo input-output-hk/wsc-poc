@@ -49,8 +49,8 @@ import Data.OpenApi.Lens qualified as L
 import Data.String (IsString)
 import Data.Text (Text)
 import GHC.Exts (IsList (..))
-import PlutusLedgerApi.Data.V3 (Credential (..), PubKeyHash (PubKeyHash),
-                                ScriptHash (..))
+import PlutusLedgerApi.V3 (Credential (..), PubKeyHash (PubKeyHash),
+                           ScriptHash (..))
 import PlutusLedgerApi.V3 qualified as PlutusTx
 import SmartTokens.Contracts.ExampleTransferLogic (BlacklistProof (..))
 import SmartTokens.Types.ProtocolParams

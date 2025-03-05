@@ -1,3 +1,4 @@
+{-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE QualifiedDo         #-}
@@ -7,25 +8,25 @@ module SmartTokens.Contracts.ProtocolParams (
   mkPermissionedMinting,
 ) where
 
-import Plutarch.Core.Utils (phasUTxO, pheadSingleton, pletFieldsMinting,
-                            ptryLookupValue, ptxSignedByPkh,
-                            pvalidateConditions)
-import Plutarch.LedgerApi.V3 (PPubKeyHash, PScriptContext, PTxOutRef)
+import Plutarch.Core.Context
+import Plutarch.Core.List
+import Plutarch.Core.Utils
+import Plutarch.Core.ValidationLogic
+import Plutarch.Core.Value
+import Plutarch.LedgerApi.V3
 import Plutarch.Monadic qualified as P
-import Plutarch.Prelude (ClosedTerm, PAsData, PData, PEq ((#==)), PUnit,
-                         pconstantData, perror, pfield, pfromData, pfstBuiltin,
-                         plam, plet, pletFields, psndBuiltin, type (:-->), (#))
+import Plutarch.Prelude
 import SmartTokens.Types.Constants (pprotocolParamsTokenData)
 
 -- | Protocol Parameters minting policy
 -- This validator allows minting of a single token with a single token name.
 mkProtocolParametersMinting :: ClosedTerm (PAsData PTxOutRef :--> PScriptContext :--> PUnit)
 mkProtocolParametersMinting = plam $ \oref ctx -> P.do
-  ctxF <- pletFields @'["txInfo", "scriptInfo"] ctx
-  infoF <- pletFields @'["inputs", "mint"] ctxF.txInfo
-  scriptInfoF <- pletFieldsMinting ctxF.scriptInfo
-  let ownCS = scriptInfoF._0
-  mintedValue <- plet $ pfromData infoF.mint
+  PScriptContext {pscriptContext'txInfo, pscriptContext'scriptInfo} <- pmatch ctx
+  PTxInfo {ptxInfo'inputs, ptxInfo'mint} <- pmatch pscriptContext'txInfo
+  PMintingScript ownCS <- pmatch pscriptContext'scriptInfo
+
+  mintedValue <- plet $ pfromData ptxInfo'mint
   let ownTkPairs = ptryLookupValue # ownCS # mintedValue
   -- Enforce that only a single token name is minted for this policy
   ownTkPair <- plet (pheadSingleton # ownTkPairs)
@@ -33,8 +34,8 @@ mkProtocolParametersMinting = plam $ \oref ctx -> P.do
   ownNumMinted <- plet (psndBuiltin # ownTkPair)
   pvalidateConditions
     [ ownTokenName #== pprotocolParamsTokenData
-    , ownNumMinted #== pconstantData 1
-    , phasUTxO # oref # infoF.inputs
+    , ownNumMinted #== pconstant 1
+    , phasUTxO # pfromData oref # pfromData ptxInfo'inputs
     ]
 
 -- | Permissioned Minting Policy
@@ -43,7 +44,7 @@ mkProtocolParametersMinting = plam $ \oref ctx -> P.do
 mkPermissionedMinting :: ClosedTerm (PData :--> PAsData PPubKeyHash :--> PScriptContext :--> PUnit)
 mkPermissionedMinting = plam $ \_ permissionedCred ctx ->
   pvalidateConditions
-    [ ptxSignedByPkh # permissionedCred # (pfield @"signatories" # (pfield @"txInfo" # ctx))
+    [ ptxSignedByPkh # permissionedCred # (pfromData . ptxInfoSignatories . pscriptContextTxInfo) ctx
     ]
 
 -- | A nonced always fails script

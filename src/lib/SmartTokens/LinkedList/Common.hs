@@ -16,34 +16,24 @@ module SmartTokens.LinkedList.Common (
   parseNodeOutputUtxoPair,
 ) where
 
-import Plutarch.Bool (pand')
-import Plutarch.Builtin (pasByteStr, pforgetData)
-import Plutarch.Core.Utils (passert, pcountOfUniqueTokens,
-                            pfindCurrencySymbolsByTokenPrefix, phasDataCS,
-                            pheadSingleton, pmapFilter, psingletonOfCS,
-                            ptryFromInlineDatum)
+import GHC.Generics (Generic)
+import Plutarch.Core.Context
+import Plutarch.Core.List
+import Plutarch.Core.Utils
+import Plutarch.Core.Value
+import Plutarch.Internal.Term
 import Plutarch.LedgerApi.AssocMap qualified as AssocMap
-import Plutarch.LedgerApi.V3 (AmountGuarantees (NonZero, Positive),
-                              KeyGuarantees (Sorted), PAddress, PCurrencySymbol,
-                              POutputDatum (POutputDatum), PScriptContext,
-                              PScriptInfo (PMintingScript), PTokenName, PTxOut,
-                              PValue)
+import Plutarch.LedgerApi.V3
 import Plutarch.LedgerApi.Value (pnormalize)
 import Plutarch.Monadic qualified as P
-import Plutarch.Prelude (ClosedTerm, Generic, PAsData, PBool, PBuiltinList,
-                         PByteString, PEq ((#==)), PInteger, PListLike (pnull),
-                         PMaybe (PJust), PPair (..), PPartialOrd ((#<)), PType,
-                         PUnit, S, Term, TermCont, pall, pany, pcon, pconstant,
-                         pdata, pelimList, pfield, pfilter, pfromData, pguardC,
-                         phoistAcyclic, plam, plengthBS, plet, pletFields, pmap,
-                         pmatch, pto, tcont, type (:-->), (#$), (#&&), (#))
+import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
-import SmartTokens.Types.PTokenDirectory (PDirectorySetNode, pisEmptyNode,
+import SmartTokens.Types.PTokenDirectory (PDirectorySetNode (..), pisEmptyNode,
                                           pisInsertedNode, pisInsertedOnNode)
-import Types.Constants (pnodeKeyTN, poriginNodeTN, ptryParseNodeKey)
+import Types.Constants (pnodeKeyTN, poriginNodeTN, pparseNodeKey)
 
-paysToAddress :: Term s (PAddress :--> (PAsData PTxOut) :--> PBool)
-paysToAddress = phoistAcyclic $ plam $ \adr txOut -> adr #== (pfield @"address" # txOut)
+ppaysToAddress :: Term s (PAddress :--> PAsData PTxOut :--> PBool)
+ppaysToAddress = phoistAcyclic $ plam $ \adr txOut -> adr #== ptxOutAddress (pfromData txOut)
 
 {- | Ensures that the minted amount of the FinSet CS is exactly the specified
      tokenName and amount
@@ -69,15 +59,18 @@ nodeInputUtxoDatumUnsafePair ::
     ( PAsData PTxOut
         :--> PPair (PValue 'Sorted 'Positive) (PAsData PDirectorySetNode)
     )
-nodeInputUtxoDatumUnsafePair = phoistAcyclic $
-  plam $ \out -> pletFields @'["value", "datum"] out $ \outF ->
-    plet (punsafeCoerce $ ptryFromInlineDatum # outF.datum) $ \nodeDat ->
-      pcon (PPair (pfromData outF.value) nodeDat)
+nodeInputUtxoDatumUnsafePair = phoistAcyclic $ plam $ \out ->
+  pmatch (pfromData out) $ \(PTxOut {ptxOut'value, ptxOut'datum}) ->
+    pmatch ptxOut'datum $ \case
+      POutputDatum d ->
+        plet (punsafeCoerce (pto d)) $ \nodeDat ->
+          pcon (PPair (pfromData ptxOut'value) nodeDat)
+      _ -> ptraceInfoError "Expected output datum"
 
 nodeInputUtxoDatumUnsafe
   :: ClosedTerm (PAsData PTxOut :--> PAsData PDirectorySetNode)
 nodeInputUtxoDatumUnsafe = phoistAcyclic $ plam $ \txOut ->
-  punsafeCoerce $ ptryFromInlineDatum # (pfield @"datum" # txOut)
+  punsafeCoerce (ptxOutInlineDatumRaw $ pfromData txOut)
 
 parseNodeOutputUtxo ::
   ClosedTerm
@@ -87,26 +80,24 @@ parseNodeOutputUtxo ::
     )
 parseNodeOutputUtxo = phoistAcyclic $
   plam $ \nodeCS out -> P.do
-    txOut <- pletFields @'["address", "value", "datum"] out
-    value <- plet $ pfromData txOut.value
-    PPair nodeTokenName amount <- pmatch $ psingletonOfCS # nodeCS # value
-    POutputDatum od <- pmatch $ pfromData txOut.datum
-    datum <- plet $ punsafeCoerce (pfield @"outputDatum" # od)
-    datumF <- pletFields @'["key", "next", "transferLogicScript", "issuerLogicScript"] datum
+    PTxOut {ptxOut'value, ptxOut'datum} <- pmatch $ pfromData out
+    value <- plet $ pfromData ptxOut'value
+    csPair <- plet $ ptrySingleTokenCS # nodeCS # value
+    let nodeTokenName = pfstBuiltin # csPair
+        amount = pfromData $ psndBuiltin # csPair
+    POutputDatum od <- pmatch ptxOut'datum
+    datum <- plet $ punsafeCoerce od
+    PDirectorySetNode {pkey, pnext} <- pmatch (pfromData datum)
 
-    nodeKeyData <- plet (pforgetData datumF.key)
+    nodeKeyData <- plet (pforgetData pkey)
     let nodeKey = pasByteStr # nodeKeyData
-        nodeNext = pasByteStr # pforgetData datumF.next
-
-    -- The following are checked by `pisInsertedNode`
-    -- passert "transferLogicScript deserialization" $ pdeserializesToCredential # datumF.transferLogicScript
-    -- passert "issuerLogicScript deserialization" $ pdeserializesToCredential # datumF.issuerLogicScript
+        nodeNext = pasByteStr # pforgetData pnext
 
     -- Prevents TokenDust attack
     passert "Too many assets" $ pcountOfUniqueTokens # value #== 2
     passert "Incorrect number of node tokens" $ amount #== 1
     passert "Node is not ordered" $ nodeKey #< nodeNext
-    passert "Incorrect token name" $ nodeKeyData #== pforgetData (pdata nodeTokenName)
+    passert "Incorrect token name" $ nodeKeyData #== pforgetData nodeTokenName
     datum
 
 -- Potentially use this in the future if we plan to manage additional
@@ -119,13 +110,15 @@ parseNodeOutputUtxoPair ::
     )
 parseNodeOutputUtxoPair = phoistAcyclic $
   plam $ \nodeCS out -> P.do
-    txOut <- pletFields @'["address", "value", "datum"] out
-    value <- plet $ pfromData txOut.value
-    PPair tn amount <- pmatch $ psingletonOfCS # nodeCS # value
-    POutputDatum od <- pmatch $ pfromData txOut.datum
-    datum <- plet $ punsafeCoerce (pfield @"outputDatum" # od)
-    let nodeKey = ptryParseNodeKey # tn
-        datumKey = punsafeCoerce $ pfield @"key" # datum
+    PTxOut {ptxOut'value, ptxOut'datum} <- pmatch out
+    value <- plet $ pfromData ptxOut'value
+    csPair <- plet $ ptrySingleTokenCS # nodeCS # value
+    let tn = pfromData $ pfstBuiltin # csPair
+        amount = pfromData $ psndBuiltin # csPair
+    POutputDatum od <- pmatch ptxOut'datum
+    datum <- plet $ punsafeCoerce od
+    let nodeKey = pparseNodeKey tn
+        datumKey = punsafeCoerce $ pmatch (pfromData datum) $ \(PDirectorySetNode {pkey}) -> pfromData pkey
 
     -- Prevents TokenDust attack
     passert "All FSN tokens from node policy" $
@@ -144,33 +137,29 @@ makeCommon ::
 makeCommon ctx' = do
   ------------------------------
   -- Preparing info needed for validation:
-  ctx <- tcont $ pletFields @'["txInfo", "scriptInfo"] ctx'
-  info <-
-    tcont $
-      pletFields
-        @'["inputs", "outputs", "mint", "referenceInputs", "signatories", "validRange"]
-        ctx.txInfo
+  PScriptContext {pscriptContext'txInfo, pscriptContext'scriptInfo} <- pmatchC ctx'
+  PTxInfo {ptxInfo'inputs, ptxInfo'outputs, ptxInfo'mint} <- pmatchC pscriptContext'txInfo
 
   ownCS <- tcont . plet $ P.do
-    PMintingScript mintRecord <- pmatch ctx.scriptInfo
-    pfield @"_0" # mintRecord
+    PMintingScript mintRecord <- pmatch pscriptContext'scriptInfo
+    mintRecord
 
-  mint <- tcont . plet $ pnormalize #$ pfromData info.mint
+  mint <- tcont . plet $ pnormalize #$ pfromData ptxInfo'mint
   -- asOuts <- tcont . plet $ pmap # plam (pfield @"resolved" #)
   -- refInsAsOuts <- tcont . plet $ asOuts # pfromData info.referenceInputs
   hasNodeTk <- tcont . plet $ phasDataCS # ownCS
   -- insAsOuts <- tcont . plet $ pmap # plam (pfield @"resolved" #) # info.inputs
   -- onlyAtNodeVal <- tcont . plet $ pfilter @PBuiltinList # plam (\txo -> (hasNodeTk # (pfield @"value" # txo)))
-  txInputs <- tcont . plet $ pfromData info.inputs
-  let txOutputs = punsafeCoerce @_ @_ @(PBuiltinList (PAsData PTxOut)) (pfromData info.outputs)
-  fromNodeValidator <- tcont . plet $ pmapFilter @PBuiltinList # plam (\txo -> hasNodeTk # (pfield @"value" # txo)) # plam (pfield @"resolved" #) # txInputs
-  toNodeValidator <- tcont . plet $ pfilter @PBuiltinList # plam (\txo -> hasNodeTk # (pfield @"value" # txo)) # txOutputs
+  txInputs <- tcont . plet $ pfromData ptxInfo'inputs
+  let txOutputs = pfromData ptxInfo'outputs
+  fromNodeValidator <- tcont . plet $ pmapFilter @PBuiltinList # plam (\txo -> hasNodeTk # pfromData (ptxOutValue txo)) # plam (ptxInInfoResolved . pfromData) # txInputs
+  toNodeValidator <- tcont . plet $ pfilter @PBuiltinList # plam (\txo -> hasNodeTk # pfromData (ptxOutValue $ pfromData txo)) # txOutputs
   ------------------------------
 
   let atNodeValidator =
         pelimList
           ( \firstNodeInput _ ->
-            let isSameAddress = (paysToAddress # (pfield @"address" # firstNodeInput))
+            let isSameAddress = (ppaysToAddress # ptxOutAddress firstNodeInput)
              in pall # isSameAddress # toNodeValidator
           )
           (pconstant True)
@@ -178,7 +167,7 @@ makeCommon ctx' = do
 
   pguardC "all same origin" atNodeValidator
 
-  nodeInputs <- tcont . plet $ pmap # nodeInputUtxoDatumUnsafe # fromNodeValidator
+  nodeInputs <- tcont . plet $ pmap # nodeInputUtxoDatumUnsafe # punsafeCoerce fromNodeValidator
 
   nodeOutputs <-
     tcont . plet $
@@ -208,7 +197,7 @@ pInit common = P.do
 
   -- Output Checks:
   let nodeOutput = pheadSingleton # common.nodeOutputs
-  passert "Init output one node and empty" $ pisEmptyNode # nodeOutput
+  passert "Init output one node and empty" $ pisEmptyNode nodeOutput
 
   -- Mint checks:
   passert "Incorrect mint for Init" $
@@ -238,9 +227,9 @@ pInsert common = plam $ \pkToInsert -> P.do
   let coveringDatum = pheadSingleton # common.nodeInputs
 
   -- Output Checks:
-  coveringDatumF <- pletFields @'["key", "next", "transferLogicScript", "issuerLogicScript"] coveringDatum
-  coveringDatumKey <- plet $ pasByteStr # pforgetData coveringDatumF.key
-  coveringDatumNext <- plet $ pasByteStr # pforgetData coveringDatumF.next
+  PDirectorySetNode {pkey, pnext, ptransferLogicScript, pissuerLogicScript} <- pmatch $ pfromData coveringDatum
+  coveringDatumKey <- plet $ pasByteStr # pforgetData pkey
+  coveringDatumNext <- plet $ pasByteStr # pforgetData pnext
 
   -- The key of the spent node is lexographically less than pkToInsert and
   -- the next key of the spent node is lexographically greater than pkToInsert.
@@ -248,7 +237,7 @@ pInsert common = plam $ \pkToInsert -> P.do
   passert "Spent node should cover inserting key" $
     pand' # (coveringDatumKey #< keyToInsert) # (keyToInsert #< coveringDatumNext)
 
-  let isInsertedOnNode = pisInsertedOnNode # pdata keyToInsert # pdata coveringDatumKey # coveringDatumF.transferLogicScript # coveringDatumF.issuerLogicScript
+  let isInsertedOnNode = pisInsertedOnNode # pdata keyToInsert # pdata coveringDatumKey # ptransferLogicScript # pissuerLogicScript
       isInsertedNode = pisInsertedNode # pdata keyToInsert # pdata coveringDatumNext
 
   passert "Incorrect node outputs for Insert" $
@@ -259,7 +248,7 @@ pInsert common = plam $ \pkToInsert -> P.do
 
   -- Mint checks:
   passert "Incorrect mint for Insert" $
-    correctNodeTokenMinted # common.ownCS # (pnodeKeyTN # keyToInsert) # 1 # common.mint
+    correctNodeTokenMinted # common.ownCS # pnodeKeyTN keyToInsert # 1 # common.mint
 
   pconstant ()
 
