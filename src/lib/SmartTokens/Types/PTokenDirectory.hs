@@ -7,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE QualifiedDo           #-}
+{-# LANGUAGE RecordWildCards       #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE UndecidableInstances  #-}
 
@@ -37,7 +38,9 @@ import Plutarch.Repr.Data
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V3 (BuiltinByteString, Credential, CurrencySymbol)
 import PlutusTx (Data (B, Constr))
-import PlutusTx qualified as PlutusTx
+import PlutusTx qualified
+import PlutusTx.Builtins.Internal qualified as BI
+import PlutusTx.Prelude qualified as PlutusTx
 
 -- $setup
 --
@@ -125,7 +128,24 @@ data DirectorySetNode = DirectorySetNode
   deriving stock (Show, Eq, Generic)
   deriving anyclass (SOP.Generic)
 
-PlutusTx.makeIsDataIndexed ''DirectorySetNode [('DirectorySetNode, 0)]
+instance PlutusTx.FromData DirectorySetNode where
+  fromBuiltinData dat = do
+    xs <- BI.chooseData dat Nothing Nothing (Just $ BI.unsafeDataAsList dat) Nothing Nothing
+    directoryNodeCurrSymb <- PlutusTx.fromBuiltinData $ BI.head xs
+    let tailCurrSymb = BI.tail xs
+    nextNodeCurrSymb <- PlutusTx.fromBuiltinData $ BI.head tailCurrSymb
+    let tailCurrSymb1 = BI.tail tailCurrSymb
+    transferLogicCred <- PlutusTx.fromBuiltinData $ BI.head tailCurrSymb1
+    issuerLogicCred <- PlutusTx.fromBuiltinData $ BI.head $ BI.tail tailCurrSymb1
+    PlutusTx.pure PlutusTx.$ DirectorySetNode directoryNodeCurrSymb nextNodeCurrSymb transferLogicCred issuerLogicCred
+
+instance PlutusTx.ToData DirectorySetNode where
+  toBuiltinData DirectorySetNode{..} =
+    let directoryNodeCS' = PlutusTx.toBuiltinData key
+        nextNodeCS' = PlutusTx.toBuiltinData next
+        transferLogicCred' = PlutusTx.toBuiltinData transferLogicScript
+        issuerLogicCred' = PlutusTx.toBuiltinData issuerLogicScript
+     in BI.mkList $ BI.mkCons directoryNodeCS' (BI.mkCons nextNodeCS' (BI.mkCons transferLogicCred' (BI.mkCons issuerLogicCred' $ BI.mkNilData BI.unitval)))
 
 -- Optimization:
 -- Use the following manual instances instead of the deriving via above if so that we can define key and next fields of type ByteString

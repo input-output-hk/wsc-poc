@@ -145,11 +145,7 @@ makeCommon ctx' = do
     mintRecord
 
   mint <- tcont . plet $ pnormalize #$ pfromData ptxInfo'mint
-  -- asOuts <- tcont . plet $ pmap # plam (pfield @"resolved" #)
-  -- refInsAsOuts <- tcont . plet $ asOuts # pfromData info.referenceInputs
   hasNodeTk <- tcont . plet $ phasDataCS # ownCS
-  -- insAsOuts <- tcont . plet $ pmap # plam (pfield @"resolved" #) # info.inputs
-  -- onlyAtNodeVal <- tcont . plet $ pfilter @PBuiltinList # plam (\txo -> (hasNodeTk # (pfield @"value" # txo)))
   txInputs <- tcont . plet $ pfromData ptxInfo'inputs
   let txOutputs = pfromData ptxInfo'outputs
   fromNodeValidator <- tcont . plet $ pmapFilter @PBuiltinList # plam (\txo -> hasNodeTk # pfromData (ptxOutValue txo)) # plam (ptxInInfoResolved . pfromData) # txInputs
@@ -220,7 +216,7 @@ pInsert ::
 pInsert common = plam $ \pkToInsert -> P.do
   keyToInsert <- plet $ pfromData pkToInsert
 
-  passert "Key to insert must be valid Currency Symbol" $ plengthBS # keyToInsert #== 28
+  passert "Key to insert must be valid Currency Symbol" $ ptraceInfoIfFalse (pshow keyToInsert) $ plengthBS # keyToInsert #== 28
 
   -- Input Checks:
   -- There is only one spent node (tx inputs contains only one node UTxO)

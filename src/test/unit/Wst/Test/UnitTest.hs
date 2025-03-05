@@ -29,6 +29,8 @@ import Convex.Wallet.Operator qualified as Operator
 import Data.List (isPrefixOf)
 import Data.String (IsString (..))
 import GHC.Exception (SomeException, throw)
+import PlutusLedgerApi.V3 (CurrencySymbol (..))
+import PlutusTx.Builtins.HasOpaque (stringToBuiltinByteStringHex)
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertEqual, testCase)
@@ -269,7 +271,7 @@ seizeUserOutput scriptRoot = failOnError $ Env.withEnv $ do
 dummyNodeArgs :: InsertNodeArgs
 dummyNodeArgs =
   InsertNodeArgs
-    { inaNewKey = "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
+    { inaNewKey = CurrencySymbol (stringToBuiltinByteStringHex "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23")
     , inaTransferLogic = C.StakeCredentialByScript "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
     , inaIssuerLogic = C.StakeCredentialByScript "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
     }
