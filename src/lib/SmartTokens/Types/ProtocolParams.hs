@@ -1,7 +1,21 @@
-{-# LANGUAGE NamedFieldPuns       #-}
-{-# LANGUAGE OverloadedLists      #-}
-{-# LANGUAGE OverloadedStrings    #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE LambdaCase            #-}
+{-# LANGUAGE NamedFieldPuns        #-}
+{-# LANGUAGE OverloadedLists       #-}
+{-# LANGUAGE OverloadedStrings     #-}
+
+
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE PolyKinds             #-}
+{-# LANGUAGE QualifiedDo           #-}
+{-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE RecordWildCards       #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+
+{-# LANGUAGE TypeOperators         #-}
+{-# LANGUAGE UndecidableInstances  #-}
+
 {-# OPTIONS_GHC -Wno-deferred-type-errors #-}
 
 module SmartTokens.Types.ProtocolParams (
@@ -21,16 +35,15 @@ import Data.OpenApi.ParamSchema (ToParamSchema (..))
 import Data.OpenApi.Schema (ToSchema (..), defaultSchemaOptions,
                             paramSchemaToNamedSchema)
 import Generics.SOP qualified as SOP
-import Plutarch.Core.PlutusDataList (DerivePConstantViaDataList (..),
-                                     PlutusTypeDataList, ProductIsData (..))
-import Plutarch.DataRepr (PDataFields)
+import GHC.Generics (Generic)
+import Plutarch.Internal.Lift
 import Plutarch.LedgerApi.V3 (PCredential, PCurrencySymbol)
-import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (PLifted))
-import Plutarch.Prelude (DerivePlutusType (..), Generic, PDataRecord, PEq,
-                         PIsData, PLabeledType ((:=)), PShow, PlutusType, S,
-                         Term)
+import Plutarch.Prelude
+import Plutarch.Repr.Data
 import PlutusLedgerApi.V3 (Credential, CurrencySymbol)
 import PlutusTx qualified
+import PlutusTx.Builtins.Internal qualified as BI
+import PlutusTx.Prelude qualified as PlutusTxPrelude
 
 -- TODO:
 -- Figure out why deriving PlutusType breaks when I uncomment this
@@ -41,28 +54,31 @@ data ProgrammableLogicGlobalParams = ProgrammableLogicGlobalParams
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (SOP.Generic)
-  deriving
-    (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData) via (ProductIsData ProgrammableLogicGlobalParams)
-  deriving (PConstantDecl) via (DerivePConstantViaDataList ProgrammableLogicGlobalParams PProgrammableLogicGlobalParams)
 
-newtype PProgrammableLogicGlobalParams (s :: S)
+instance PlutusTx.FromData ProgrammableLogicGlobalParams where
+  fromBuiltinData dat = do
+    xs <- BI.chooseData dat Nothing Nothing (Just $ BI.unsafeDataAsList dat) Nothing Nothing
+    directoryNodeCurrSymb <- PlutusTx.fromBuiltinData $ BI.head xs
+    progLogicCred <- PlutusTx.fromBuiltinData $ BI.head $ BI.tail xs
+    PlutusTxPrelude.pure PlutusTxPrelude.$ ProgrammableLogicGlobalParams directoryNodeCurrSymb progLogicCred
+
+instance PlutusTx.ToData ProgrammableLogicGlobalParams where
+  toBuiltinData ProgrammableLogicGlobalParams{directoryNodeCS, progLogicCred} =
+    let directoryNodeCS' = PlutusTx.toBuiltinData directoryNodeCS
+        progLogicCred' = PlutusTx.toBuiltinData progLogicCred
+     in BI.mkList $ BI.mkCons directoryNodeCS' (BI.mkCons progLogicCred' $ BI.mkNilData BI.unitval)
+
+data PProgrammableLogicGlobalParams (s :: S)
   = PProgrammableLogicGlobalParams
-      ( Term
-          s
-          ( PDataRecord
-              '[ "directoryNodeCS" ':= PCurrencySymbol
-               , "progLogicCred" ':= PCredential
-               ]
-          )
-      )
+      { pdirectoryNodeCS :: Term s (PAsData PCurrencySymbol)
+      , pprogLogicCred :: Term s (PAsData PCredential)
+      }
   deriving stock (Generic)
-  deriving anyclass (PlutusType, PIsData, PEq, PShow, PDataFields)
+  deriving anyclass (SOP.Generic, PIsData, PEq, PShow)
+  deriving (PlutusType) via (DeriveAsDataRec PProgrammableLogicGlobalParams)
 
-instance DerivePlutusType PProgrammableLogicGlobalParams where
-  type DPTStrat _ = PlutusTypeDataList
-
-instance PUnsafeLiftDecl PProgrammableLogicGlobalParams where
-  type PLifted PProgrammableLogicGlobalParams = ProgrammableLogicGlobalParams
+deriving via DeriveDataPLiftable (PAsData PProgrammableLogicGlobalParams) ProgrammableLogicGlobalParams
+  instance PLiftable PProgrammableLogicGlobalParams
 
 -- We're using the Data representation of the PlutusLedgerApi types here
 -- Because it is somewhat human-readable (more so than the hex representation)

@@ -5,6 +5,7 @@
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE LambdaCase            #-}
+{-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE OverloadedRecordDot   #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE PolyKinds             #-}
@@ -22,17 +23,13 @@ module SmartTokens.LinkedList.MintDirectory (
 ) where
 
 import Generics.SOP qualified as SOP
+import GHC.Generics (Generic)
 import Plutarch.Core.Utils (pand'List, passert, phasUTxO)
-import Plutarch.DataRepr (DerivePConstantViaData (..))
-import Plutarch.LedgerApi.V3 (PScriptContext, PTxOutRef)
-import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (..))
+import Plutarch.Internal.Lift
+import Plutarch.LedgerApi.V3 (PScriptContext (..), PTxInfo (..), PTxOutRef)
 import Plutarch.Monadic qualified as P
-import Plutarch.Prelude (ClosedTerm, DerivePlutusType (..), Generic, PAsData,
-                         PByteString, PDataRecord, PEq, PIsData,
-                         PLabeledType ((:=)), PUnit, PlutusType, PlutusTypeData,
-                         S, Term, TermCont (runTermCont), pconstant, perror,
-                         pfield, pfromData, pif, plam, plet, pletFields, pmatch,
-                         pto, type (:-->), (#))
+import Plutarch.Prelude
+import Plutarch.Repr.Data
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V3 (CurrencySymbol)
 import PlutusTx qualified
@@ -50,22 +47,15 @@ data DirectoryNodeAction
 PlutusTx.makeIsDataIndexed ''DirectoryNodeAction
   [('InitDirectory, 0), ('InsertDirectoryNode, 1)]
 
-deriving via
-  (DerivePConstantViaData DirectoryNodeAction PDirectoryNodeAction)
-  instance
-    (PConstantDecl DirectoryNodeAction)
-
 data PDirectoryNodeAction (s :: S)
-  = PInit (Term s (PDataRecord '[]))
-  | PInsert (Term s (PDataRecord '["keyToInsert" ':= PByteString]))
+  = PInit
+  | PInsert { pkeyToInsert :: Term s (PAsData PByteString) }
   deriving stock (Generic)
-  deriving anyclass (PlutusType, PIsData, PEq)
+  deriving anyclass (SOP.Generic, PIsData, PEq)
+  deriving (PlutusType) via DeriveAsDataStruct PDirectoryNodeAction
 
-instance PUnsafeLiftDecl PDirectoryNodeAction where
-  type PLifted PDirectoryNodeAction = DirectoryNodeAction
-
-instance DerivePlutusType PDirectoryNodeAction where type DPTStrat _ = PlutusTypeData
-
+deriving via DeriveDataPLiftable PDirectoryNodeAction DirectoryNodeAction
+  instance PLiftable PDirectoryNodeAction
 
 mkDirectoryNodeMP ::
   ClosedTerm
@@ -74,20 +64,20 @@ mkDirectoryNodeMP ::
       :--> PUnit
     )
 mkDirectoryNodeMP = plam $ \initUTxO ctx -> P.do
-  let red = punsafeCoerce @_ @_ @PDirectoryNodeAction (pto (pfield @"redeemer" # ctx))
+  PScriptContext {pscriptContext'redeemer} <- pmatch ctx
+  let red = punsafeCoerce @PDirectoryNodeAction (pto pscriptContext'redeemer)
 
   common <- runTermCont $ makeCommon ctx
 
   pmatch red $ \case
-    PInit _ -> P.do
-      ctxF <- pletFields @'["txInfo"] ctx
-      infoF <- pletFields @'["inputs"] ctxF.txInfo
+    PInit -> P.do
+      PScriptContext {pscriptContext'txInfo} <- pmatch ctx
+      PTxInfo {ptxInfo'inputs} <- pmatch pscriptContext'txInfo
       passert "Init must consume TxOutRef" $
-        phasUTxO # initUTxO # pfromData infoF.inputs
+        phasUTxO # pfromData initUTxO # pfromData ptxInfo'inputs
       pInit common
     PInsert action -> P.do
-      act <- pletFields @'["keyToInsert"] action
-      pkToInsert <- plet act.keyToInsert
+      pkToInsert <- plet action
       let mintsProgrammableToken = pconstant True
           insertChecks =
             pand'List
