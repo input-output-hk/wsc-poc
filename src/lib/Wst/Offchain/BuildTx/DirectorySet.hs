@@ -23,9 +23,9 @@ import Convex.Scripts (toHashableScriptData)
 import Convex.Utils qualified as Utils
 import Data.ByteString.Base16 (decode)
 import GHC.Exts (IsList (..))
-import Plutarch (Config (NoTracing))
 import Plutarch.Evaluate (unsafeEvalTerm)
-import Plutarch.Prelude (pconstantData)
+import Plutarch.Internal.Term (Config (NoTracing))
+import Plutarch.Prelude (pconstant)
 import PlutusLedgerApi.V1 qualified as PlutusTx
 import PlutusLedgerApi.V3 (Credential (..), CurrencySymbol (..))
 import PlutusTx.Prelude (toBuiltin)
@@ -33,17 +33,18 @@ import SmartTokens.CodeLens (_printTerm)
 import SmartTokens.LinkedList.MintDirectory (DirectoryNodeAction (..))
 import SmartTokens.Types.Constants (directoryNodeToken)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
-import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
+import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..),
+                                          PDirectorySetNode)
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Scripts (scriptPolicyIdV3)
 
 _unused :: String
-_unused = _printTerm $ unsafeEvalTerm NoTracing (pconstantData initialNode)
+_unused = _printTerm $ unsafeEvalTerm NoTracing (pconstant @PDirectorySetNode initialNode)
 
 {-|
 
->>> _printTerm $ unsafeEvalTerm NoTracing (pconstantData initialNode)
+>>> _printTerm $ unsafeEvalTerm NoTracing (pconstant initialNode)
 "program\n  1.0.0\n  (List\n     [ B #\n     , B #ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\n     , Constr 0 [B #]\n     , Constr 0 [B #] ])"
 -}
 initialNode :: DirectorySetNode

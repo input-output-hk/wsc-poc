@@ -32,10 +32,7 @@ import Cardano.Api.Shelley qualified as C
 import Convex.PlutusLedger.V1 (transCredential, transPolicyId, transPubKeyHash,
                                transStakeCredential)
 import Convex.PlutusLedger.V3 (transTxOutRef)
-import Plutarch (ClosedTerm, (#))
-import Plutarch.Builtin (pdata, pforgetData)
-import Plutarch.ByteString (PByteString)
-import Plutarch.Lift (pconstant)
+import Plutarch.Prelude
 import Plutarch.Script (serialiseScript)
 import SmartTokens.Contracts.AlwaysYields (palwaysSucceed)
 import SmartTokens.Contracts.ExampleTransferLogic (mkFreezeAndSeizeTransfer,
