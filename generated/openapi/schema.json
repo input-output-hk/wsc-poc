@@ -238,6 +238,24 @@
                 ],
                 "type": "object"
             },
+            "UserBalanceResponse": {
+                "description": "Response to user-funds query",
+                "properties": {
+                    "ada_only_outputs": {
+                        "description": "Count of ada-only outputs locked by user's public key hash",
+                        "type": "integer"
+                    },
+                    "programmable_tokens": {
+                        "description": "Combined value locked in programmable token outputs addressed to the user",
+                        "type": "object"
+                    },
+                    "user_lovelace": {
+                        "description": "Total Ada locked by the user's public key hash",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "Value": {
                 "description": "Value locked in the output. Always includes a 'lovelace' key, may include other keys if non-Ada assets are present.",
                 "properties": {
@@ -389,7 +407,7 @@
                         "content": {
                             "application/json;charset=utf-8": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Value"
+                                    "$ref": "#/components/schemas/UserBalanceResponse"
                                 }
                             }
                         },

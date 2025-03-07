@@ -8,6 +8,7 @@ module Wst.Server(
   runServer,
   ServerArgs(..),
   staticFilesFromEnv,
+  demoFileFromEnv,
   CombinedAPI,
   defaultServerArgs
   ) where
@@ -21,10 +22,14 @@ import Control.Monad.Error.Class (MonadError (throwError))
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.CardanoApi.Lenses qualified as L
-import Convex.Class (MonadBlockchain (sendTx), MonadUtxoQuery)
+import Convex.Class (MonadBlockchain (sendTx), MonadUtxoQuery,
+                     utxosByPaymentCredential)
+import Convex.Utxos qualified as Utxos
 import Data.Aeson.Types (KeyValue)
 import Data.Data (Proxy (..))
 import Data.List (nub)
+import Data.Map qualified as Map
+import Data.Maybe (fromMaybe)
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors
 import PlutusTx.Prelude qualified as P
@@ -41,25 +46,28 @@ import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (uDatum))
 import Wst.Offchain.Query qualified as Query
-import Wst.Server.BlockfrostKey (BlockfrostKey, runBlockfrostKey)
+import Wst.Server.DemoEnvironment (DemoEnvRoute, runDemoEnvRoute)
+import Wst.Server.DemoEnvironment qualified as DemoEnvironment
 import Wst.Server.Types (APIInEra, AddVKeyWitnessArgs (..),
                          BlacklistNodeArgs (..), BuildTxAPI,
                          IssueProgrammableTokenArgs (..), QueryAPI,
                          SeizeAssetsArgs (..), SerialiseAddress (..),
                          TextEnvelopeJSON (..),
-                         TransferProgrammableTokenArgs (..))
+                         TransferProgrammableTokenArgs (..),
+                         UserBalanceResponse (..))
 
 -- | Rest API combined with a Raw endpoint
 --   for static files
 type CombinedAPI =
   APIInEra
-  :<|> BlockfrostKey
+  :<|> DemoEnvRoute
   :<|> Raw
 
 data ServerArgs =
   ServerArgs
     { saPort :: !Int
-    , saStaticFiles :: Maybe FilePath
+    , saStaticFiles         :: Maybe FilePath
+    , saDemoEnvironmentFile :: Maybe FilePath
     }
     deriving stock (Eq, Show)
 
@@ -73,20 +81,31 @@ staticFilesFromEnv sa@ServerArgs{saStaticFiles} = case saStaticFiles of
     files' <- liftIO (System.Environment.lookupEnv "WST_STATIC_FILES")
     pure sa{saStaticFiles = files'}
 
+demoFileFromEnv :: MonadIO m => ServerArgs -> m ServerArgs
+demoFileFromEnv sa@ServerArgs{saDemoEnvironmentFile} = case saDemoEnvironmentFile of
+  Just _ -> pure sa
+  Nothing -> do
+    files' <- liftIO (System.Environment.lookupEnv "WST_DEMO_ENV")
+    pure sa{saDemoEnvironmentFile = files'}
+
 defaultServerArgs :: ServerArgs
 defaultServerArgs =
   ServerArgs
     { saPort = 8080
     , saStaticFiles = Nothing
+    , saDemoEnvironmentFile = Nothing
     }
 
 runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env, HasLogger env) => env -> ServerArgs -> IO ()
-runServer env ServerArgs{saPort, saStaticFiles} = do
+runServer env ServerArgs{saPort, saStaticFiles, saDemoEnvironmentFile} = do
   let bf   = Blockfrost.projectId $ Env.envBlockfrost $ Env.runtimeEnv env
-      app  = cors (const $ Just simpleCorsResourcePolicy)
+  demoEnv <-
+    fromMaybe (DemoEnvironment.previewNetworkDemoEnvironment bf)
+    <$> traverse DemoEnvironment.loadFromFile saDemoEnvironmentFile
+  let app  = cors (const $ Just simpleCorsResourcePolicy)
         $ case saStaticFiles of
             Nothing -> serve (Proxy @APIInEra) (server env)
-            Just fp -> serve (Proxy @CombinedAPI) (server env :<|> runBlockfrostKey bf :<|> serveDirectoryWebApp fp)
+            Just fp -> serve (Proxy @CombinedAPI) (server env :<|> runDemoEnvRoute demoEnv :<|> serveDirectoryWebApp fp)
       port = saPort
   Warp.run port app
 
@@ -169,9 +188,19 @@ queryUserFunds :: forall era env m.
   )
   => Proxy era
   -> SerialiseAddress (C.Address C.ShelleyAddr)
-  -> m C.Value
-queryUserFunds _ (SerialiseAddress addr) =
-  foldMap (txOutValue . Query.uOut) <$> Query.userProgrammableOutputs @era @env (paymentCredentialFromAddress addr)
+  -> m UserBalanceResponse
+queryUserFunds _ (SerialiseAddress addr) = do
+  let credential = paymentCredentialFromAddress addr
+  ubrProgrammableTokens <- foldMap (txOutValue . Query.uOut) <$> Query.userProgrammableOutputs @era @env credential
+  otherUTxOs <- utxosByPaymentCredential credential
+  let userBalance = C.selectLovelace (Utxos.totalBalance otherUTxOs)
+      adaOnly     = Map.size $ Utxos._utxos $ Utxos.onlyAda otherUTxOs
+  pure
+    UserBalanceResponse
+      { ubrProgrammableTokens
+      , ubrUserLovelace   = C.lovelaceToQuantity userBalance
+      , ubrAdaOnlyOutputs = adaOnly
+      }
 
 queryAllFunds :: forall era env m.
   ( MonadUtxoQuery m

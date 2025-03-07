@@ -19,9 +19,9 @@ export default function WSTAppBar() {
                 src="/assets/WST_logo.png"
                 width={53}
                 height={39}
-                alt="Logo for Wyoming Stable Token"
+                alt="Logo for WST"
                 />
-                <Typography variant='h3'>Wyoming Stable Token</Typography>
+                <Typography variant='h3'>CIP-0143 Progammable Token Demo</Typography>
             </Box>
             <ProfileSwitcher />
         </Toolbar>
