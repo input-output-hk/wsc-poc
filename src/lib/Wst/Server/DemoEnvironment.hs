@@ -6,13 +6,16 @@
 module Wst.Server.DemoEnvironment(
   DemoEnvRoute,
   DemoEnvironment(..),
+  mkDemoEnv,
   runDemoEnvRoute,
   previewNetworkDemoEnvironment,
   loadFromFile,
   writeToFile,
 ) where
 
-import Cardano.Api qualified as C
+import Blockfrost.Lens (HasPolicyId (policyId))
+import Cardano.Api.Shelley qualified as C
+import Cardano.Ledger.BaseTypes qualified as Ledger
 import Control.Lens ((&), (?~))
 import Data.Aeson (FromJSON (..), ToJSON (..))
 import Data.Aeson qualified as Aeson
@@ -29,7 +32,9 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 import Servant.API (Get, JSON, (:>))
 import Servant.Server (ServerT)
+import SmartTokens.Core.Scripts (ScriptTarget (..))
 import Wst.JSON.Utils qualified as JSON
+import Wst.Offchain.Env qualified as Env
 import Wst.Server.Types (SerialiseAddress (..))
 
 {-| Demo environment route
@@ -112,6 +117,52 @@ previewNetworkDemoEnvironment daBlockfrostKey
   , daExplorerUrl = "https://preview.cexplorer.io/tx"
   }
 
+-- blockfrostUrl :: Network -> Either String Text
+
+{-| Calculate all of the hashes given the initial 'TxIn' and the issuer
+address.
+-}
+mkDemoEnv :: C.TxIn -> C.Address C.ShelleyAddr -> Either String DemoEnvironment
+mkDemoEnv txIn (C.ShelleyAddress network (C.fromShelleyPaymentCredential -> C.PaymentCredentialByKey pkh) _) = do
+  let target           = Production
+      dirEnv           = Env.mkDirectoryEnv (Env.DirectoryScriptRoot txIn target)
+      transferLogicEnv = Env.mkTransferLogicEnv $ Env.BlacklistTransferLogicScriptRoot target dirEnv pkh
+      dummyText        = "REPLACE ME"
+      assetName        = "WST"
+      C.AddressInEra (C.ShelleyAddressInEra C.ShelleyBasedEraConway) (SerialiseAddress -> daTransferLogicAddress) =
+        C.makeShelleyAddressInEra
+          C.ShelleyBasedEraConway
+          (fromLedgerNetwork network)
+          (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 $ Env.tleBlacklistSpendingScript transferLogicEnv)
+          C.NoStakeAddress
+
+  (daMintingPolicy, daTokenName) <- computeAssetId dirEnv transferLogicEnv assetName
+  daProgLogicBaseHash <- computeScriptCredential dirEnv
+
+  let result           =
+        DemoEnvironment
+          { daMintAuthority = dummyText
+          , daUserA         = dummyText
+          , daUserB         = dummyText
+
+          , daMintingPolicy
+          , daTokenName
+          , daTransferLogicAddress
+          , daProgLogicBaseHash
+          }
+  pure result
+mkDemoEnv _    _ = Left "Expected private key address"
+
+{-| Minting policy and asset name serialised to hex text
+-}
+computeAssetId :: Env.DirectoryEnv -> Env.TransferLogicEnv -> C.AssetName -> Either String (Text, Text)
+computeAssetId dirEnv transferLogicEnv assetName = do
+  (policyId, tokenName) <- case Env.programmableTokenAssetId dirEnv transferLogicEnv assetName of
+    C.AssetId policy name -> pure (policy, name)
+    C.AdaAssetId -> Left "Expected 'AssetId', found 'AdaAssetId'"
+
+  pure (C.serialiseToRawBytesHexText policyId, C.serialiseToRawBytesHexText tokenName)
+
 jsonOptions2 :: JSON.Options
 jsonOptions2 = JSON.customJsonOptions 2
 
@@ -124,3 +175,13 @@ loadFromFile fp = do
 
 writeToFile :: FilePath -> DemoEnvironment -> IO ()
 writeToFile fp = BSL.writeFile fp . Aeson.encode
+
+fromLedgerNetwork :: Ledger.Network -> C.NetworkId
+fromLedgerNetwork = \case
+  Ledger.Mainnet -> C.Mainnet
+  Ledger.Testnet -> C.Testnet (C.NetworkMagic 42) -- ???
+
+computeScriptCredential :: Env.DirectoryEnv -> Either String Text
+computeScriptCredential e = case Env.programmableLogicBaseCredential e of
+  C.PaymentCredentialByScript k -> pure (C.serialiseToRawBytesHexText k)
+  C.PaymentCredentialByKey{}    -> Left "Expected script credential"

@@ -102,6 +102,7 @@ library
     , blockfrost-client-core
     , bytestring
     , cardano-api
+    , cardano-ledger-core
     , cardano-ledger-shelley
     , containers
     , convex-base
