@@ -79,8 +79,8 @@ Each programmable token entry is represented in a directory with the following a
 - @next@: The currency symbol of the next programmable token identified by the next directory node (enables a linked list structure)
 - @transferLogicScript@: Credential of the script that must validate all token transfers of the programmable token
 - @issuerLogicScript@: Credential for issuer-specific actions (e.g., clawbacks) for the programmable token
-- @globalStateCS@: The currency symbol of a NFT that uniquely identifies a UTxO that contains the global state associated with the programmable token.
-    This is optionaly and can be set to the empty currency symbol if not needed.
+- @globalStateCS@: The currency symbol of an NFT that uniquely identifies a UTxO that contains the global state associated with the programmable token.
+    This is optionally and can be set to the empty currency symbol if not needed.
 
 == Constraints
 === Minting/Burning Constraint
