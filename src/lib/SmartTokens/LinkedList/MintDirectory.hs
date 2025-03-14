@@ -24,7 +24,7 @@ module SmartTokens.LinkedList.MintDirectory (
 
 import Generics.SOP qualified as SOP
 import GHC.Generics (Generic)
-import Plutarch.Core.Utils (pand'List, passert, phasUTxO)
+import Plutarch.Core.Utils (passert, phasUTxO)
 import Plutarch.Internal.Lift
 import Plutarch.LedgerApi.V3 (PScriptContext (..), PTxInfo (..), PTxOutRef)
 import Plutarch.Monadic qualified as P
@@ -78,9 +78,4 @@ mkDirectoryNodeMP = plam $ \initUTxO ctx -> P.do
       pInit common
     PInsert action -> P.do
       pkToInsert <- plet action
-      let mintsProgrammableToken = pconstant True
-          insertChecks =
-            pand'List
-                [ mintsProgrammableToken
-                ]
-      pif insertChecks (pInsert common # pkToInsert) perror
+      pInsert common # pkToInsert

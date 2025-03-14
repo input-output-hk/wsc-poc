@@ -53,6 +53,7 @@ initialNode = DirectorySetNode
   , next = CurrencySymbol $ toBuiltin $ either (error "bytestring") id $ decode "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
   , transferLogicScript = PubKeyCredential ""
   , issuerLogicScript = PubKeyCredential ""
+  , globalStateCS = CurrencySymbol ""
   }
 
 initDirectorySet :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => m ()
@@ -89,10 +90,11 @@ data InsertNodeArgs =
     { inaNewKey :: CurrencySymbol
     , inaTransferLogic :: C.StakeCredential
     , inaIssuerLogic :: C.StakeCredential
+    , inaGlobalStateCS :: CurrencySymbol
     }
 
 insertDirectoryNode :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era DirectorySetNode -> InsertNodeArgs -> m ()
-insertDirectoryNode UTxODat{uIn=paramsRef} UTxODat{uIn, uOut=firstTxOut, uDatum=firstTxData} InsertNodeArgs{inaNewKey, inaTransferLogic, inaIssuerLogic} = Utils.inBabbage @era $ do
+insertDirectoryNode UTxODat{uIn=paramsRef} UTxODat{uIn, uOut=firstTxOut, uDatum=firstTxData} InsertNodeArgs{inaNewKey, inaTransferLogic, inaIssuerLogic, inaGlobalStateCS} = Utils.inBabbage @era $ do
   netId <- queryNetworkId
   directorySpendingScript <- asks (Env.dsDirectorySpendingScript . Env.directoryEnv)
   directoryMintingScript <- asks (Env.dsDirectoryMintingScript . Env.directoryEnv)
@@ -121,6 +123,7 @@ insertDirectoryNode UTxODat{uIn=paramsRef} UTxODat{uIn, uOut=firstTxOut, uDatum=
             , next = next firstTxData
             , transferLogicScript = transStakeCredential inaTransferLogic
             , issuerLogicScript = transStakeCredential inaIssuerLogic
+            , globalStateCS = inaGlobalStateCS
             }
       newDat = C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData dsn
       insertedNode = C.TxOut addr newVal newDat C.ReferenceScriptNone

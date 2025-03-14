@@ -274,6 +274,7 @@ dummyNodeArgs =
     { inaNewKey = CurrencySymbol (stringToBuiltinByteStringHex "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23")
     , inaTransferLogic = C.StakeCredentialByScript "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
     , inaIssuerLogic = C.StakeCredentialByScript "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
+    , inaGlobalStateCS = CurrencySymbol ""
     }
 
 {-| Register the 'alwaysSucceedsScript' stake validator

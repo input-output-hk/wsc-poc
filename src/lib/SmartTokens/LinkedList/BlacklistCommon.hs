@@ -7,29 +7,30 @@
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
-module SmartTokens.LinkedList.Common (
-  PDirectoryCommon (..),
+module SmartTokens.LinkedList.BlacklistCommon (
+  PBlacklistCommon (..),
   makeCommon,
   pInit,
   pInsert,
+  pRemove,
   nodeInputUtxoDatumUnsafePair,
 ) where
 
 import GHC.Generics (Generic)
-import Plutarch.Builtin.ByteString (pintegerToByteString, pmostSignificantFirst)
-import Plutarch.Builtin.Crypto (pblake2b_224)
 import Plutarch.Core.Context
 import Plutarch.Core.List
 import Plutarch.Core.Utils
 import Plutarch.Core.Value
-import Plutarch.Evaluate (unsafeEvalTerm)
 import Plutarch.Internal.Term
 import Plutarch.LedgerApi.AssocMap qualified as AssocMap
 import Plutarch.LedgerApi.V3
+import Plutarch.LedgerApi.Value (pnormalize)
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
-import SmartTokens.Types.PTokenDirectory (PDirectorySetNode (..), pisEmptyNode,
-                                          pisInsertedNode, pisInsertedOnNode)
+import SmartTokens.Types.PTokenDirectory (PBlacklistNode (..),
+                                          pisEmptyBlacklistNode,
+                                          pisInsertedBlacklistNode,
+                                          pisInsertedOnBlacklistNode)
 import Types.Constants (pnodeKeyTN, poriginNodeTN)
 
 ppaysToAddress :: Term s (PAddress :--> PAsData PTxOut :--> PBool)
@@ -57,7 +58,7 @@ correctNodeTokenMinted = phoistAcyclic $
 nodeInputUtxoDatumUnsafePair ::
   ClosedTerm
     ( PAsData PTxOut
-        :--> PPair (PValue 'Sorted 'Positive) (PAsData PDirectorySetNode)
+        :--> PPair (PValue 'Sorted 'Positive) (PAsData PBlacklistNode)
     )
 nodeInputUtxoDatumUnsafePair = phoistAcyclic $ plam $ \out ->
   pmatch (pfromData out) $ \(PTxOut {ptxOut'value, ptxOut'datum}) ->
@@ -68,7 +69,7 @@ nodeInputUtxoDatumUnsafePair = phoistAcyclic $ plam $ \out ->
       _ -> ptraceInfoError "Expected output datum"
 
 nodeInputUtxoDatumUnsafe
-  :: ClosedTerm (PAsData PTxOut :--> PAsData PDirectorySetNode)
+  :: ClosedTerm (PAsData PTxOut :--> PAsData PBlacklistNode)
 nodeInputUtxoDatumUnsafe = phoistAcyclic $ plam $ \txOut ->
   punsafeCoerce (ptxOutInlineDatumRaw $ pfromData txOut)
 
@@ -76,7 +77,7 @@ parseNodeOutputUtxo ::
   ClosedTerm
     ( PAsData PCurrencySymbol
         :--> PAsData PTxOut
-        :--> PAsData PDirectorySetNode
+        :--> PAsData PBlacklistNode
     )
 parseNodeOutputUtxo = phoistAcyclic $
   plam $ \nodeCS out -> P.do
@@ -87,11 +88,11 @@ parseNodeOutputUtxo = phoistAcyclic $
         amount = pfromData $ psndBuiltin # csPair
     POutputDatum od <- pmatch ptxOut'datum
     datum <- plet $ punsafeCoerce od
-    PDirectorySetNode {pkey, pnext} <- pmatch (pfromData datum)
+    PBlacklistNode {pblnKey, pblnNext} <- pmatch (pfromData datum)
 
-    nodeKeyData <- plet (pforgetData pkey)
+    nodeKeyData <- plet (pforgetData pblnKey)
     let nodeKey = pasByteStr # nodeKeyData
-        nodeNext = pasByteStr # pforgetData pnext
+        nodeNext = pasByteStr # pforgetData pblnNext
 
     -- Prevents TokenDust attack
     passert "Too many assets" $ pcountOfUniqueTokens # value #== 2
@@ -105,18 +106,18 @@ makeCommon ::
   Term s PScriptContext ->
   TermCont @r
     s
-    ( PDirectoryCommon s )
+    ( PBlacklistCommon s )
 makeCommon ctx' = do
   ------------------------------
   -- Preparing info needed for validation:
   PScriptContext {pscriptContext'txInfo, pscriptContext'scriptInfo} <- pmatchC ctx'
-  PTxInfo {ptxInfo'inputs, ptxInfo'referenceInputs, ptxInfo'outputs, ptxInfo'mint} <- pmatchC pscriptContext'txInfo
+  PTxInfo {ptxInfo'inputs, ptxInfo'outputs, ptxInfo'mint} <- pmatchC pscriptContext'txInfo
 
   ownCS <- tcont . plet $ P.do
     PMintingScript mintRecord <- pmatch pscriptContext'scriptInfo
     mintRecord
 
-  mint <- tcont . plet $ pfromData ptxInfo'mint
+  mint <- tcont . plet $ pnormalize #$ pfromData ptxInfo'mint
   hasNodeTk <- tcont . plet $ phasDataCS # ownCS
   txInputs <- tcont . plet $ pfromData ptxInfo'inputs
   let txOutputs = pfromData ptxInfo'outputs
@@ -149,7 +150,6 @@ makeCommon ctx' = do
           , mint
           , nodeInputs
           , nodeOutputs
-          , referenceInputs = pfromData ptxInfo'referenceInputs
           }
   pure common
 
@@ -159,14 +159,14 @@ makeCommon ctx' = do
 --     - No node inputs should be spent
 --     - There should be only a single node token minted (the origin node token)
 --     - There should be exactly one node output, the key of which should be empty and the next key should be empty
-pInit :: forall (s :: S). PDirectoryCommon s -> Term s PUnit
+pInit :: forall (s :: S). PBlacklistCommon s -> Term s PUnit
 pInit common = P.do
   -- Input Checks
   passert "Init must not spend Nodes" $ pnull # common.nodeInputs
 
   -- Output Checks:
   let nodeOutput = pheadSingleton # common.nodeOutputs
-  passert "Init output one node and empty" $ pisEmptyNode nodeOutput
+  passert "Init output one node and empty" $ pisEmptyBlacklistNode nodeOutput
 
   -- Mint checks:
   passert "Incorrect mint for Init" $
@@ -184,21 +184,21 @@ pInit common = P.do
 --     - There should be only a single node token minted (token name of which should match the key we are inserting)
 pInsert ::
   forall (s :: S).
-  PDirectoryCommon s ->
+  PBlacklistCommon s ->
   Term s (PAsData PByteString :--> PUnit)
 pInsert common = plam $ \pkToInsert -> P.do
   keyToInsert <- plet $ pfromData pkToInsert
 
-  passert "Key to insert must be valid Currency Symbol" $ ptraceInfoIfFalse (pshow keyToInsert) $ plengthBS # keyToInsert #== 28
+  passert "Key to insert must be valid PubKeyHash" $ plengthBS # keyToInsert #== 28
 
   -- Input Checks:
   -- There is only one spent node (tx inputs contains only one node UTxO)
   let coveringDatum = pheadSingleton # common.nodeInputs
 
   -- Output Checks:
-  PDirectorySetNode {pkey, pnext, ptransferLogicScript, pissuerLogicScript, pglobalStateCS} <- pmatch $ pfromData coveringDatum
-  coveringDatumKey <- plet $ pasByteStr # pforgetData pkey
-  coveringDatumNext <- plet $ pasByteStr # pforgetData pnext
+  PBlacklistNode {pblnKey, pblnNext} <- pmatch $ pfromData coveringDatum
+  coveringDatumKey <- plet $ pasByteStr # pforgetData pblnKey
+  coveringDatumNext <- plet $ pasByteStr # pforgetData pblnNext
 
   -- The key of the spent node is lexographically less than pkToInsert and
   -- the next key of the spent node is lexographically greater than pkToInsert.
@@ -206,8 +206,8 @@ pInsert common = plam $ \pkToInsert -> P.do
   passert "Spent node should cover inserting key" $
     pand' # (coveringDatumKey #< keyToInsert) # (keyToInsert #< coveringDatumNext)
 
-  let isInsertedOnNode = pisInsertedOnNode # pdata keyToInsert # pdata coveringDatumKey # ptransferLogicScript # pissuerLogicScript # pglobalStateCS
-      isInsertedNode = pisInsertedNode # pdata keyToInsert # pdata coveringDatumNext
+  let isInsertedOnNode = pisInsertedOnBlacklistNode # pdata keyToInsert # pdata coveringDatumKey
+      isInsertedNode = pisInsertedBlacklistNode # pdata keyToInsert # pdata coveringDatumNext
 
   passert "Incorrect node outputs for Insert" $
     pany
@@ -221,46 +221,57 @@ pInsert common = plam $ \pkToInsert -> P.do
 
   pconstant ()
 
+pRemove ::
+  forall (s :: S).
+  PBlacklistCommon s ->
+  Term s (PAsData PByteString :--> PUnit)
+pRemove common = plam $ \pkToRemove -> P.do
+  keyToRemove <- plet $ pfromData pkToRemove
+  -- Input Checks
+  PBlacklistNode {pblnKey = nodeAKey, pblnNext = nodeANext} <- pmatch $ pfromData (phead # common.nodeInputs)
+  PBlacklistNode {pblnKey = nodeBKey, pblnNext = nodeBNext} <- pmatch $ pfromData (pheadSingleton # (ptail # common.nodeInputs))
+
+  -- Output Checks
+  let nodeOutput = pheadSingleton # common.nodeOutputs
+  PBlacklistNode {pblnKey = coveringNodeKey', pblnNext = coveringNodeNext'} <- pmatch $ pfromData nodeOutput
+  coveringNodeKey <- plet coveringNodeKey'
+  coveringNodeNext <- plet coveringNodeNext'
+
+  passert "New node should cover removed key" $
+    pand' # (pfromData coveringNodeKey #< keyToRemove) # (keyToRemove #< pfromData coveringNodeNext)
+
+  -- Mint checks
+  passert "Incorrect mint for Remove" $
+    correctNodeTokenMinted # common.ownCS # pnodeKeyTN keyToRemove # (-1) # common.mint
+
+  let removeChecks preNodeKey prevNodeNext removeNodeNext =
+        pand'List
+          [ pfromData coveringNodeKey #== preNodeKey
+          , pfromData coveringNodeNext #== removeNodeNext
+          , prevNodeNext #== keyToRemove
+          ]
+  let result =
+        pcond
+          [ ( pfromData nodeAKey #== keyToRemove,
+              removeChecks (pfromData nodeBKey) (pfromData nodeBNext) (pfromData nodeANext)
+            )
+          , ( pfromData nodeBKey #== keyToRemove,
+              removeChecks (pfromData nodeAKey) (pfromData nodeANext) (pfromData nodeBNext)
+            )
+          ]
+          perror
+
+  pif result (pconstant ()) perror
+
 -- Common information shared between all redeemers.
-data PDirectoryCommon (s :: S) = MkCommon
+data PBlacklistCommon (s :: S) = MkCommon
   { ownCS :: Term s PCurrencySymbol
   -- ^ state token (own) CS
   , mint :: Term s (PValue 'Sorted 'NonZero)
   -- ^ value minted in current Tx
-  , nodeInputs :: Term s (PBuiltinList (PAsData PDirectorySetNode))
+  , nodeInputs :: Term s (PBuiltinList (PAsData PBlacklistNode))
   -- ^ node inputs in the tx
-  , nodeOutputs :: Term s (PBuiltinList (PAsData PDirectorySetNode))
+  , nodeOutputs :: Term s (PBuiltinList (PAsData PBlacklistNode))
   -- ^ node outputs in the tx
-  , referenceInputs :: Term s (PBuiltinList (PAsData PTxInInfo))
-  -- ^ reference inputs in the tx
   }
   deriving stock (Generic)
-
-prefixScriptBytes :: Term s PByteString
-prefixScriptBytes = phexByteStr "deadbeef"
-
-_pisProgrammableTokenRegistration :: Term s PCurrencySymbol -> Term s PByteString -> Term s (PValue 'Sorted 'NonZero) -> Term s PBool
-_pisProgrammableTokenRegistration csToInsert hashedParam mintValue =
-  pand'List
-    [ phasCS # mintValue # csToInsert
-    , _papplyHashedParameter prefixScriptBytes hashedParam #== (pto csToInsert)
-    ]
-
-_papplyHashedParameter ::
-  Term s PByteString
-  -> Term s PByteString
-  -> Term s PByteString
-_papplyHashedParameter prefix hashedParam =
-  pblake2b_224 # (scriptHeader <> postfix)
-  where
-    postfix :: Term s PByteString
-    postfix = phexByteStr "0001"
-
-    versionHeader :: Term s PByteString
-    versionHeader = unsafeEvalTerm NoTracing (pintegerToByteString # pmostSignificantFirst # 1 # plutusVersion)
-
-    plutusVersion :: Term s PInteger
-    plutusVersion = pconstant 3
-
-    scriptHeader :: Term _ PByteString
-    scriptHeader = versionHeader <> prefix <> hashedParam

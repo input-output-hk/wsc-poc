@@ -1,7 +1,8 @@
-{-# LANGUAGE NamedFieldPuns   #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies     #-}
-{-# LANGUAGE ViewPatterns     #-}
+{-# LANGUAGE NamedFieldPuns    #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications  #-}
+{-# LANGUAGE TypeFamilies      #-}
+{-# LANGUAGE ViewPatterns      #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 {-# HLINT ignore "Use second" #-}
@@ -32,7 +33,7 @@ import Data.List (partition)
 import Data.Maybe (fromJust)
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (CurrencySymbol (..))
-import SmartTokens.Contracts.Issuance (SmartTokenMintingAction (MintPToken, RegisterPToken))
+import SmartTokens.Contracts.Issuance (SmartTokenMintingAction (MintPToken))
 import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedeemer (..),
                                                     TokenProof (..))
 import SmartTokens.Types.ProtocolParams
@@ -79,9 +80,10 @@ issueProgrammableToken paramsTxOut (an, q) directoryList = Utils.inBabbage @era 
               { inaNewKey = issuedSymbol
               , inaTransferLogic = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleTransferScript
               , inaIssuerLogic = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleIssuerScript
+              , inaGlobalStateCS = CurrencySymbol ""
               }
 
-      mintPlutus mintingScript RegisterPToken an q
+      mintPlutus mintingScript MintPToken an q
       insertDirectoryNode paramsTxOut udat nodeArgs
 
   pure issuedPolicyId

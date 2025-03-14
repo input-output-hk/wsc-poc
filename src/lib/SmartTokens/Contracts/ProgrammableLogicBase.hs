@@ -47,16 +47,6 @@ paddressStakingCredential addr =
   pmatch addr $ \addr' ->
     pjustData $ paddress'stakingCredential addr'
 
-pconstructExpectedOutput :: Term s PAddress -> Term s (PAsData (PValue 'Sorted 'Positive)) -> Term s PData -> Term s (PAsData PTxOut)
-pconstructExpectedOutput address value datum =
-  pdata $ pcon $
-    PTxOut
-     { ptxOut'address = address
-     , ptxOut'value = value
-     , ptxOut'datum = pcon $ POutputDatum $ pcon $ PDatum datum
-     , ptxOut'referenceScript = pconstant Nothing
-     }
-
 pconstructExpectedOutputWithOutputDatum :: Term s PAddress -> Term s (PAsData (PValue 'Sorted 'Positive)) -> Term s POutputDatum -> Term s (PAsData PTxOut)
 pconstructExpectedOutputWithOutputDatum address value datum =
   pdata $ pcon $

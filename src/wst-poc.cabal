@@ -61,7 +61,9 @@ library
     SmartTokens.Contracts.ProgrammableLogicBase
     SmartTokens.Contracts.ProtocolParams
     SmartTokens.Core.Scripts
+    SmartTokens.LinkedList.BlacklistCommon
     SmartTokens.LinkedList.Common
+    SmartTokens.LinkedList.MintBlacklist
     SmartTokens.LinkedList.MintDirectory
     SmartTokens.LinkedList.SpendBlacklist
     SmartTokens.LinkedList.SpendDirectory

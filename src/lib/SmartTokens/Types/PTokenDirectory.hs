@@ -15,6 +15,7 @@ module SmartTokens.Types.PTokenDirectory (
   DirectorySetNode (..),
   PDirectorySetNode (..),
   PBlacklistNode (..),
+  BlacklistNode (..),
   isHeadNode,
   isTailNode,
   pemptyBSData,
@@ -23,7 +24,12 @@ module SmartTokens.Types.PTokenDirectory (
   pisInsertedOnNode,
   pisInsertedNode,
   pisEmptyNode,
-  BlacklistNode(..),
+  pmkBlacklistNode,
+  pisInsertedOnBlacklistNode,
+  pisInsertedBlacklistNode,
+  pisEmptyBlacklistNode,
+  pisBlacklistTailNode,
+  pemptyBlacklistNode,
 ) where
 
 import Generics.SOP qualified as SOP
@@ -64,36 +70,21 @@ data BlacklistNode =
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (SOP.Generic)
-PlutusTx.makeIsDataIndexed ''BlacklistNode [('BlacklistNode, 0)]
 
--- instance PlutusTx.ToData BlacklistNode where
---   toBuiltinData BlacklistNode{blnKey, blnNext} =
---     let blnKeyBstr = head $ snd $ BI.unsafeDataAsConstr (toBuiltinData blnKey)
---         blnNextBstr = head $ snd $ BI.unsafeDataAsConstr (toBuiltinData blnNext)
---      in BI.mkList [blnKeyBstr,  blnNextBstr]
---
--- instance PlutusTx.FromData BlacklistNode where
---   fromBuiltinData builtinData =
---     let fields = BI.unsafeDataAsList builtinData
---         key = head fields
---         fields1 = tail fields
---         next = head fields1
---      in Just $ undefined -- Don't know how to determine whether credential is pub key or script
+instance PlutusTx.ToData BlacklistNode where
+  toBuiltinData BlacklistNode{blnKey, blnNext} = PlutusTx.toBuiltinData [blnKey, blnNext]
+
+instance PlutusTx.FromData BlacklistNode where
+  fromBuiltinData builtinData = do
+    xs <- BI.chooseData builtinData Nothing Nothing (Just $ BI.unsafeDataAsList builtinData) Nothing Nothing
+    blnKey_ <- PlutusTx.fromBuiltinData $ BI.head xs
+    let tail_ = BI.tail xs
+    blnNext_ <- PlutusTx.fromBuiltinData $ BI.head tail_
+    PlutusTx.pure PlutusTx.$ BlacklistNode blnKey_ blnNext_
 
 {-
->>> _printTerm $ unsafeEvalTerm NoTracing (mkRecordConstr PBlacklistNode (#blnKey .= pconstant "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff" .& #blnNext .=  pconstant ""))
-No instance for `IsString (PAsDataLifted PByteString)'
-  arising from the literal `"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
-In the first argument of `pconstant', namely
-  `"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
-In the second argument of `(.=)', namely
-  `pconstant
-     "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
-In the first argument of `(.&)', namely
-  `#blnKey
-     .=
-       pconstant
-         "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
+>>> _printTerm $ unsafeEvalTerm NoTracing (pconstant (PBlacklistNode {blnKey = pconstant @(PAsData PByteString) "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff", blnNext =  pconstant (PAsData PByteString) ""}))
+--
 -}
 data PBlacklistNode (s :: S)
   = PBlacklistNode
@@ -102,9 +93,9 @@ data PBlacklistNode (s :: S)
       }
   deriving stock (Generic)
   deriving anyclass (SOP.Generic, PIsData, PShow, PEq)
-  deriving (PlutusType) via (DeriveAsDataStruct PBlacklistNode)
+  deriving (PlutusType) via (DeriveAsDataRec PBlacklistNode)
 
-deriving via DeriveDataPLiftable PBlacklistNode BlacklistNode
+deriving via DeriveDataPLiftable (PAsData PBlacklistNode) BlacklistNode
   instance PLiftable PBlacklistNode
 
 -- _printTerm (communicated by Philip) just print some term as string. The term we want to print is
@@ -119,11 +110,44 @@ deriving via DeriveDataPLiftable PBlacklistNode BlacklistNode
 -- >>> printTerm NoTracing (pconstant $ BlacklistNode { blnKey = "a hi", blnNext = "a" })
 -- "program 1.0.0 (List [B #61206869, B #61])"
 
+pmkBlacklistNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PBlacklistNode)
+pmkBlacklistNode = phoistAcyclic $
+  plam $ \key_ next_ ->
+    punsafeCoerce $ plistData # pmkBuiltinList [pforgetData key_, pforgetData next_]
+
+pisInsertedOnBlacklistNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PBlacklistNode :--> PBool)
+pisInsertedOnBlacklistNode = phoistAcyclic $
+  plam $ \insertedKey coveringKey outputNode ->
+    let expectedDirectoryNode = pmkBlacklistNode # coveringKey # insertedKey
+     in outputNode #== expectedDirectoryNode
+
+pisInsertedBlacklistNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PBlacklistNode :--> PBool)
+pisInsertedBlacklistNode = phoistAcyclic $
+  plam $ \insertedKey coveringNext outputNode ->
+    let expectedDirectoryNode = pmkBlacklistNode # insertedKey # coveringNext
+    in outputNode #== expectedDirectoryNode
+
+pemptyBlacklistNode :: ClosedTerm (PAsData PBlacklistNode)
+pemptyBlacklistNode = punsafeCoerce $ plistData # pmkBuiltinList [pforgetData pemptyBSData, pforgetData ptailBlackListNext]
+
+ptailBlackListNext  :: ClosedTerm (PAsData PByteString)
+ptailBlackListNext = unsafeEvalTerm NoTracing (punsafeCoerce $ pdata (phexByteStr "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"))
+
+pisBlacklistTailNode :: Term s (PAsData PBlacklistNode) -> Term s PBool
+pisBlacklistTailNode node =
+  pmatch (pfromData node) $ \(PBlacklistNode {pblnNext}) ->
+    pblnNext #== ptailBlackListNext
+
+pisEmptyBlacklistNode :: Term s (PAsData PBlacklistNode) -> Term s PBool
+pisEmptyBlacklistNode node =
+  node #== pemptyBlacklistNode
+
 data DirectorySetNode = DirectorySetNode
   { key :: CurrencySymbol
   , next :: CurrencySymbol
   , transferLogicScript  :: Credential
   , issuerLogicScript :: Credential
+  , globalStateCS :: CurrencySymbol
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (SOP.Generic)
@@ -136,8 +160,10 @@ instance PlutusTx.FromData DirectorySetNode where
     nextNodeCurrSymb <- PlutusTx.fromBuiltinData $ BI.head tailCurrSymb
     let tailCurrSymb1 = BI.tail tailCurrSymb
     transferLogicCred <- PlutusTx.fromBuiltinData $ BI.head tailCurrSymb1
-    issuerLogicCred <- PlutusTx.fromBuiltinData $ BI.head $ BI.tail tailCurrSymb1
-    PlutusTx.pure PlutusTx.$ DirectorySetNode directoryNodeCurrSymb nextNodeCurrSymb transferLogicCred issuerLogicCred
+    let tailTransferLogic = BI.tail tailCurrSymb1
+    issuerLogicCred <- PlutusTx.fromBuiltinData $ BI.head $ tailTransferLogic
+    globalStateCS' <- PlutusTx.fromBuiltinData $ BI.head $ BI.tail $ tailTransferLogic
+    PlutusTx.pure PlutusTx.$ DirectorySetNode directoryNodeCurrSymb nextNodeCurrSymb transferLogicCred issuerLogicCred globalStateCS'
 
 instance PlutusTx.ToData DirectorySetNode where
   toBuiltinData DirectorySetNode{..} =
@@ -145,30 +171,8 @@ instance PlutusTx.ToData DirectorySetNode where
         nextNodeCS' = PlutusTx.toBuiltinData next
         transferLogicCred' = PlutusTx.toBuiltinData transferLogicScript
         issuerLogicCred' = PlutusTx.toBuiltinData issuerLogicScript
-     in BI.mkList $ BI.mkCons directoryNodeCS' (BI.mkCons nextNodeCS' (BI.mkCons transferLogicCred' (BI.mkCons issuerLogicCred' $ BI.mkNilData BI.unitval)))
-
--- Optimization:
--- Use the following manual instances instead of the deriving via above if so that we can define key and next fields of type ByteString
--- We should discuss whether we want to prefer newtypes or primitive types for datum / redeemer fields going forward.
--- import Data.ByteString
--- import PlutusTx.Builtins qualified as Builtins
--- import PlutusTx.Builtins.Internal qualified as BI
--- import PlutusTx.Prelude (BuiltinByteString, fromBuiltin, toBuiltin)
--- instance PlutusTx.ToData DirectorySetNode where
---   toBuiltinData DirectorySetNode{key, next, transferLogicScript, issuerLogicScript} =
---     BI.mkList $ BI.mkCons (BI.mkB $ toBuiltin key) $ BI.mkCons (BI.mkB $ toBuiltin next) $ BI.mkCons (PlutusTx.toBuiltinData transferLogicScript) $ BI.mkCons (PlutusTx.toBuiltinData issuerLogicScript) $ BI.mkNilData BI.unitval
-
--- instance PlutusTx.FromData DirectorySetNode where
---   fromBuiltinData builtinData =
---     let fields = BI.snd $ BI.unsafeDataAsConstr builtinData
---         key = BI.head fields
---         fields1 = BI.tail fields
---         next = BI.head fields1
---         fields2 = BI.tail fields1
---         transferLogicScript = PlutusTx.unsafeFromBuiltinData $ BI.head fields2
---         fields3 = BI.tail fields2
---         issuerLogicScript = PlutusTx.unsafeFromBuiltinData $ BI.head fields3
---      in Just $ DirectorySetNode (fromBuiltin $ BI.unsafeDataAsB key) (fromBuiltin $ BI.unsafeDataAsB next) transferLogicScript issuerLogicScript
+        globalStateCS' = PlutusTx.toBuiltinData globalStateCS
+     in BI.mkList (BI.mkCons directoryNodeCS' (BI.mkCons nextNodeCS' (BI.mkCons transferLogicCred' (BI.mkCons issuerLogicCred' (BI.mkCons globalStateCS' $ BI.mkNilData BI.unitval)))))
 
 data PDirectorySetNode (s :: S)
   = PDirectorySetNode
@@ -176,6 +180,7 @@ data PDirectorySetNode (s :: S)
       , pnext :: Term s (PAsData PCurrencySymbol)
       , ptransferLogicScript :: Term s (PAsData PCredential)
       , pissuerLogicScript :: Term s (PAsData PCredential)
+      , pglobalStateCS :: Term s (PAsData PCurrencySymbol)
       }
   deriving stock (Generic)
   deriving anyclass (SOP.Generic, PIsData, PEq, PShow)
@@ -203,7 +208,7 @@ emptyNode :: ClosedTerm (PAsData PDirectorySetNode)
 emptyNode =
   let nullTransferLogicCred = pconstant (Constr 0 [PlutusTx.B ""])
       nullIssuerLogicCred = pconstant (Constr 0 [PlutusTx.B ""])
-  in punsafeCoerce $ plistData # pmkBuiltinList [pforgetData pemptyBSData, pforgetData ptailNextData, nullTransferLogicCred, nullIssuerLogicCred]
+  in punsafeCoerce $ plistData # pmkBuiltinList [pforgetData pemptyBSData, pforgetData ptailNextData, nullTransferLogicCred, nullIssuerLogicCred, pforgetData pemptyBSData]
 
 pisEmptyNode :: Term s (PAsData PDirectorySetNode) -> Term s PBool
 pisEmptyNode node =
@@ -218,25 +223,25 @@ pemptyCSData = unsafeEvalTerm NoTracing (punsafeCoerce (pconstant @PData $ Plutu
 ptailNextData  :: ClosedTerm (PAsData PCurrencySymbol)
 ptailNextData = unsafeEvalTerm NoTracing (punsafeCoerce $ pdata (phexByteStr "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"))
 
-pmkDirectorySetNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PCredential :--> PAsData PCredential :--> PAsData PDirectorySetNode)
+pmkDirectorySetNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PCredential :--> PAsData PCredential :--> PAsData PCurrencySymbol :--> PAsData PDirectorySetNode)
 pmkDirectorySetNode = phoistAcyclic $
-  plam $ \key_ next_ transferLogicCred issuerLogicCred ->
-    punsafeCoerce $ plistData # pmkBuiltinList [pforgetData key_, pforgetData next_, pforgetData transferLogicCred, pforgetData issuerLogicCred]
+  plam $ \key_ next_ transferLogicCred issuerLogicCred globalStateCS_ ->
+    punsafeCoerce $ plistData # pmkBuiltinList [pforgetData key_, pforgetData next_, pforgetData transferLogicCred, pforgetData issuerLogicCred, pforgetData globalStateCS_]
 
-pisInsertedOnNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PCredential :--> PAsData PCredential :--> PAsData PDirectorySetNode :--> PBool)
+pisInsertedOnNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PCredential :--> PAsData PCredential :--> PAsData PCurrencySymbol :--> PAsData PDirectorySetNode :--> PBool)
 pisInsertedOnNode = phoistAcyclic $
-  plam $ \insertedKey coveringKey transferLogicCred issuerLogicCred outputNode ->
-    let expectedDirectoryNode = pmkDirectorySetNode # coveringKey # insertedKey # transferLogicCred # issuerLogicCred
+  plam $ \insertedKey coveringKey transferLogicCred issuerLogicCred globalCS outputNode ->
+    let expectedDirectoryNode = pmkDirectorySetNode # coveringKey # insertedKey # transferLogicCred # issuerLogicCred # globalCS
      in outputNode #== expectedDirectoryNode
 
 pisInsertedNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PDirectorySetNode :--> PBool)
 pisInsertedNode = phoistAcyclic $
   plam $ \insertedKey coveringNext outputNode ->
-    pmatch (pfromData outputNode) $ \(PDirectorySetNode {ptransferLogicScript, pissuerLogicScript}) ->
+    pmatch (pfromData outputNode) $ \(PDirectorySetNode {ptransferLogicScript, pissuerLogicScript, pglobalStateCS}) ->
       let transferLogicCred_ = ptraceInfoShowId ptransferLogicScript
           issuerLogicCred_ = ptraceInfoShowId pissuerLogicScript
           expectedDirectoryNode =
-            pmkDirectorySetNode # insertedKey # coveringNext # pdeserializeDirectoryCredential transferLogicCred_ # pdeserializeDirectoryCredential issuerLogicCred_
+            pmkDirectorySetNode # insertedKey # coveringNext # pdeserializeDirectoryCredential transferLogicCred_ # pdeserializeDirectoryCredential issuerLogicCred_ # pdeserializeCurrencySymbol pglobalStateCS
       in outputNode #== expectedDirectoryNode
 
 pdeserializeDirectoryCredential :: Term s (PAsData PCredential) -> Term s (PAsData PCredential)
@@ -252,3 +257,10 @@ pdeserializeDirectoryCredential term =
               (ptraceInfoError "Invalid credential")
           )
           (ptraceInfoError $ pconstant "Invalid credential len" <> pshow (plengthBS # (pasByteStr # (pheadSingleton # (psndBuiltin # constrPair)))))
+
+pdeserializeCurrencySymbol :: Term s (PAsData PCurrencySymbol) -> Term s (PAsData PCurrencySymbol)
+pdeserializeCurrencySymbol term =
+  plet (pasByteStr # pforgetData term) $ \bstr ->
+    pif (plengthBS # bstr #<= 28)
+        term
+        (ptraceInfoError $ pconstant "Invalid CurrencySymbol len" <> pshow (plengthBS # bstr))

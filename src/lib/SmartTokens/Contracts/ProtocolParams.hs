@@ -28,6 +28,7 @@ mkProtocolParametersMinting = plam $ \oref ctx -> P.do
 
   mintedValue <- plet $ pfromData ptxInfo'mint
   let ownTkPairs = ptryLookupValue # ownCS # mintedValue
+
   -- Enforce that only a single token name is minted for this policy
   ownTkPair <- plet (pheadSingleton # ownTkPairs)
   ownTokenName <- plet (pfstBuiltin # ownTkPair)
