@@ -35,7 +35,7 @@ allow-older:
 with-compiler: ghc-9.6.6
 
 packages:
-    src
+    src/regulated-stablecoin
 
 
 source-repository-package
