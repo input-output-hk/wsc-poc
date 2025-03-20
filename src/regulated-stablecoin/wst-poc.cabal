@@ -1,7 +1,7 @@
 cabal-version: 3.4
 name:          wst-poc
 version:       0.3.0.0
-synopsis:      On-chain code for regulated stablecoin proof-of-concept
+synopsis:      Regulated stablecoin proof-of-concept
 license:       Apache-2.0
 license-files: LICENSE
 maintainer:    j-mueller@users.noreply.github.com
