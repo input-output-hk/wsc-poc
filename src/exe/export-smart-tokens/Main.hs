@@ -19,7 +19,6 @@ import Data.String (IsString (..))
 import Data.Text (Text, pack)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
-import Options.Applicative
 import Options.Applicative (Parser, argument, customExecParser, disambiguate,
                             eitherReader, help, helper, idm, info, metavar,
                             optional, prefs, showHelpOnEmpty, showHelpOnError,

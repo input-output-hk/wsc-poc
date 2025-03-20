@@ -88,8 +88,7 @@ import Convex.Class (MonadBlockchain (queryNetworkId), MonadUtxoQuery (..),
                      queryProtocolParameters, utxosByPaymentCredential)
 import Convex.CoinSelection qualified as CoinSelection
 import Convex.PlutusLedger.V1 (transCredential, transPolicyId,
-                               unTransCredential, unTransPolicyId,
-                               unTransStakeCredential)
+                               unTransCredential, unTransStakeCredential)
 import Convex.Utils (mapError)
 import Convex.Utxos (BalanceChanges)
 import Convex.Utxos qualified as Utxos
@@ -453,11 +452,10 @@ withTransferFromOperator action = do
 -}
 programmableTokenMintingScript :: DirectoryEnv -> TransferLogicEnv -> C.PlutusScript C.PlutusScriptV3
 programmableTokenMintingScript dirEnv@DirectoryEnv{dsScriptRoot} TransferLogicEnv{tleMintingScript} =
-  let ProgrammableLogicGlobalParams {progLogicCred, directoryNodeCS} = globalParams dirEnv
+  let ProgrammableLogicGlobalParams {progLogicCred} = globalParams dirEnv
       DirectoryScriptRoot{srTarget} = dsScriptRoot
       progLogicScriptCredential = fromRight (error "could not parse protocol params") $ unTransCredential progLogicCred
-      directoryNodeSymbol       = fromRight (error "could not parse protocol params") $ unTransPolicyId directoryNodeCS
-  in programmableLogicMintingScript srTarget progLogicScriptCredential (C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleMintingScript) directoryNodeSymbol
+  in programmableLogicMintingScript srTarget progLogicScriptCredential (C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleMintingScript)
 
 {-| 'C.AssetId' of the programmable tokens
 -}

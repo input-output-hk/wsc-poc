@@ -79,12 +79,11 @@ directoryNodeSpendingScript target paramsPolId =
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- TODO: can we change the signature to just take the param policy id?
-programmableLogicMintingScript :: ScriptTarget -> C.PaymentCredential -> C.StakeCredential -> C.PolicyId -> C.PlutusScript C.PlutusScriptV3
-programmableLogicMintingScript target progLogicBaseSpndingCred mintingCred nodePolId =
+programmableLogicMintingScript :: ScriptTarget -> C.PaymentCredential -> C.StakeCredential -> C.PlutusScript C.PlutusScriptV3
+programmableLogicMintingScript target progLogicBaseSpndingCred mintingCred =
   let script = Scripts.tryCompile target
                $ mkProgrammableLogicMinting
                   # pdata (pconstant $ transCredential progLogicBaseSpndingCred)
-                  # pdata (pconstant $ transPolicyId nodePolId)
                   # pdata (pconstant $ transStakeCredential mintingCred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
