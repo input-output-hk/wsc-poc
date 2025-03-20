@@ -88,7 +88,7 @@ library
     Wst.Offchain.Scripts
     Wst.Orphans
     Wst.Server
-    Wst.Server.BlockfrostKey
+    Wst.Server.DemoEnvironment
     Wst.Server.Types
 
   hs-source-dirs:  lib
@@ -100,7 +100,9 @@ library
     , blockfrost-api
     , blockfrost-client
     , blockfrost-client-core
+    , bytestring
     , cardano-api
+    , cardano-ledger-core
     , cardano-ledger-shelley
     , containers
     , convex-base
@@ -138,6 +140,31 @@ executable wst-poc-cli
     , base
     , wst-poc
 
+executable convert-key
+  import:         lang
+  main-is:        Main.hs
+  hs-source-dirs: exe/convert-key
+  ghc-options:    -threaded -rtsopts -O2 -with-rtsopts=-N
+  build-depends:
+    , base
+    , cardano-api
+    , convex-wallet
+    , text
+
+executable calculate-hashes
+  import:         lang
+  main-is:        Main.hs
+  hs-source-dirs: exe/calculate-hashes
+  ghc-options:    -threaded -rtsopts -O2 -with-rtsopts=-N
+  build-depends:
+    , aeson
+    , base
+    , bytestring
+    , cardano-api
+    , cardano-ledger-core
+    , text
+    , wst-poc
+
 executable export-smart-tokens
   import:         lang
   main-is:        Main.hs
@@ -149,6 +176,8 @@ executable export-smart-tokens
     , bytestring
     , cardano-api
     , cardano-binary
+    , directory
+    , filepath
     , mtl
     , optparse-applicative
     , plutarch

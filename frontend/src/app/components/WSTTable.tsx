@@ -16,20 +16,22 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 
 //Local Imports
 import useStore from '../store/store'; 
-import { useEffect } from "react";
+import { useContext, useEffect } from "react";
 import IconButton from './WSTIconButton';
+import DemoEnvironmentContext from "../context/demoEnvironmentContext";
 
-const progLogicBase : LucidCredential = {
-  type: "Script",
-  hash: "fca77bcce1e5e73c97a0bfa8c90f7cd2faff6fd6ed5b6fec1c04eefa"
-}
-
-const stableCoin : Unit = toUnit("b34a184f1f2871aa4d33544caecefef5242025f45c3fa5213d7662a9", "575354")
 
 
 export default function WSTTable() {
   const { lucid, accounts } = useStore();
   const accountArray = Object.values(accounts);
+  const demoEnv = useContext(DemoEnvironmentContext);
+  const stableCoin : Unit = toUnit(demoEnv.minting_policy, demoEnv.token_name);
+  
+  const progLogicBase : LucidCredential = {
+    type: "Script",
+    hash: demoEnv.prog_logic_base_hash
+  }
 
   const getAccounts = async () => {
     const progUTxOs : UTxO[] = await lucid.utxosAtWithUnit(progLogicBase, stableCoin);
@@ -55,18 +57,23 @@ export default function WSTTable() {
       <Table size="small" aria-label="simple table" stickyHeader>
       <TableHead>
         <TableRow>
-          <TableCell>Address</TableCell>
+          <TableCell>Regular Address</TableCell>
+          <TableCell>Programmable Address</TableCell>
           <TableCell>Address Status</TableCell>
           <TableCell align="right">Address Balance</TableCell>
         </TableRow>
       </TableHead>
       <TableBody>
         {
-          accountArray.filter((acct) => acct.address !== "").map((acct, i) => (
+          accountArray.filter((acct) => acct.regular_address !== "").map((acct, i) => (
             <TableRow key={i}>
               <TableCell>
-                  {`${acct?.address.slice(0,15)}...${acct?.address.slice(104,108)}`}
-                  <IconButton onClick={() => copyToClipboard(acct.address)} icon={<ContentCopyIcon />}/>
+                  {`${acct?.regular_address.slice(0,15)}...${acct?.regular_address.slice(104,108)}`}
+                  <IconButton onClick={() => copyToClipboard(acct.regular_address)} icon={<ContentCopyIcon />}/>
+              </TableCell>
+              <TableCell>
+                  {`${acct?.programmable_token_address.slice(0,15)}...${acct?.programmable_token_address.slice(104,108)}`}
+                  <IconButton onClick={() => copyToClipboard(acct.programmable_token_address)} icon={<ContentCopyIcon />}/>
               </TableCell>
               <TableCell sx={{color: acct.status === 'Frozen' ? 'error.main' : 'success.main', fontWeight: '500'}}>
                   {acct.status}

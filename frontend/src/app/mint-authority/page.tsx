@@ -1,6 +1,6 @@
 'use client';
 //React imports
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 
 //Axios imports
 import axios from 'axios';
@@ -22,6 +22,7 @@ import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
 import WSTTable from '../components/WSTTable';
 import { getWalletBalance, signAndSentTx, getBlacklist } from '../utils/walletUtils';
+import DemoEnvironmentContext from '../context/demoEnvironmentContext';
 
 
 
@@ -38,6 +39,8 @@ export default function Home() {
   const [freezeReason, setFreezeReason] = useState('Enter reason here');
   const [seizeAccountNumber, setSeizeAccountNumber] = useState('address to seize');
   const [seizeReason, setSeizeReason] = useState('Enter reason here');
+
+  const demoEnv = useContext(DemoEnvironmentContext);
   
   useEffect(() => {
     const initialize = async () => {
@@ -45,12 +48,12 @@ export default function Home() {
       await fetchBlacklistStatus();
     };
     initialize();
-  }, []);
+  }, [demoEnv]);
 
   const fetchUserDetails = async () => {
-    const mintBalance = await getWalletBalance(mintAccount.address);
-    const userABalance = await getWalletBalance(accounts.alice.address);
-    const userBBalance = await getWalletBalance(accounts.bob.address);
+    const mintBalance = await getWalletBalance(demoEnv, mintAccount.regular_address);
+    const userABalance = await getWalletBalance(demoEnv, accounts.alice.regular_address);
+    const userBBalance = await getWalletBalance(demoEnv, accounts.bob.regular_address);
 
     // Update Zustand store with the initialized wallet information
     await changeMintAccountDetails({ ...mintAccount, balance: mintBalance});
@@ -59,15 +62,15 @@ export default function Home() {
   };
 
   const fetchBlacklistStatus = async () => {
-    const blacklist = await getBlacklist();
+    const blacklist = await getBlacklist(demoEnv);
     const { accounts, changeWalletAccountDetails } = useStore.getState();
     
     Object.entries(accounts).map(async ([key, account]) => {
-      if (!account.address || account.address.trim() === "") {
+      if (!account.regular_address || account.regular_address.trim() === "") {
         // console.log(`${key} has no address yet, skipping`);
         return;
       }
-      const credential : LucidCredential = await paymentCredentialOf(account.address);
+      const credential : LucidCredential = await paymentCredentialOf(account.regular_address);
       if(blacklist.includes(credential.hash)) {
         // console.log('a match was found', key as keyof typeof accounts);
         changeWalletAccountDetails(key as keyof typeof accounts, { ...account, status: 'Frozen',});
@@ -86,10 +89,10 @@ export default function Home() {
       return;
     }
     changeAlertInfo({severity: 'info', message: 'Processing Mint Request', open: true, link: ''});
-    lucid.selectWallet.fromSeed(mintAccount.mnemonic);
+    lucid.selectWallet.fromSeed(demoEnv.mint_authority);
     const requestData = {
       asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
-      issuer: mintAccount.address,
+      issuer: mintAccount.regular_address,
       quantity: mintTokensAmount,
       recipient: mintRecipientAddress
     };
@@ -108,7 +111,7 @@ export default function Home() {
       const tx = await lucid.fromTx(response.data.cborHex);
       const txId = await signAndSentTx(lucid, tx);
       
-      changeAlertInfo({severity: 'success', message: 'Successful new WST mint. View the transaction here:', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
+      changeAlertInfo({severity: 'success', message: 'Successful new WST mint. View the transaction here:', open: true, link: `${demoEnv.explorer_url}/${txId}`});
       
       await fetchUserDetails();
     } catch (error) {
@@ -117,15 +120,15 @@ export default function Home() {
   };
 
   const onSend = async () => {
-    lucid.selectWallet.fromSeed(mintAccount.mnemonic);
+    lucid.selectWallet.fromSeed(demoEnv.mint_authority);
     console.log('send tokens');
     changeAlertInfo({severity: 'info', message: 'Transaction processing', open: true, link: ''});
     const requestData = {
       asset_name: Buffer.from('WST', 'utf8').toString('hex'), // Convert "WST" to hex
-      issuer: mintAccount.address,
+      issuer: mintAccount.regular_address,
       quantity: sendTokensAmount,
       recipient: sendRecipientAddress,
-      sender: mintAccount.address,
+      sender: mintAccount.regular_address,
     };
     try {
       const response = await axios.post(
@@ -140,9 +143,9 @@ export default function Home() {
       console.log('Send response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       const txId = await signAndSentTx(lucid, tx);
-      const newAccountBalance = await getWalletBalance(sendRecipientAddress);
+      const newAccountBalance = await getWalletBalance(demoEnv, sendRecipientAddress);
       const recipientWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
-        (key) => accounts[key].address === sendRecipientAddress
+        (key) => accounts[key].regular_address === sendRecipientAddress
       );
       if (recipientWalletKey) {
         changeWalletAccountDetails(recipientWalletKey, {
@@ -150,7 +153,7 @@ export default function Home() {
           balance: newAccountBalance,
         });
       }
-      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
+      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `${demoEnv.explorer_url}/${txId}`});
       await fetchUserDetails();
     } catch (error) {
       console.error('Send failed:', error);
@@ -159,10 +162,10 @@ export default function Home() {
 
   const onFreeze = async () => {
     console.log('freeze an address');
-    lucid.selectWallet.fromSeed(mintAccount.mnemonic);
+    lucid.selectWallet.fromSeed(demoEnv.mint_authority);
     changeAlertInfo({severity: 'info', message: 'Freeze request processing', open: true, link: ''});
     const requestData = {
-      issuer: mintAccount.address,
+      issuer: mintAccount.regular_address,
       blacklist_address: freezeAccountNumber,
       reason: freezeReason,
     };
@@ -180,9 +183,9 @@ export default function Home() {
       const tx = await lucid.fromTx(response.data.cborHex);
       const txId = await signAndSentTx(lucid, tx);
       console.log(txId);
-      changeAlertInfo({severity: 'success', message: 'Address successfully frozen', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
+      changeAlertInfo({severity: 'success', message: 'Address successfully frozen', open: true, link: `${demoEnv.explorer_url}/${txId}`});
       const frozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
-        (key) => accounts[key].address === freezeAccountNumber
+        (key) => accounts[key].regular_address === freezeAccountNumber
       );
       if (frozenWalletKey) {
         changeWalletAccountDetails(frozenWalletKey, {
@@ -206,10 +209,10 @@ export default function Home() {
 
   const onUnfreeze = async () => {
     console.log('unfreeze an account');
-    lucid.selectWallet.fromSeed(mintAccount.mnemonic);
+    lucid.selectWallet.fromSeed(demoEnv.mint_authority);
     changeAlertInfo({severity: 'info', message: 'Unfreeze request processing', open: true, link: ''});
     const requestData = {
-      issuer: mintAccount.address,
+      issuer: mintAccount.regular_address,
       blacklist_address: unfreezeAccountNumber,
       reason: "(unfreeze)"
     };
@@ -226,9 +229,9 @@ export default function Home() {
       console.log('Unfreeze response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       const txId = await signAndSentTx(lucid, tx);
-      changeAlertInfo({severity: 'success', message: 'Address successfully unfrozen', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
+      changeAlertInfo({severity: 'success', message: 'Address successfully unfrozen', open: true, link: `${demoEnv.explorer_url}/${txId}`});
       const unfrozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
-        (key) => accounts[key].address === freezeAccountNumber
+        (key) => accounts[key].regular_address === freezeAccountNumber
       );
       if (unfrozenWalletKey) {
         changeWalletAccountDetails(unfrozenWalletKey, {
@@ -252,10 +255,10 @@ export default function Home() {
 
   const onSeize = async () => {
     console.log('seize account funds');
-    lucid.selectWallet.fromSeed(mintAccount.mnemonic);
+    lucid.selectWallet.fromSeed(demoEnv.mint_authority);
     changeAlertInfo({severity: 'info', message: 'WST seizure processing', open: true, link: ''});
     const requestData = {
-      issuer: mintAccount.address,
+      issuer: mintAccount.regular_address,
       target: seizeAccountNumber,
       reason: seizeReason,
     };
@@ -272,9 +275,9 @@ export default function Home() {
       console.log('Seize response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       const txId = await signAndSentTx(lucid, tx);
-      const newAccountBalance = await getWalletBalance(seizeAccountNumber);
+      const newAccountBalance = await getWalletBalance(demoEnv, seizeAccountNumber);
       const seizeWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
-        (key) => accounts[key].address === seizeAccountNumber
+        (key) => accounts[key].regular_address === seizeAccountNumber
       );
       if (seizeWalletKey) {
         changeWalletAccountDetails(seizeWalletKey, {
@@ -282,7 +285,7 @@ export default function Home() {
           balance: newAccountBalance,
         });
       }
-      changeAlertInfo({severity: 'success', message: 'Funds successfully seized', open: true, link: `https://preview.cexplorer.io/tx/${txId}`});
+      changeAlertInfo({severity: 'success', message: 'Funds successfully seized', open: true, link: `${demoEnv.explorer_url}/${txId}`});
       await fetchUserDetails();
     } catch (error) {
       console.error('Seize failed:', error);
@@ -371,7 +374,7 @@ maxRows={3}
 
   const receiveContent =  <Box>
     <CopyTextField 
-      value={mintAccount.address}
+      value={mintAccount.regular_address}
       fullWidth={true}
       label="Your Address"
       />
@@ -385,9 +388,9 @@ maxRows={3}
           <Box>
             <Typography variant='h4'>Mint Authority Balance</Typography>
             <Typography variant='h1'>{mintAccount.balance.wst} WST</Typography>
-            <Typography variant='h5'>{mintAccount.balance.ada} Ada</Typography>
+            <Typography variant='h5'>{mintAccount.balance.ada} Ada { (mintAccount.balance.adaOnlyOutputs === 0) && (<span>({mintAccount.balance.adaOnlyOutputs} collateral UTxOs)</span>)}</Typography>
           </Box>
-          <Typography variant='h5'>UserID: {mintAccount.address.slice(0,15)}</Typography>
+          <Typography variant='h5'>UserID: {mintAccount.regular_address.slice(0,15)}</Typography>
           </Box>
           <div className="cardWrapperParent">
             <WalletCard tabs={[
