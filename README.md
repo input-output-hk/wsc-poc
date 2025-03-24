@@ -16,8 +16,8 @@ See [doc/architecture.md](doc/architecture.md)
 ## Contents of this repository
 
 This repository contains 
-* Prototype implementation of CIP-0143 in Plutarch
-* Prototype implementation of _WST_, a programmable token with freeze-and-seize capbilities, in Plutarch
+* Prototype implementation of CIP-0143 in Plutarch (see `src/programmable-tokens`)
+* Prototype implementation of _WST_, a programmable token with freeze-and-seize capbilities, in Plutarch (see `src/regulated-stablecoin`)
 * Transaction building code for initial deployment, minting programmable tokens, transferring programmable tokens, adding addresses to the blacklist (ie. freezing), and seizing funds from blacklisted addresses. Based on sc-tools and cardano-api.
 * Emulator tests for the nominal cases (happy path) based on the actual ledger implementation and mainnet protocol parameters.
 * A user interface that implements the use cases using browser-based wallets. Based on next.js and lucid.
