@@ -201,6 +201,7 @@ test-suite wst-poc-test
     , mtl
     , plutus-ledger-api
     , plutus-tx
+    , programmable-tokens
     , tasty
     , tasty-hunit
     , wst-poc
