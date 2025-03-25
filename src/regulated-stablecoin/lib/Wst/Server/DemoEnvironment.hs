@@ -13,7 +13,6 @@ module Wst.Server.DemoEnvironment(
   writeToFile,
 ) where
 
-import Blockfrost.Lens (HasPolicyId (policyId))
 import Cardano.Api.Shelley qualified as C
 import Cardano.Ledger.BaseTypes qualified as Ledger
 import Control.Lens ((&), (?~))

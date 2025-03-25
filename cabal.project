@@ -35,7 +35,8 @@ allow-older:
 with-compiler: ghc-9.6.6
 
 packages:
-    src
+    src/programmable-tokens
+    src/regulated-stablecoin
 
 
 source-repository-package

@@ -1,20 +1,15 @@
-cabal-version:      3.4
-name:               wst-poc
-version:            0.3.0.0
-synopsis:           On-chain code for regulated stablecoin proof-of-concept
-license:            Apache-2.0
-license-files:      LICENSE
-maintainer:         j-mueller@users.noreply.github.com
-author:             Djed team @ IOG
-homepage:           https://github.com/input-output-hk/wsc-poc
-bug-reports:        https://github.com/input-output-hk/wsc-poc
+cabal-version: 3.4
+name:          wst-poc
+version:       0.3.0.0
+synopsis:      Regulated stablecoin proof-of-concept
+license:       Apache-2.0
+license-files: LICENSE
+maintainer:    j-mueller@users.noreply.github.com
+author:        Djed team @ IOG
+homepage:      https://github.com/input-output-hk/wsc-poc
+bug-reports:   https://github.com/input-output-hk/wsc-poc
 description:
   Please see the README on GitHub at <https://github.com/input-output-hk/wst-poc>
-
--- A copyright notice.
--- copyright:
--- category:
-extra-source-files: CHANGELOG.md
 
 common lang
   default-language:   Haskell2010
@@ -53,24 +48,6 @@ common lang
 library
   import:          lang
   exposed-modules:
-    Profile
-    SmartTokens.CodeLens
-    SmartTokens.Contracts.AlwaysYields
-    SmartTokens.Contracts.ExampleTransferLogic
-    SmartTokens.Contracts.Issuance
-    SmartTokens.Contracts.ProgrammableLogicBase
-    SmartTokens.Contracts.ProtocolParams
-    SmartTokens.Core.Scripts
-    SmartTokens.LinkedList.BlacklistCommon
-    SmartTokens.LinkedList.Common
-    SmartTokens.LinkedList.MintBlacklist
-    SmartTokens.LinkedList.MintDirectory
-    SmartTokens.LinkedList.SpendBlacklist
-    SmartTokens.LinkedList.SpendDirectory
-    SmartTokens.Types.Constants
-    SmartTokens.Types.ProtocolParams
-    SmartTokens.Types.PTokenDirectory
-    Types.Constants
     Wst.App
     Wst.AppError
     Wst.Cli
@@ -112,17 +89,14 @@ library
     , convex-coin-selection
     , convex-optics
     , convex-wallet
-    , generics-sop
     , lens
     , mtl
     , openapi3
     , optparse-applicative
     , plutarch
-    , plutarch-ledger-api
-    , plutarch-onchain-lib
-    , plutus-core
     , plutus-ledger-api
     , plutus-tx
+    , programmable-tokens
     , servant
     , servant-client
     , servant-client-core
@@ -184,6 +158,7 @@ executable export-smart-tokens
     , optparse-applicative
     , plutarch
     , plutus-ledger-api
+    , programmable-tokens
     , text
     , wst-poc
 
@@ -200,6 +175,7 @@ library test-lib
     , convex-base
     , hedgehog-quickcheck
     , plutus-ledger-api
+    , programmable-tokens
     , QuickCheck
     , wst-poc
 
@@ -225,6 +201,7 @@ test-suite wst-poc-test
     , mtl
     , plutus-ledger-api
     , plutus-tx
+    , programmable-tokens
     , tasty
     , tasty-hunit
     , wst-poc
