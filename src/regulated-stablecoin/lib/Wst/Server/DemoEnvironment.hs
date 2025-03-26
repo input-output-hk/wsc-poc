@@ -128,12 +128,19 @@ mkDemoEnv txIn (C.ShelleyAddress network (C.fromShelleyPaymentCredential -> C.Pa
       transferLogicEnv = Env.mkTransferLogicEnv $ Env.BlacklistTransferLogicScriptRoot target dirEnv pkh
       dummyText        = "REPLACE ME"
       assetName        = "WST"
-      C.AddressInEra (C.ShelleyAddressInEra C.ShelleyBasedEraConway) (SerialiseAddress -> daTransferLogicAddress) =
+      dummyBlockfrostUrl = "https://cardano-preview.blockfrost.io/api/v0"
+      dummyNetwork     = Preview
+      dummyKey = "REPLACE ME"
+      dummyExplorer = "https://preview.cexplorer.io/tx"
+      daTransferLogicAddress = case
         C.makeShelleyAddressInEra
           C.ShelleyBasedEraConway
           (fromLedgerNetwork network)
           (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 $ Env.tleBlacklistSpendingScript transferLogicEnv)
           C.NoStakeAddress
+       of
+          C.AddressInEra (C.ShelleyAddressInEra C.ShelleyBasedEraConway) (SerialiseAddress -> daTransferLogicAddress') -> daTransferLogicAddress'
+          _ -> error "mkDemoEnv: Expected Shelley address"
 
   (daMintingPolicy, daTokenName) <- computeAssetId dirEnv transferLogicEnv assetName
   daProgLogicBaseHash <- computeScriptCredential dirEnv
@@ -143,7 +150,10 @@ mkDemoEnv txIn (C.ShelleyAddress network (C.fromShelleyPaymentCredential -> C.Pa
           { daMintAuthority = dummyText
           , daUserA         = dummyText
           , daUserB         = dummyText
-
+          , daNetwork       = dummyNetwork
+          , daBlockfrostUrl = dummyBlockfrostUrl
+          , daBlockfrostKey = dummyKey
+          , daExplorerUrl = dummyExplorer
           , daMintingPolicy
           , daTokenName
           , daTransferLogicAddress
@@ -168,9 +178,9 @@ jsonOptions2 = JSON.customJsonOptions 2
 loadFromFile :: FilePath -> IO DemoEnvironment
 loadFromFile fp = do
   putStrLn $ "Loading demo env from file: " <> fp
-  fmap Aeson.decode (BSL.readFile fp) >>= \case
+  BSL.readFile fp >>= (\case
     Nothing -> error "failed to decode JSON"
-    Just a  -> pure a
+    Just a  -> pure a) . Aeson.decode
 
 writeToFile :: FilePath -> DemoEnvironment -> IO ()
 writeToFile fp = BSL.writeFile fp . Aeson.encode

@@ -9,51 +9,49 @@ module SmartTokens.Contracts.Issuance (
   SmartTokenMintingAction (..),
 ) where
 
+import Generics.SOP qualified as SOP
 import GHC.Generics (Generic)
 import Plutarch.Core.Context (paddressCredential)
 import Plutarch.Core.List (pheadSingleton)
 import Plutarch.Core.ValidationLogic (pvalidateConditions)
 import Plutarch.Core.Value (ptryLookupValue)
-import Plutarch.Internal.PlutusType (PlutusType (pcon', pmatch'))
 import Plutarch.LedgerApi.AssocMap qualified as AssocMap
-import Plutarch.LedgerApi.V3 (PCredential, PRedeemer, PScriptContext (..),
-                              PScriptInfo (PMintingScript), PScriptPurpose (..),
+import Plutarch.LedgerApi.V3 (PCredential (..), PRedeemer, PScriptContext (..),
+                              PScriptHash, PScriptInfo (PMintingScript),
+                              PScriptPurpose (..),
                               PTxInfo (PTxInfo, ptxInfo'mint, ptxInfo'outputs, ptxInfo'wdrl),
-                              PTxOut (PTxOut, ptxOut'address, ptxOut'value))
+                              PTxOut (PTxOut, ptxOut'address, ptxOut'value),
+                              ptxInfo'redeemers)
 import Plutarch.LedgerApi.Value (pvalueOf)
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
+import PlutusLedgerApi.V3
 import PlutusTx qualified
 
-data SmartTokenMintingAction = MintPToken
+newtype SmartTokenMintingAction = SmartTokenMintingAction Credential
   deriving stock (Show, Eq, Generic)
+  deriving newtype
+    ( PlutusTx.ToData
+    , PlutusTx.FromData
+    , PlutusTx.UnsafeFromData
+    )
 
-instance PlutusTx.ToData SmartTokenMintingAction where
-  toBuiltinData MintPToken = PlutusTx.dataToBuiltinData (PlutusTx.I 0)
-
-data PSmartTokenMintingAction (s :: S) = PMintPToken
-
-{- |
-  PSmartTokenMintingAction is encoded as an Enum, using values of PInteger
-  internally.
--}
-instance PlutusType PSmartTokenMintingAction where
-  type PInner PSmartTokenMintingAction = PInteger
-
-  pcon' PMintPToken = 0
-
-  -- redeemer data is untrusted and non-permanent so we can safely decide zero is
-  -- PMintPToken
-  pmatch' x f =
-    pif (x #== 0) (f PMintPToken) perror
-
-instance PIsData PSmartTokenMintingAction where
-    pfromDataImpl d =
-        punsafeCoerce (pfromDataImpl @PInteger $ punsafeCoerce d)
-
-    pdataImpl x =
-        pdataImpl $ pto x
+newtype PSmartTokenMintingAction (s :: S) = PSmartTokenMintingAction (Term s PCredential)
+  deriving stock
+    ( Generic
+    )
+  deriving anyclass
+    ( SOP.Generic
+    , PIsData
+    , PEq
+    , PShow
+    )
+  deriving
+    (
+      PlutusType
+    )
+    via (DeriveNewtypePlutusType PSmartTokenMintingAction)
 
 {-| Minting Policy for Programmable Logic Tokens
 
@@ -62,16 +60,14 @@ configurable transfer and issuer logic.
 
 == Overview
 The policy supports two primary actions:
-1. Token Registration
-2. Token Minting/Burning
+1. Token Minting
+2. Token Burning
 
-Both actions are encompassed by the `PMintPToken` redeemer, which is used to register a new programmable token and to mint or burn tokens of an already registered token.
+Both actions are encompassed by the `PSmartTokenMintingAction` redeemer, which is used to mint or burn tokens of an already registered token.
 
 == Registration Process
-When registering a new programmable token, the policy:
-- Creates a directory entry for the token
-- Associates the programmable token with specific transfer and issuer logic scripts
-- Ensures one-time registration per minting policy instance
+Before a token is minted from this policy, it should be registered in the directory.
+For details on the registration process refer to the `SmartTokens.LinkedList.MintDirectory` module.
 
 == Directory Node Structure
 Each programmable token entry is represented in a directory with the following attributes:
@@ -97,12 +93,12 @@ Each programmable token entry is represented in a directory with the following a
 @mintingLogicCred@ Script Credential for the script which must be invoked to perform minting/burning operations
 @ctx@ Script context containing transaction details
 -}
-mkProgrammableLogicMinting :: ClosedTerm (PAsData PCredential :--> PAsData PCredential :--> PScriptContext :--> PUnit)
-mkProgrammableLogicMinting = plam $ \(pfromData -> programmableLogicBase) mintingLogicCred ctx -> P.do
+mkProgrammableLogicMinting :: ClosedTerm (PAsData PCredential :--> PAsData PScriptHash :--> PScriptContext :--> PUnit)
+mkProgrammableLogicMinting = plam $ \(pfromData -> programmableLogicBase) mintingLogicCred' ctx -> P.do
+  let mintingLogicCred = pdata $ pcon $ PScriptCredential mintingLogicCred'
   PScriptContext {pscriptContext'txInfo, pscriptContext'redeemer, pscriptContext'scriptInfo} <- pmatch ctx
-  PTxInfo {ptxInfo'outputs, ptxInfo'mint, ptxInfo'wdrl} <- pmatch pscriptContext'txInfo
+  PTxInfo {ptxInfo'outputs, ptxInfo'mint, ptxInfo'wdrl, ptxInfo'redeemers} <- pmatch pscriptContext'txInfo
 
-  let red = pfromData (punsafeCoerce @(PAsData PSmartTokenMintingAction) (pto pscriptContext'redeemer))
   PMintingScript ownCS' <- pmatch pscriptContext'scriptInfo
   ownCS <- plet ownCS'
   mintedValue <- plet $ pfromData ptxInfo'mint
@@ -122,35 +118,53 @@ mkProgrammableLogicMinting = plam $ \(pfromData -> programmableLogicBase) mintin
         pmap @PBuiltinList
           # plam (pfstBuiltin #)
           # pto (pfromData ptxInfo'wdrl)
+  red <- plet pscriptContext'redeemer
+  -- PMintPToken is used to register a new programmable token in the directory and to mint the programmable token upon registration and
+  -- in any subsequent transaction.
+  -- At registration this creates a permanent association between the currency symbol with a transferLogicScript and issuerLogicScript.
+  -- All transfers of the token will be validated by either the transferLogicScript or the issuerLogicScript.
+  -- Registration can only occurr once per instance of this minting policy since the directory contracts do not permit duplicate
+  -- entries.
+  pif (ownNumMinted #> 0)
+      (
+        -- This branch is for validating the minting of tokens
+        pvalidateConditions
+          [ pvalueOf # pfromData mintingToOutputFValue # pfromData ownCS # pfromData ownTokenName #== ownNumMinted
+          , paddressCredential mintingToOutputFAddress #== programmableLogicBase
+          , pelem # mintingLogicCred # invokedScripts
+          , punsafeCoerce @(PAsData PCredential) (pto red) #== mintingLogicCred
+          , psingleMintWithCredential # pdata red # pfromData ptxInfo'redeemers
+          ]
+      )
+      (
+        -- This branch is for validating the burning of tokens
+        pvalidateConditions
+          [ pelem # mintingLogicCred # invokedScripts
+          , psingleMintWithCredential # pdata pscriptContext'redeemer # pfromData ptxInfo'redeemers
+          ]
+      )
 
-  pmatch red $ \case
-    -- PMintPToken is used to register a new programmable token in the directory and to mint the programmable token upon registration and
-    -- in any subsequent transaction.
-    -- At registration this creates a permanent association between the currency symbol with a transferLogicScript and issuerLogicScript.
-    -- All transfers of the token will be validated by either the transferLogicScript or the issuerLogicScript.
-    -- Registration can only occurr once per instance of this minting policy since the directory contracts do not permit duplicate
-    -- entries.
-    PMintPToken ->
-      pif (ownNumMinted #> 0)
-          (
-            pvalidateConditions
-              [ pvalueOf # pfromData mintingToOutputFValue # pfromData ownCS # pfromData ownTokenName #== ownNumMinted
-              , paddressCredential mintingToOutputFAddress #== programmableLogicBase
-              , pelem # mintingLogicCred # invokedScripts
-              ]
-          )
-          (
-            -- This branch is for validating the burning of tokens
-            pvalidateConditions [pelem # mintingLogicCred # invokedScripts]
-          )
-
--- TODO:
--- Add this check to the above validator
--- and adjust the offchain to provide the redeemer of the issuance minting policy set to the Credential of the withdraw-zero validator.
-_psingleMintWithCredential :: Term (s :: S) (PAsData PRedeemer :--> AssocMap.PMap 'AssocMap.Unsorted PScriptPurpose PRedeemer :--> PBool)
-_psingleMintWithCredential =
+-- | Check that exactly one redeemer with the mintingLogic credential is present in the transaction.
+psingleMintWithCredential :: Term (s :: S) (PAsData PRedeemer :--> AssocMap.PMap 'AssocMap.Unsorted PScriptPurpose PRedeemer :--> PBool)
+psingleMintWithCredential =
   phoistAcyclic $ plam $ \rdmr redeemers ->
+    -- skip spending purposes
     let go = pfix #$ plam $ \self ->
+              pelimList
+                (\x xs ->
+                  let purposeConstrPair = pfstBuiltin # x
+                      purposeConstrIdx = pfstBuiltin # (pasConstr # pforgetData purposeConstrPair)
+                   in pif
+                        (pnot # (purposeConstrIdx #== 0))
+                        (self # xs)
+                        ( pif (psndBuiltin # x #== rdmr)
+                              (go2 # xs)
+                              (go1 # xs)
+                        )
+                )
+                (pconstant False)
+        -- check that exactly one redeemer is equal to the mintingLogic credential
+        go1 = pfix #$ plam $ \self ->
               pelimList
                 (\x xs ->
                   let purposeConstrPair = pfstBuiltin # x
@@ -164,6 +178,7 @@ _psingleMintWithCredential =
                         (pconstant False)
                 )
                 (pconstant False)
+        -- check that no other redeemer is equal to the mintingLogic credential
         go2 = pfix #$ plam $ \self ->
                 pelimList
                   (\x xs ->

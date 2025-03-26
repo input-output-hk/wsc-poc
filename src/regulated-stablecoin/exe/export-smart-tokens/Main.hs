@@ -19,18 +19,22 @@ import Data.String (IsString (..))
 import Data.Text (Text, pack)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
+import Data.Text.IO qualified as TIO
 import Options.Applicative (Parser, argument, customExecParser, disambiguate,
                             eitherReader, help, helper, idm, info, metavar,
                             optional, prefs, showHelpOnEmpty, showHelpOnError,
                             strArgument)
 import Options.Applicative.Builder (ReadM)
-import Plutarch.Evaluate (applyArguments, evalScript)
+import Plutarch.Evaluate (applyArguments, evalScript, unsafeEvalTerm)
 import Plutarch.Internal.Term (Config (..), LogLevel (LogInfo), Script,
                                TracingMode (DoTracing, DoTracingAndBinds),
                                compile)
 import Plutarch.Prelude
 import Plutarch.Script (serialiseScript)
+import PlutusLedgerApi.Common (toData)
 import PlutusLedgerApi.V2 (Data, ExBudget)
+import PlutusLedgerApi.V3 qualified as V3
+import PlutusTx.Builtins.HasOpaque
 import SmartTokens.Contracts.ExampleTransferLogic (mkFreezeAndSeizeTransfer,
                                                    mkPermissionedTransfer)
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
@@ -43,6 +47,7 @@ import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import SmartTokens.LinkedList.MintDirectory (mkDirectoryNodeMP)
 import SmartTokens.LinkedList.SpendBlacklist (pmkBlacklistSpending)
 import SmartTokens.LinkedList.SpendDirectory (pmkDirectorySpending)
+import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 import Text.Read (readMaybe)
@@ -50,10 +55,11 @@ import Wst.Offchain.Env (BlacklistTransferLogicScriptRoot (..),
                          DirectoryEnv (..),
                          DirectoryScriptRoot (DirectoryScriptRoot),
                          HasDirectoryEnv (directoryEnv), TransferLogicEnv (..),
-                         mkDirectoryEnv, programmableTokenMintingScript,
-                         transferLogicEnv, withDirectoryFor, withEnv,
-                         withTransferFor)
+                         globalParams, mkDirectoryEnv,
+                         programmableTokenMintingScript, transferLogicEnv,
+                         withDirectoryFor, withEnv, withTransferFor)
 import Wst.Server.Types (SerialiseAddress (..))
+
 
 encodeSerialiseCBOR :: Script -> Text
 encodeSerialiseCBOR = Text.decodeUtf8 . Base16.encode . CBOR.serialize' . serialiseScript
@@ -79,6 +85,14 @@ writePlutusScript cfg title filepath term = do
         content = encodePretty plutusJson
       LBS.writeFile filepath content
 
+_writePlutusScriptWithArgs :: String -> FilePath -> [Data] -> Script -> IO ()
+_writePlutusScriptWithArgs title filepath args compiledScript = do
+  let appliedScript = applyArguments compiledScript args
+      scriptType = "PlutusScriptV3" :: String
+      plutusJson = object ["type" .= scriptType, "description" .= title, "cborHex" .= encodeSerialiseCBOR appliedScript]
+      content = encodePretty plutusJson
+  LBS.writeFile filepath content
+
 writePlutusScriptTraceBind :: String -> FilePath -> ClosedTerm a -> IO ()
 writePlutusScriptTraceBind = writePlutusScript (Tracing LogInfo DoTracingAndBinds)
 
@@ -88,8 +102,41 @@ writePlutusScriptTrace = writePlutusScript (Tracing LogInfo DoTracing)
 writePlutusScriptNoTrace :: String -> FilePath -> ClosedTerm a -> IO ()
 writePlutusScriptNoTrace = writePlutusScript NoTracing
 
+issuerPrefixPostfixBytes :: V3.Credential -> (Text, Text)
+issuerPrefixPostfixBytes progLogicCred =
+  let
+      dummyHex = "deadbeefcafebabe"
+      placeholderMintingLogic = V3.ScriptHash $ stringToBuiltinByteStringHex "deadbeefcafebabe"
+      issuerScriptBase =
+        case compile NoTracing (mkProgrammableLogicMinting # pconstant progLogicCred) of
+          Right compiledScript -> compiledScript
+          Left err -> error $ "Failed to compile issuer script: " <> show err
+      dummyIssuerInstanceCborHex = encodeSerialiseCBOR $ applyArguments issuerScriptBase [toData placeholderMintingLogic]
+   in breakCborHex dummyHex dummyIssuerInstanceCborHex
+
+breakCborHex :: Text -> Text -> (Text, Text)
+breakCborHex toSplitOn cborHex =
+  case Text.breakOn toSplitOn cborHex of
+    (before, after)
+      | not (Text.null after) -> (before, Text.drop (Text.length toSplitOn) after)
+      | otherwise          -> (cborHex, "")
+
 main :: IO ()
-main = runMain
+main = do
+  let progLogicBase = V3.ScriptCredential (V3.ScriptHash "deadbeef")
+      mintingLogicA = V3.ScriptHash $ stringToBuiltinByteStringHex "deadbeefdeadbeef"
+      mintingLogicB = V3.ScriptHash $ stringToBuiltinByteStringHex "deadbeefcafebabe"
+      (prefixIssuerCborHex, postfixIssuerCborHex) = issuerPrefixPostfixBytes progLogicBase
+  let baseCompiled = case compile NoTracing (mkProgrammableLogicMinting # pconstant progLogicBase) of
+        Right compiledScript -> compiledScript
+        Left err -> error $ "Failed to compile base issuance script: " <> show err
+
+  TIO.writeFile ("generated" </> "unapplied" </> "test" </> "prefixIssuerCborHex.txt") prefixIssuerCborHex
+  TIO.writeFile ("generated" </> "unapplied" </> "test" </> "postfixIssuerCborHex.txt") postfixIssuerCborHex
+  _writePlutusScriptWithArgs "Issuance" ("generated" </> "unapplied" </> "test" </> "issuance1.json") [toData mintingLogicA] baseCompiled
+  _writePlutusScriptWithArgs "Issuance" ("generated" </> "unapplied" </> "test" </> "issuance2.json") [toData mintingLogicB] baseCompiled
+
+  runMain
 
 runMain :: IO ()
 runMain =
@@ -125,6 +172,10 @@ writeAppliedScripts baseFolder AppliedScriptArgs{asaTxIn, asaIssuerAddress=Seria
           , dsProgrammableLogicBaseScript
           , dsProgrammableLogicGlobalScript
           } <- asks directoryEnv
+        let ProgrammableLogicGlobalParams {progLogicCred} = globalParams dirEnv
+            (prefixIssuerCborHex, postfixIssuerCborHex) = issuerPrefixPostfixBytes progLogicCred
+        liftIO $ TIO.writeFile (baseFolder </> "prefixIssuerCborHex.txt") prefixIssuerCborHex
+        liftIO $ TIO.writeFile (baseFolder </> "postfixIssuerCborHex.txt") postfixIssuerCborHex
         let programmableMinting = programmableTokenMintingScript dirEnv transferEnv
         writeAppliedScript (baseFolder </> "protocolParametersNFTMinting") "Protocol Parameters NFT" dsProtocolParamsMintingScript
         writeAppliedScript (baseFolder </> "protocolParametersSpending") "Protocol Parameters Spending" dsProtocolParamsSpendingScript

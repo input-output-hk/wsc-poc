@@ -34,6 +34,7 @@ import Convex.PlutusLedger.V1 (transCredential, transPolicyId, transPubKeyHash,
 import Convex.PlutusLedger.V3 (transTxOutRef)
 import Plutarch.Prelude
 import Plutarch.Script (serialiseScript)
+import PlutusLedgerApi.V3
 import SmartTokens.Contracts.AlwaysYields (palwaysSucceed)
 import SmartTokens.Contracts.ExampleTransferLogic (mkFreezeAndSeizeTransfer,
                                                    mkPermissionedTransfer)
@@ -84,8 +85,12 @@ programmableLogicMintingScript target progLogicBaseSpndingCred mintingCred =
   let script = Scripts.tryCompile target
                $ mkProgrammableLogicMinting
                   # pdata (pconstant $ transCredential progLogicBaseSpndingCred)
-                  # pdata (pconstant $ transStakeCredential mintingCred)
+                  # pdata (pconstant $ extractScriptHash $ transStakeCredential mintingCred)
   in C.PlutusScriptSerialised $ serialiseScript script
+  where
+    extractScriptHash :: Credential -> ScriptHash
+    extractScriptHash (ScriptCredential h) = h
+    extractScriptHash _ = error "Expected ScriptCredential"
 
 programmableLogicBaseScript :: ScriptTarget -> C.StakeCredential -> C.PlutusScript C.PlutusScriptV3 -- Parameterized by the stake cred of the global script
 programmableLogicBaseScript target globalCred =

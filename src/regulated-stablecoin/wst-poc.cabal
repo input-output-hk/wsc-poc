@@ -158,6 +158,7 @@ executable export-smart-tokens
     , optparse-applicative
     , plutarch
     , plutus-ledger-api
+    , plutus-tx
     , programmable-tokens
     , text
     , wst-poc
