@@ -19,6 +19,10 @@ module Wst.Offchain.Scripts (
   blacklistMintingScript,
   blacklistSpendingScript,
 
+  -- * Issuance Cbor Hex Script
+  issuanceCborHexSpendingScript,
+  issuanceCborHexMintingScript,
+
   -- * Always suceeds
   alwaysSucceedsScript,
 
@@ -39,6 +43,7 @@ import SmartTokens.Contracts.AlwaysYields (palwaysSucceed)
 import SmartTokens.Contracts.ExampleTransferLogic (mkFreezeAndSeizeTransfer,
                                                    mkPermissionedTransfer)
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
+import SmartTokens.Contracts.IssuanceCborHex (mkIssuanceCborHexMinting)
 import SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicBase,
                                                     mkProgrammableLogicGlobal)
 import SmartTokens.Contracts.ProtocolParams (alwaysFailScript,
@@ -63,6 +68,19 @@ protocolParamsMintingScript target txIn =
 protocolParamsSpendingScript :: ScriptTarget -> C.PlutusScript C.PlutusScriptV3
 protocolParamsSpendingScript target =
   let script = Scripts.tryCompile target $ alwaysFailScript # pforgetData (pdata (pconstant "" :: ClosedTerm PByteString))
+  in C.PlutusScriptSerialised $ serialiseScript script
+
+-- | The minting script for the issuance cbor hex NFT, takes initial TxIn for
+-- one shot mint
+issuanceCborHexMintingScript :: ScriptTarget -> C.TxIn -> C.PlutusScript C.PlutusScriptV3
+issuanceCborHexMintingScript target txIn =
+  let script = Scripts.tryCompile target $ mkIssuanceCborHexMinting # pdata (pconstant $ transTxOutRef txIn)
+  in C.PlutusScriptSerialised $ serialiseScript script
+
+-- | The spending script for the issuance cbor hex NFT parameterized by the nonce "deadbeef"
+issuanceCborHexSpendingScript :: ScriptTarget -> C.PlutusScript C.PlutusScriptV3
+issuanceCborHexSpendingScript target =
+  let script = Scripts.tryCompile target $ alwaysFailScript # pforgetData (pdata (pconstant "deadbeef" :: ClosedTerm PByteString))
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- | The minting script for the directory node tokens, takes initial TxIn for

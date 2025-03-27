@@ -121,10 +121,10 @@ previewNetworkDemoEnvironment daBlockfrostKey
 {-| Calculate all of the hashes given the initial 'TxIn' and the issuer
 address.
 -}
-mkDemoEnv :: C.TxIn -> C.Address C.ShelleyAddr -> Either String DemoEnvironment
-mkDemoEnv txIn (C.ShelleyAddress network (C.fromShelleyPaymentCredential -> C.PaymentCredentialByKey pkh) _) = do
+mkDemoEnv :: C.TxIn -> C.TxIn -> C.Address C.ShelleyAddr -> Either String DemoEnvironment
+mkDemoEnv txIn issuanceCborHexTxIn (C.ShelleyAddress network (C.fromShelleyPaymentCredential -> C.PaymentCredentialByKey pkh) _) = do
   let target           = Production
-      dirEnv           = Env.mkDirectoryEnv (Env.DirectoryScriptRoot txIn target)
+      dirEnv           = Env.mkDirectoryEnv (Env.DirectoryScriptRoot txIn issuanceCborHexTxIn target)
       transferLogicEnv = Env.mkTransferLogicEnv $ Env.BlacklistTransferLogicScriptRoot target dirEnv pkh
       dummyText        = "REPLACE ME"
       assetName        = "WST"
@@ -160,7 +160,7 @@ mkDemoEnv txIn (C.ShelleyAddress network (C.fromShelleyPaymentCredential -> C.Pa
           , daProgLogicBaseHash
           }
   pure result
-mkDemoEnv _    _ = Left "Expected private key address"
+mkDemoEnv _  _ _ = Left "Expected private key address"
 
 {-| Minting policy and asset name serialised to hex text
 -}

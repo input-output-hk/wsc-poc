@@ -25,7 +25,7 @@ import Options.Applicative (Parser, argument, customExecParser, disambiguate,
                             optional, prefs, showHelpOnEmpty, showHelpOnError,
                             strArgument)
 import Options.Applicative.Builder (ReadM)
-import Plutarch.Evaluate (applyArguments, evalScript, unsafeEvalTerm)
+import Plutarch.Evaluate (applyArguments, evalScript)
 import Plutarch.Internal.Term (Config (..), LogLevel (LogInfo), Script,
                                TracingMode (DoTracing, DoTracingAndBinds),
                                compile)
@@ -146,11 +146,11 @@ runMain =
     >>= runExportCommand
 
 writeAppliedScripts :: FilePath -> AppliedScriptArgs -> IO ()
-writeAppliedScripts baseFolder AppliedScriptArgs{asaTxIn, asaIssuerAddress=SerialiseAddress issuerAddr} = do
+writeAppliedScripts baseFolder AppliedScriptArgs{asaTxIn, asaIssuerCborHexTxIn, asaIssuerAddress=SerialiseAddress issuerAddr} = do
   let opkh = case issuerAddr of
               (C.ShelleyAddress _ntw (C.fromShelleyPaymentCredential -> C.PaymentCredentialByKey pmt) _stakeRef) -> pmt
               _ -> error "Expected public key address" -- FIXME: proper error
-      dirRoot = DirectoryScriptRoot asaTxIn Production
+      dirRoot = DirectoryScriptRoot asaTxIn asaIssuerCborHexTxIn Production
       blacklistTransferRoot = BlacklistTransferLogicScriptRoot Production (mkDirectoryEnv dirRoot) opkh
   putStrLn "Writing applied Plutus scripts to files"
   createDirectoryIfMissing True baseFolder
@@ -256,6 +256,7 @@ exportUnapplied fp = do
 data AppliedScriptArgs =
   AppliedScriptArgs
     { asaTxIn          :: C.TxIn
+    , asaIssuerCborHexTxIn :: C.TxIn
     , asaIssuerAddress :: SerialiseAddress (C.Address C.ShelleyAddr)
     }
 
@@ -271,7 +272,7 @@ parseExportCommand =
     <*> optional parseAppliedScriptArgs
 
 parseAppliedScriptArgs :: Parser AppliedScriptArgs
-parseAppliedScriptArgs = AppliedScriptArgs <$> parseTxIn <*> parseAddress
+parseAppliedScriptArgs = AppliedScriptArgs <$> parseTxIn <*> parseTxIn <*> parseAddress
 
 parseAddress :: Parser (SerialiseAddress (C.Address C.ShelleyAddr))
 parseAddress = argument (eitherReader (eitherDecode . LBS8.pack)) (help "The address to use for the issuer" <> metavar "ISSUER_ADDRESS")
