@@ -119,7 +119,7 @@ issueAlwaysSucceedsValidator scriptRoot = failOnError $ Env.withEnv $ do
 issueSmartTokensScenario :: (MonadReader ScriptTarget m, MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m C.AssetId
 issueSmartTokensScenario = deployDirectorySet >>= issueTransferLogicProgrammableToken
 
-{-| Issue some tokens with the smart stabelcoin transfer logic validator
+{-| Issue some tokens with the smart stablecoin transfer logic validator
 -}
 issueTransferLogicProgrammableToken :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m C.AssetId
 issueTransferLogicProgrammableToken scriptRoot = failOnError $ Env.withEnv $ do
@@ -141,7 +141,7 @@ issueTransferLogicProgrammableToken scriptRoot = failOnError $ Env.withEnv $ do
       >>= void . expectN 1 "programmable logic outputs"
     pure aid
 
-{-| Issue some tokens with the smart stabelcoin transfer logic validator
+{-| Issue some tokens with the smart stablecoin transfer logic validator
 -}
 transferSmartTokens :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m ()
 transferSmartTokens scriptRoot = failOnError $ Env.withEnv $ do
@@ -281,13 +281,12 @@ dummyNodeArgs =
 -}
 registerAlwaysSucceedsStakingCert :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) =>  m ()
 registerAlwaysSucceedsStakingCert = failOnError $ do
-  pp <- fmap C.unLedgerProtocolParameters queryProtocolParameters
   let script = C.PlutusScript C.plutusScriptVersion $ Scripts.alwaysSucceedsScript Production
       hsh = C.hashScript script
       cred = C.StakeCredentialByScript hsh
   txBody <- BuildTx.execBuildTxT $ do
-    BuildTx.addStakeScriptWitness cred (Scripts.alwaysSucceedsScript Production) ()
-    BuildTx.addConwayStakeCredentialRegistrationCertificate cred (pp ^. Ledger.ppKeyDepositL)
+    cert <- BuildTx.mkConwayStakeCredentialRegistrationCertificate cred
+    BuildTx.addStakeScriptWitness cert cred (Scripts.alwaysSucceedsScript Production) ()
   void (tryBalanceAndSubmit mempty Wallet.w1 txBody TrailingChange [])
 
 -- TODO: registration to be moved to the endpoints
