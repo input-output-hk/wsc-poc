@@ -13,6 +13,7 @@ module Wst.Offchain.Endpoints.Deployment(
   removeBlacklistNodeTx,
   seizeCredentialAssetsTx,
   deployIssuanceCborHex,
+  frackUtxosTx,
 ) where
 
 import Cardano.Api (Quantity)
@@ -38,10 +39,19 @@ import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
 import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
 import Wst.Offchain.BuildTx.TransferLogic (BlacklistReason)
 import Wst.Offchain.BuildTx.TransferLogic qualified as BuildTx
-import Wst.Offchain.Env (DirectoryScriptRoot (..))
+import Wst.Offchain.Env (DirectoryScriptRoot (..), OperatorEnv (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Query qualified as Query
+
+{-| Build a transaction that fractionalizes the operators UTxOs.
+-}
+frackUtxosTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era) => m (C.Tx era)
+frackUtxosTx = do
+  opEnv@OperatorEnv{bteOperator} <- asks Env.operatorEnv
+  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.balanceTxEnv_ $ BuildTx.frackUTxOs bteOperator
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
 
 {-| Build a transaction that deploys the directory and global params. Returns the
 transaction and the 'TxIn' that was selected for the one-shot NFTs.

@@ -26,12 +26,13 @@ import Generics.SOP qualified as SOP
 import GHC.Generics (Generic)
 import Plutarch.Core.Utils (passert, phasUTxO)
 import Plutarch.Internal.Lift
-import Plutarch.LedgerApi.V3 (PScriptContext (..), PTxInfo (..), PTxOutRef)
+import Plutarch.LedgerApi.V3 (PCurrencySymbol, PScriptContext (..),
+                              PTxInfo (..), PTxOutRef)
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
 import Plutarch.Repr.Data
 import Plutarch.Unsafe (punsafeCoerce)
-import PlutusLedgerApi.V3 (CurrencySymbol)
+import PlutusLedgerApi.V3 (CurrencySymbol, ScriptHash)
 import PlutusTx qualified
 import SmartTokens.LinkedList.Common (makeCommon, pInit, pInsert)
 
@@ -40,7 +41,7 @@ import SmartTokens.LinkedList.Common (makeCommon, pInit, pInsert)
 --------------------------------
 data DirectoryNodeAction
   = InitDirectory
-  | InsertDirectoryNode CurrencySymbol
+  | InsertDirectoryNode CurrencySymbol ScriptHash
   deriving stock (Show, Eq, Generic)
   deriving anyclass (SOP.Generic)
 
@@ -49,7 +50,7 @@ PlutusTx.makeIsDataIndexed ''DirectoryNodeAction
 
 data PDirectoryNodeAction (s :: S)
   = PInit
-  | PInsert { pkeyToInsert :: Term s (PAsData PByteString) }
+  | PInsert { pkeyToInsert :: Term s (PAsData PByteString), phashedParam :: Term s (PAsData PByteString) }
   deriving stock (Generic)
   deriving anyclass (SOP.Generic, PIsData, PEq)
   deriving (PlutusType) via DeriveAsDataStruct PDirectoryNodeAction
@@ -60,10 +61,11 @@ deriving via DeriveDataPLiftable PDirectoryNodeAction DirectoryNodeAction
 mkDirectoryNodeMP ::
   ClosedTerm
     ( PAsData PTxOutRef
+      :--> PAsData PCurrencySymbol
       :--> PScriptContext
       :--> PUnit
     )
-mkDirectoryNodeMP = plam $ \initUTxO ctx -> P.do
+mkDirectoryNodeMP = plam $ \initUTxO issuanceCborHexCS ctx -> P.do
   PScriptContext {pscriptContext'redeemer} <- pmatch ctx
   let red = punsafeCoerce @PDirectoryNodeAction (pto pscriptContext'redeemer)
 
@@ -76,6 +78,6 @@ mkDirectoryNodeMP = plam $ \initUTxO ctx -> P.do
       passert "Init must consume TxOutRef" $
         phasUTxO # pfromData initUTxO # pfromData ptxInfo'inputs
       pInit common
-    PInsert action -> P.do
+    PInsert action hashedParam -> P.do
       pkToInsert <- plet action
-      pInsert common # pkToInsert
+      pInsert issuanceCborHexCS common # pfromData pkToInsert # pfromData hashedParam

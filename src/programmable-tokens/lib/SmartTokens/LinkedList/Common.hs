@@ -28,6 +28,7 @@ import Plutarch.LedgerApi.AssocMap qualified as AssocMap
 import Plutarch.LedgerApi.V3
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
+import SmartTokens.Contracts.IssuanceCborHex (PIssuanceCborHex (..))
 import SmartTokens.Types.PTokenDirectory (PDirectorySetNode (..), pisEmptyNode,
                                           pisInsertedNode, pisInsertedOnNode)
 import Types.Constants (pnodeKeyTN, poriginNodeTN)
@@ -184,11 +185,21 @@ pInit common = P.do
 --     - There should be only a single node token minted (token name of which should match the key we are inserting)
 pInsert ::
   forall (s :: S).
+  Term s (PAsData PCurrencySymbol) ->
   PDirectoryCommon s ->
-  Term s (PAsData PByteString :--> PUnit)
-pInsert common = plam $ \pkToInsert -> P.do
-  keyToInsert <- plet $ pfromData pkToInsert
-
+  Term s (PByteString :--> PByteString :--> PUnit)
+pInsert issuanceCborHexCS common = plam $ \keyToInsert hashedParam -> P.do
+  let issuanceCborHexUTxO =
+        ptxInInfoResolved $ pfromData $
+          pmustFind @PBuiltinList
+            # plam (\txIn ->
+                    let resolvedIn = ptxInInfoResolved $ pfromData txIn
+                    in phasDataCS # issuanceCborHexCS # pfromData (ptxOutValue resolvedIn)
+                  )
+            # common.referenceInputs
+  POutputDatum issuanceDat' <- pmatch $ ptxOutDatum issuanceCborHexUTxO
+  PIssuanceCborHex {pprefixCborHex, ppostfixCborHex} <- pmatch (pfromData $ punsafeCoerce @(PAsData PIssuanceCborHex) (pto issuanceDat'))
+  passert "Registry Entry must be valid programmable asset" $ _pisProgrammableTokenRegistration keyToInsert (pfromData pprefixCborHex) (pfromData ppostfixCborHex) hashedParam common.mint
   passert "Key to insert must be valid Currency Symbol" $ ptraceInfoIfFalse (pshow keyToInsert) $ plengthBS # keyToInsert #== 28
 
   -- Input Checks:
@@ -236,26 +247,21 @@ data PDirectoryCommon (s :: S) = MkCommon
   }
   deriving stock (Generic)
 
-prefixScriptBytes :: Term s PByteString
-prefixScriptBytes = phexByteStr "deadbeef"
-
-_pisProgrammableTokenRegistration :: Term s PCurrencySymbol -> Term s PByteString -> Term s (PValue 'Sorted 'NonZero) -> Term s PBool
-_pisProgrammableTokenRegistration csToInsert hashedParam mintValue =
+_pisProgrammableTokenRegistration :: Term s PByteString -> Term s PByteString -> Term s PByteString -> Term s PByteString -> Term s (PValue 'Sorted 'NonZero) -> Term s PBool
+_pisProgrammableTokenRegistration csToInsert prefixScriptBytes postfixScriptBytes hashedParam mintValue =
   pand'List
-    [ phasCS # mintValue # csToInsert
-    , _papplyHashedParameter prefixScriptBytes hashedParam #== (pto csToInsert)
+    [ phasCS # mintValue # (pcon $ PCurrencySymbol csToInsert)
+    , _papplyHashedParameter prefixScriptBytes postfixScriptBytes hashedParam #== csToInsert
     ]
 
 _papplyHashedParameter ::
   Term s PByteString
   -> Term s PByteString
   -> Term s PByteString
-_papplyHashedParameter prefix hashedParam =
+  -> Term s PByteString
+_papplyHashedParameter prefix postfix hashedParam =
   pblake2b_224 # (scriptHeader <> postfix)
   where
-    postfix :: Term s PByteString
-    postfix = phexByteStr "0001"
-
     versionHeader :: Term s PByteString
     versionHeader = unsafeEvalTerm NoTracing (pintegerToByteString # pmostSignificantFirst # 1 # plutusVersion)
 

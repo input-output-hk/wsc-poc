@@ -57,7 +57,8 @@ issueProgrammableToken paramsTxOut (an, q) directoryList = Utils.inBabbage @era 
   glParams <- asks (Env.globalParams . Env.directoryEnv)
   dir <- asks Env.directoryEnv
 
-  let mintingLogicCred = SmartTokenMintingAction $ transCredential $ C.PaymentCredentialByScript . C.hashScript $ C.PlutusScript C.PlutusScriptV3 tleMintingScript
+  let mintingLogicHash = C.hashScript $ C.PlutusScript C.plutusScriptVersion tleMintingScript
+      mintingLogicCred = SmartTokenMintingAction $ transCredential $ C.PaymentCredentialByScript mintingLogicHash
 
   -- The global params in the UTxO need to match those in our 'DirectoryEnv'.
   -- If they don't, we get a script error when trying to balance the transaction.
@@ -81,6 +82,7 @@ issueProgrammableToken paramsTxOut (an, q) directoryList = Utils.inBabbage @era 
       let nodeArgs =
             InsertNodeArgs
               { inaNewKey = issuedSymbol
+              , inaHashedParam = transScriptHash mintingLogicHash
               , inaTransferLogic = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleTransferScript
               , inaIssuerLogic = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleIssuerScript
               , inaGlobalStateCS = CurrencySymbol ""

@@ -14,7 +14,8 @@ import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader (ask), ReaderT (runReaderT), asks)
 import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain (queryProtocolParameters, sendTx),
-                     MonadMockchain, MonadUtxoQuery, ValidationError, getTxById)
+                     MonadMockchain, MonadUtxoQuery, ValidationError, getTxById,
+                     utxosByPaymentCredential)
 import Convex.CoinSelection (ChangeOutputPosition (TrailingChange))
 import Convex.MockChain (MockchainT)
 import Convex.MockChain.CoinSelection (tryBalanceAndSubmit)
@@ -27,9 +28,11 @@ import Convex.Wallet.MockWallet qualified as Wallet
 import Convex.Wallet.Operator (signTxOperator)
 import Convex.Wallet.Operator qualified as Operator
 import Data.List (isPrefixOf)
+import Data.Map qualified as Map
 import Data.String (IsString (..))
+import Debug.Trace qualified
 import GHC.Exception (SomeException, throw)
-import PlutusLedgerApi.V3 (CurrencySymbol (..))
+import PlutusLedgerApi.V3 (CurrencySymbol (..), ScriptHash (..))
 import PlutusTx.Builtins.HasOpaque (stringToBuiltinByteStringHex)
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import Test.Tasty (TestTree, testGroup)
@@ -38,12 +41,11 @@ import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..))
 import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy (..))
 import Wst.Offchain.BuildTx.Utils (addConwayStakeCredentialCertificate)
 import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
-import Wst.Offchain.Env (DirectoryScriptRoot)
+import Wst.Offchain.Env (DirectoryScriptRoot, OperatorEnv (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query qualified as Query
 import Wst.Offchain.Scripts qualified as Scripts
 import Wst.Test.Env (admin, asAdmin, asWallet, user)
-
 tests :: TestTree
 tests = testGroup "unit tests"
   [ scriptTargetTests Debug
@@ -83,14 +85,24 @@ deployAll = do
 deployDirectorySet :: (MonadReader ScriptTarget m, MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => m DirectoryScriptRoot
 deployDirectorySet = do
   target <- ask
-  failOnError $ Env.withEnv $ asAdmin @C.ConwayEra $ do
-    (tx, scriptRoot) <- Endpoints.deployTx target
-    void $ sendTx $ signTxOperator admin tx
-    Env.withDirectoryFor scriptRoot $ do
-      Query.registryNodes @C.ConwayEra
-        >>= void . expectSingleton "registry output"
-      void $ Query.globalParamsNode @C.ConwayEra
-    pure scriptRoot
+  failOnError $ Env.withEnv $ do
+    asAdmin @C.ConwayEra $ Endpoints.frackUtxosTx
+      >>= void . sendTx . signTxOperator admin
+
+    utxos <- utxosByPaymentCredential (C.PaymentCredentialByKey $ C.verificationKeyHash . Operator.verificationKey . Operator.oPaymentKey $ admin)
+
+    --Debug.Trace.traceM $ "UTxOs: " ++ show utxos
+
+    asAdmin @C.ConwayEra $ do
+      OperatorEnv{bteOperator, bteOperatorUtxos} <- asks Env.operatorEnv
+      -- Debug.Trace.traceM $ "OperatorEnv: " ++ (show $ Map.size $ C.unUTxO bteOperatorUtxos)
+      (tx, scriptRoot) <- Endpoints.deployTx target
+      void $ sendTx $ signTxOperator admin tx
+      Env.withDirectoryFor scriptRoot $ do
+        Query.registryNodes @C.ConwayEra
+          >>= void . expectSingleton "registry output"
+        void $ Query.globalParamsNode @C.ConwayEra
+      pure scriptRoot
 
 insertDirectoryNode :: (MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => DirectoryScriptRoot -> m ()
 insertDirectoryNode scriptRoot = failOnError $ Env.withEnv $ asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ do
@@ -272,6 +284,7 @@ dummyNodeArgs :: InsertNodeArgs
 dummyNodeArgs =
   InsertNodeArgs
     { inaNewKey = CurrencySymbol (stringToBuiltinByteStringHex "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23")
+    , inaHashedParam = ScriptHash (stringToBuiltinByteStringHex "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23")
     , inaTransferLogic = C.StakeCredentialByScript "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
     , inaIssuerLogic = C.StakeCredentialByScript "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
     , inaGlobalStateCS = CurrencySymbol ""

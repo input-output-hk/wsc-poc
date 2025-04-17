@@ -103,6 +103,7 @@ import Data.Maybe (listToMaybe)
 import Data.Proxy (Proxy (..))
 import Data.Set qualified as Set
 import Data.Text qualified as Text
+import Debug.Trace qualified
 import GHC.Generics (Generic)
 import SmartTokens.Core.Scripts (ScriptTarget)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
@@ -121,7 +122,6 @@ import Wst.Offchain.Scripts (alwaysSucceedsScript, blacklistMintingScript,
                              programmableLogicMintingScript,
                              protocolParamsMintingScript,
                              protocolParamsSpendingScript, scriptPolicyIdV3)
-
 {-| Environments that have an 'OperatorEnv'
 -}
 class HasOperatorEnv era e | e -> era where
@@ -168,7 +168,7 @@ selectTwoOperatorOutputs :: (MonadReader env m, HasOperatorEnv era env, MonadErr
 selectTwoOperatorOutputs = do
   utxos <- asks (C.unUTxO . bteOperatorUtxos . operatorEnv)
   case Map.toList utxos of
-    [(k1, v1), (k2, v2)] -> pure ((k1, v1), (k2, v2))
+    (k1, v1) : (k2, v2) : _rest -> pure ((k1, v1), (k2, v2))
     _ -> throwError OperatorNoUTxOs
 
 {-| Balance a transaction using the operator's funds and return output

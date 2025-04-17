@@ -1,6 +1,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 module Wst.Offchain.BuildTx.IssuanceCborHexRef (
   mintIssuanceCborHexNFT,
+  frackUTxOs,
   getCborHexInline,
 ) where
 
@@ -85,6 +86,27 @@ mintIssuanceCborHexNFT = Utils.inBabbage @era $ do
 
   spendPublicKeyOutput txIn
   mintPlutus dsProtocolParamsMintingScript () issuanceCborHexTokenC 1
+  prependTxOut output
+
+frackUTxOs :: forall era m. (C.IsBabbageBasedEra era, MonadBuildTx era m, MonadBlockchain era m) => (C.Hash C.PaymentKey, C.StakeAddressReference) -> m ()
+frackUTxOs bteOperator = Utils.inBabbage @era $ do
+  netId <- queryNetworkId
+  let val = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
+            $ C.lovelaceToValue 150_000_000
+
+      addr =
+        C.makeShelleyAddressInEra
+          C.shelleyBasedEra
+          netId
+          (C.PaymentCredentialByKey (fst bteOperator))
+          (snd bteOperator)
+
+      output :: C.TxOut C.CtxTx era
+      output = C.TxOut addr val C.TxOutDatumNone C.ReferenceScriptNone
+
+  prependTxOut output
+  prependTxOut output
+  prependTxOut output
   prependTxOut output
 
 getCborHexInline :: C.InAnyCardanoEra (C.TxOut C.CtxTx) -> Maybe ProgrammableLogicGlobalParams
