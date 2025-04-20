@@ -58,3 +58,13 @@ library
     , cardano-api
     , containers
     , text
+
+test-suite wst-aiken-test
+  import:         lang
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is:        Spec.hs
+  other-modules:  Wst.Aiken.Test
+  build-depends:
+    , base   >=4.14.0
+    , tasty
