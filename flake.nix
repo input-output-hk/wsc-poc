@@ -38,6 +38,11 @@
       url = "github:nlewo/nix2container";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    aiken = {
+      url = "github:aiken-lang/aiken/v1.1.16";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = inputs: inputs.iogx.lib.mkFlake {
