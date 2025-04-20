@@ -1,0 +1,60 @@
+cabal-version: 3.4
+name:          aiken-example
+version:       0.3.0.0
+synopsis:
+  Using an aiken script as the transfer policy of a CIP-0143 programmable token
+
+license:       Apache-2.0
+license-files: LICENSE
+maintainer:    j-mueller@users.noreply.github.com
+author:        Djed team @ IOG
+homepage:      https://github.com/input-output-hk/wsc-poc
+bug-reports:   https://github.com/input-output-hk/wsc-poc
+description:
+  Please see the README on GitHub at <https://github.com/input-output-hk/wst-poc>
+
+common lang
+  default-language:   Haskell2010
+  default-extensions:
+    DataKinds
+    DeriveAnyClass
+    DeriveFoldable
+    DeriveFunctor
+    DeriveGeneric
+    DeriveLift
+    DeriveTraversable
+    DerivingStrategies
+    DerivingVia
+    ExplicitForAll
+    FlexibleContexts
+    GADTs
+    GeneralizedNewtypeDeriving
+    ImportQualifiedPost
+    KindSignatures
+    LambdaCase
+    MultiParamTypeClasses
+    NumericUnderscores
+    RankNTypes
+    ScopedTypeVariables
+    StandaloneDeriving
+    TypeApplications
+    TypeFamilies
+    TypeOperators
+    ViewPatterns
+
+  ghc-options:
+    -Wall -Wnoncanonical-monad-instances -Wunused-packages
+    -Wincomplete-uni-patterns -Wincomplete-record-updates
+    -Wredundant-constraints -Widentities
+
+library
+  import:          lang
+  exposed-modules: Wst.Aiken.Blueprint
+  hs-source-dirs:  lib
+  build-depends:
+    , aeson
+    , base
+    , bytestring
+    , cardano-api
+    , containers
+    , text
