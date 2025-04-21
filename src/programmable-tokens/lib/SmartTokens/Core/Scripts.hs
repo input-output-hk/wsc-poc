@@ -12,7 +12,7 @@ module SmartTokens.Core.Scripts (
 import Data.Aeson (FromJSON, ToJSON)
 import GHC.Generics (Generic)
 import Plutarch.Internal.Term (ClosedTerm, Config (..), LogLevel (LogInfo),
-                               Script, TracingMode (DoTracingAndBinds), compile)
+                               Script, TracingMode (..), compile)
 
 {-| Script target environment
 -}
@@ -26,7 +26,7 @@ data ScriptTarget
 -}
 targetConfig :: ScriptTarget -> Config
 targetConfig = \case
-  Debug      -> tracingAndBindsConfig
+  Debug      -> _tracingConfig
   Production -> prodConfig
 
 tryCompile :: ScriptTarget -> ClosedTerm a -> Script
@@ -40,8 +40,11 @@ tryCompileTracingAndBinds = tryCompile Debug
 tryCompileNoTracing :: ClosedTerm a -> Script
 tryCompileNoTracing = tryCompile Production
 
-tracingAndBindsConfig :: Config
-tracingAndBindsConfig = Tracing LogInfo DoTracingAndBinds
+_tracingAndBindsConfig :: Config
+_tracingAndBindsConfig = Tracing LogInfo DoTracingAndBinds
+
+_tracingConfig :: Config
+_tracingConfig = Tracing LogInfo DoTracing
 
 prodConfig :: Config
 prodConfig = NoTracing

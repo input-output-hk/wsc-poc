@@ -57,8 +57,8 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/Plutonomicon/plutarch-plutus
-    tag: 7002ce59642daa3fff9c720cf3076844ac81ac26
-    --sha256: sha256-9FR+VOUCyA0/0oHqV/m6fUXBprD9AIgrUZU0jD3f9hQ=
+    tag: f84a46287b06f36abf8d2d63bec7ff75d32f3e91
+    --sha256: sha256-gKBk9D6DHSEudq7P9+07yXWcgM/QX7NFp0tJXBodopM=
     subdir:
       .
       plutarch-ledger-api
@@ -68,8 +68,8 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/input-output-hk/catalyst-onchain-libs
-    tag: 0b997ba7e62ee5c9aa41212d24f44553410f57d7
-    --sha256: sha256-vaUFPrR8RFhEGgXbO1npwo5uSK1jRtKtg+FEVbEGuV0=
+    tag: eb9c01f177b7f1e3d2d698fefb8207f0596d941e
+    --sha256: sha256-99J5g+prx1r6qp1K3EqNRj20fc+kKM2tpxZfPYK2MqQ=
     subdir:
       src/plutarch-onchain-lib
 

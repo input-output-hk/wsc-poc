@@ -16,8 +16,10 @@ module Wst.Offchain.Env(
 
   -- ** Using the operator environment
   selectOperatorOutput,
+  selectTwoOperatorOutputs,
   balanceTxEnv,
   balanceTxEnv_,
+  balanceDeployTxEnv_,
 
   -- * On-chain scripts
 
@@ -30,6 +32,7 @@ module Wst.Offchain.Env(
   programmableLogicBaseCredential,
   directoryNodePolicyId,
   protocolParamsPolicyId,
+  issuanceCborHexPolicyId,
   globalParams,
   getGlobalParams,
 
@@ -99,7 +102,9 @@ import Data.Functor.Identity (Identity (..))
 import Data.Map qualified as Map
 import Data.Maybe (listToMaybe)
 import Data.Proxy (Proxy (..))
+import Data.Set qualified as Set
 import Data.Text qualified as Text
+import Debug.Trace qualified
 import GHC.Generics (Generic)
 import SmartTokens.Core.Scripts (ScriptTarget)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
@@ -109,6 +114,8 @@ import Wst.Offchain.Scripts (alwaysSucceedsScript, blacklistMintingScript,
                              blacklistSpendingScript,
                              directoryNodeMintingScript,
                              directoryNodeSpendingScript, freezeTransferScript,
+                             issuanceCborHexMintingScript,
+                             issuanceCborHexSpendingScript,
                              permissionedMintingScript,
                              permissionedSpendingScript,
                              programmableLogicBaseScript,
@@ -159,6 +166,13 @@ selectOperatorOutput = asks (listToMaybe . Map.toList . C.unUTxO . bteOperatorUt
   Nothing -> throwError OperatorNoUTxOs
   Just k -> pure k
 
+selectTwoOperatorOutputs :: (MonadReader env m, HasOperatorEnv era env, MonadError (AppError era) m) => m ((C.TxIn, C.TxOut C.CtxUTxO era), (C.TxIn, C.TxOut C.CtxUTxO era))
+selectTwoOperatorOutputs = do
+  utxos <- asks (C.unUTxO . bteOperatorUtxos . operatorEnv)
+  case Map.toList utxos of
+    (k1, v1) : (k2, v2) : _rest -> pure ((k1, v1), (k2, v2))
+    _ -> throwError OperatorNoUTxOs
+
 {-| Balance a transaction using the operator's funds and return output
 -}
 balanceTxEnv_ :: forall era env a m. (MonadBlockchain era m, MonadReader env m, HasOperatorEnv era env, MonadError (AppError era) m, C.IsBabbageBasedEra era) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
@@ -184,6 +198,21 @@ balanceTxEnv btx = do
   (balBody, balChanges) <- mapError BalancingError (CoinSelection.balanceTx mempty output (Utxos.fromApiUtxo bteOperatorUtxos) txBuilder CoinSelection.TrailingChange)
   pure ((balBody, balChanges), r)
 
+{-| Balance a transaction using the operator's funds and return output ensuring that the issuanceCborHex TxIn is not spent.
+-}
+balanceDeployTxEnv_ :: forall era env a m. (MonadBlockchain era m, MonadReader env m, HasDirectoryEnv env, HasOperatorEnv era env, MonadError (AppError era) m, C.IsBabbageBasedEra era) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
+balanceDeployTxEnv_ btx = do
+  issuanceCborHexTxIn <- asks (issuanceCborHexTxIn . dsScriptRoot . directoryEnv)
+  OperatorEnv{bteOperatorUtxos, bteOperator} <- asks operatorEnv
+  params <- queryProtocolParameters
+  txBuilder <- BuildTx.execBuildTxT $ btx >> BuildTx.setMinAdaDepositAll params
+
+  let operatorEligibleUTxOs = L.over Utxos._UtxoSet (`Map.withoutKeys` Set.fromList [issuanceCborHexTxIn]) (Utxos.fromApiUtxo bteOperatorUtxos)
+  -- TODO: change returnOutputFor to consider the stake address reference
+  -- (needs to be done in sc-tools)
+  output <- returnOutputFor (C.PaymentCredentialByKey $ fst bteOperator)
+  mapError BalancingError (CoinSelection.balanceTx mempty output operatorEligibleUTxOs txBuilder CoinSelection.TrailingChange)
+
 {-| Data that completely determines the on-chain scripts of the programmable
 token directory, and their hashes. Any information that results in different
 script hashes should go in here. We should be able to write a function
@@ -192,6 +221,7 @@ script hashes should go in here. We should be able to write a function
 data DirectoryScriptRoot =
   DirectoryScriptRoot
     { srTxIn :: C.TxIn
+    , issuanceCborHexTxIn :: C.TxIn
     , srTarget :: ScriptTarget
     }
     deriving (Show, Generic)
@@ -213,15 +243,19 @@ data DirectoryEnv =
     , dsDirectorySpendingScript        :: PlutusScript PlutusScriptV3
     , dsProtocolParamsMintingScript    :: PlutusScript PlutusScriptV3
     , dsProtocolParamsSpendingScript   :: PlutusScript PlutusScriptV3
+    , dsIssuanceCborHexMintingScript   :: PlutusScript PlutusScriptV3
+    , dsIssuanceCborHexSpendingScript  :: PlutusScript PlutusScriptV3
     , dsProgrammableLogicBaseScript    :: PlutusScript PlutusScriptV3
     , dsProgrammableLogicGlobalScript  :: PlutusScript PlutusScriptV3
     }
 
 mkDirectoryEnv :: DirectoryScriptRoot -> DirectoryEnv
-mkDirectoryEnv dsScriptRoot@DirectoryScriptRoot{srTxIn, srTarget} =
-  let dsDirectoryMintingScript        = directoryNodeMintingScript srTarget srTxIn
+mkDirectoryEnv dsScriptRoot@DirectoryScriptRoot{srTxIn, issuanceCborHexTxIn, srTarget} =
+  let dsDirectoryMintingScript        = directoryNodeMintingScript srTarget srTxIn issuanceCborHexTxIn
       dsProtocolParamsMintingScript   = protocolParamsMintingScript srTarget srTxIn
       dsProtocolParamsSpendingScript  = protocolParamsSpendingScript srTarget
+      dsIssuanceCborHexMintingScript  = issuanceCborHexMintingScript srTarget issuanceCborHexTxIn
+      dsIssuanceCborHexSpendingScript = issuanceCborHexSpendingScript srTarget
       dsDirectorySpendingScript       = directoryNodeSpendingScript srTarget (protocolParamsPolicyId result)
       dsProgrammableLogicBaseScript   = programmableLogicBaseScript srTarget (programmableLogicStakeCredential result) -- Parameterized by the stake cred of the global script
       dsProgrammableLogicGlobalScript = programmableLogicGlobalScript srTarget (protocolParamsPolicyId result) -- Parameterized by the CS holding protocol params datum
@@ -230,6 +264,8 @@ mkDirectoryEnv dsScriptRoot@DirectoryScriptRoot{srTxIn, srTarget} =
                 , dsDirectoryMintingScript
                 , dsProtocolParamsMintingScript
                 , dsProtocolParamsSpendingScript
+                , dsIssuanceCborHexMintingScript
+                , dsIssuanceCborHexSpendingScript
                 , dsProgrammableLogicBaseScript
                 , dsProgrammableLogicGlobalScript
                 , dsDirectorySpendingScript
@@ -249,6 +285,9 @@ directoryNodePolicyId = scriptPolicyIdV3 . dsDirectoryMintingScript
 
 protocolParamsPolicyId :: DirectoryEnv -> C.PolicyId
 protocolParamsPolicyId = scriptPolicyIdV3 . dsProtocolParamsMintingScript
+
+issuanceCborHexPolicyId :: DirectoryEnv -> C.PolicyId
+issuanceCborHexPolicyId = scriptPolicyIdV3 . dsIssuanceCborHexMintingScript
 
 globalParams :: DirectoryEnv -> ProgrammableLogicGlobalParams
 globalParams scripts =
@@ -463,7 +502,6 @@ programmableTokenAssetId :: DirectoryEnv -> TransferLogicEnv -> C.AssetName -> C
 programmableTokenAssetId dirEnv inta =
   C.AssetId
     (C.scriptPolicyId $ C.PlutusScript C.plutusScriptVersion $ programmableTokenMintingScript dirEnv inta)
-
 
 {-| Add a 'DirectoryEnv' for the 'C.TxIn' in to the environment and run the
 action with the modified environment

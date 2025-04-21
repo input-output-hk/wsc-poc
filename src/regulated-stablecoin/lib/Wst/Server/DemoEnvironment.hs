@@ -121,19 +121,26 @@ previewNetworkDemoEnvironment daBlockfrostKey
 {-| Calculate all of the hashes given the initial 'TxIn' and the issuer
 address.
 -}
-mkDemoEnv :: C.TxIn -> C.Address C.ShelleyAddr -> Either String DemoEnvironment
-mkDemoEnv txIn (C.ShelleyAddress network (C.fromShelleyPaymentCredential -> C.PaymentCredentialByKey pkh) _) = do
+mkDemoEnv :: C.TxIn -> C.TxIn -> C.Address C.ShelleyAddr -> Either String DemoEnvironment
+mkDemoEnv txIn issuanceCborHexTxIn (C.ShelleyAddress network (C.fromShelleyPaymentCredential -> C.PaymentCredentialByKey pkh) _) = do
   let target           = Production
-      dirEnv           = Env.mkDirectoryEnv (Env.DirectoryScriptRoot txIn target)
+      dirEnv           = Env.mkDirectoryEnv (Env.DirectoryScriptRoot txIn issuanceCborHexTxIn target)
       transferLogicEnv = Env.mkTransferLogicEnv $ Env.BlacklistTransferLogicScriptRoot target dirEnv pkh
       dummyText        = "REPLACE ME"
       assetName        = "WST"
-      C.AddressInEra (C.ShelleyAddressInEra C.ShelleyBasedEraConway) (SerialiseAddress -> daTransferLogicAddress) =
+      dummyBlockfrostUrl = "https://cardano-preview.blockfrost.io/api/v0"
+      dummyNetwork     = Preview
+      dummyKey = "REPLACE ME"
+      dummyExplorer = "https://preview.cexplorer.io/tx"
+      daTransferLogicAddress = case
         C.makeShelleyAddressInEra
           C.ShelleyBasedEraConway
           (fromLedgerNetwork network)
           (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 $ Env.tleBlacklistSpendingScript transferLogicEnv)
           C.NoStakeAddress
+       of
+          C.AddressInEra (C.ShelleyAddressInEra C.ShelleyBasedEraConway) (SerialiseAddress -> daTransferLogicAddress') -> daTransferLogicAddress'
+          _ -> error "mkDemoEnv: Expected Shelley address"
 
   (daMintingPolicy, daTokenName) <- computeAssetId dirEnv transferLogicEnv assetName
   daProgLogicBaseHash <- computeScriptCredential dirEnv
@@ -143,14 +150,17 @@ mkDemoEnv txIn (C.ShelleyAddress network (C.fromShelleyPaymentCredential -> C.Pa
           { daMintAuthority = dummyText
           , daUserA         = dummyText
           , daUserB         = dummyText
-
+          , daNetwork       = dummyNetwork
+          , daBlockfrostUrl = dummyBlockfrostUrl
+          , daBlockfrostKey = dummyKey
+          , daExplorerUrl = dummyExplorer
           , daMintingPolicy
           , daTokenName
           , daTransferLogicAddress
           , daProgLogicBaseHash
           }
   pure result
-mkDemoEnv _    _ = Left "Expected private key address"
+mkDemoEnv _  _ _ = Left "Expected private key address"
 
 {-| Minting policy and asset name serialised to hex text
 -}
@@ -168,9 +178,9 @@ jsonOptions2 = JSON.customJsonOptions 2
 loadFromFile :: FilePath -> IO DemoEnvironment
 loadFromFile fp = do
   putStrLn $ "Loading demo env from file: " <> fp
-  fmap Aeson.decode (BSL.readFile fp) >>= \case
+  BSL.readFile fp >>= (\case
     Nothing -> error "failed to decode JSON"
-    Just a  -> pure a
+    Just a  -> pure a) . Aeson.decode
 
 writeToFile :: FilePath -> DemoEnvironment -> IO ()
 writeToFile fp = BSL.writeFile fp . Aeson.encode

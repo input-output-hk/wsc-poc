@@ -31,7 +31,6 @@ import Plutarch.Internal.Lift
 import Plutarch.LedgerApi.V3
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
-import Plutarch.Repr.Data
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V1.Value (Value)
 import PlutusTx qualified

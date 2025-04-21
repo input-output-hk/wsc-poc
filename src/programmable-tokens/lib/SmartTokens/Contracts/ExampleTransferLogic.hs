@@ -25,7 +25,6 @@ import Plutarch.Core.Value
 import Plutarch.LedgerApi.V3
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
-import Plutarch.Repr.Data
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusTx qualified
 import SmartTokens.Types.PTokenDirectory
@@ -149,11 +148,6 @@ pextractRequiredWitnesses = phoistAcyclic $ plam $ \progBaseCred inputs ->
   )
   # pnil
   # inputs
-  where
-    paddressStakingCredential :: Term s PAddress -> Term s PStakingCredential
-    paddressStakingCredential addr =
-      pmatch addr $ \addr' ->
-        punsafeCoerce $ phead # (psndBuiltin # (pasConstr # pforgetData (pdata $ paddress'stakingCredential addr')))
 
 {-|
   The 'mkFreezeAndSeizeTransfer' is a transfer logic script that allows the associated programmable token

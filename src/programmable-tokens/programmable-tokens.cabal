@@ -58,6 +58,7 @@ library
     SmartTokens.Contracts.AlwaysYields
     SmartTokens.Contracts.ExampleTransferLogic
     SmartTokens.Contracts.Issuance
+    SmartTokens.Contracts.IssuanceCborHex
     SmartTokens.Contracts.ProgrammableLogicBase
     SmartTokens.Contracts.ProtocolParams
     SmartTokens.Core.Scripts
