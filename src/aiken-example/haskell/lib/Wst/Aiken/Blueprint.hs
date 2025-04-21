@@ -25,6 +25,7 @@ import Data.ByteString.Lazy qualified as BSL
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Proxy (Proxy (..))
+import Data.String (IsString (..))
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -41,32 +42,39 @@ instance ToJSON BlueprintScriptVersion where
         C.PlutusScriptV3 -> toJSON @String "v3"
 
 instance FromJSON BlueprintScriptVersion where
-    parseJSON = fmap (fmap BlueprintScriptVersion) $ Aeson.withText "BlueprintScriptVersion" $ \x -> case T.unpack x of
-        "v1" -> pure (C.AnyPlutusScriptVersion C.PlutusScriptV1)
-        "v2" -> pure (C.AnyPlutusScriptVersion C.PlutusScriptV2)
-        "v3" -> pure (C.AnyPlutusScriptVersion C.PlutusScriptV3)
-        v -> fail $ "Unexpected plutus script version: " <> v
+  parseJSON = fmap (fmap BlueprintScriptVersion) $ Aeson.withText "BlueprintScriptVersion" $ \x -> case T.unpack x of
+    "v1" -> pure (C.AnyPlutusScriptVersion C.PlutusScriptV1)
+    "v2" -> pure (C.AnyPlutusScriptVersion C.PlutusScriptV2)
+    "v3" -> pure (C.AnyPlutusScriptVersion C.PlutusScriptV3)
+    v -> fail $ "Unexpected plutus script version: " <> v
 
 data Blueprint = Blueprint
     { preamble :: Preamble
-    , validators :: [BlueprintValidator]
+    , validators :: Map BlueprintKey ScriptInAnyLang
     }
     deriving stock (Eq, Show, Generic)
-    deriving anyclass (FromJSON)
+
+instance FromJSON Blueprint where
+  parseJSON = withObject "Blueprint" $ \obj ->
+    let mkb p v = Blueprint p <$> deserialise p v in
+    (mkb
+      <$> obj .: "preamble"
+      <*> obj .: "validators")
+    >>= either fail pure
 
 data BlueprintValidator = BlueprintValidator
-    { title :: BlueprintKey
-    , compiledCode :: Text
-    , hash :: Text
-    }
-    deriving stock (Eq, Show, Generic)
-    deriving anyclass (ToJSON, FromJSON)
+  { title :: BlueprintKey
+  , compiledCode :: Text
+  , hash :: Text
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)
 
 data Preamble = Preamble
-    { description :: Text
-    , plutusVersion :: BlueprintScriptVersion
-    }
-    deriving stock (Eq, Show, Generic)
+  { description :: Text
+  , plutusVersion :: BlueprintScriptVersion
+  }
+  deriving stock (Eq, Show, Generic)
 
 instance FromJSON Preamble where
     parseJSON = withObject "Preamble" $ \obj ->
@@ -75,13 +83,13 @@ instance FromJSON Preamble where
             <*> obj .: "plutusVersion"
 
 newtype BlueprintKey = BlueprintKey {unBlueprintKey :: Text}
-    deriving newtype (Eq, Ord, Show, ToJSON, FromJSON)
+  deriving newtype (Eq, Ord, Show, ToJSON, FromJSON, IsString)
 
 loadFromFile :: FilePath -> IO (Either String Blueprint)
 loadFromFile fp = Aeson.eitherDecode . BSL.fromStrict <$> BS.readFile fp
 
-deserialise :: Blueprint -> Either String (Map BlueprintKey ScriptInAnyLang)
-deserialise Blueprint{preamble = Preamble{plutusVersion = BlueprintScriptVersion v}, validators} =
+deserialise :: Preamble -> [BlueprintValidator] -> Either String (Map BlueprintKey ScriptInAnyLang)
+deserialise Preamble{plutusVersion = BlueprintScriptVersion v} validators =
     Map.fromList <$> traverse (deserialiseScript v) validators
 
 deserialiseScript :: AnyPlutusScriptVersion -> BlueprintValidator -> Either String (BlueprintKey, ScriptInAnyLang)
