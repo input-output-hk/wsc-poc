@@ -13,6 +13,8 @@ bug-reports:   https://github.com/input-output-hk/wsc-poc
 description:
   Please see the README on GitHub at <https://github.com/input-output-hk/wst-poc>
 
+data-files:    data/aiken-scripts.json
+
 common lang
   default-language:   Haskell2010
   default-extensions:
@@ -47,6 +49,9 @@ common lang
     -Wincomplete-uni-patterns -Wincomplete-record-updates
     -Wredundant-constraints -Widentities
 
+  other-modules:      Paths_aiken_example
+  autogen-modules:    Paths_aiken_example
+
 library
   import:          lang
   exposed-modules: Wst.Aiken.Blueprint
@@ -66,5 +71,9 @@ test-suite wst-aiken-test
   main-is:        Spec.hs
   other-modules:  Wst.Aiken.Test
   build-depends:
-    , base   >=4.14.0
+    , aiken-example
+    , base           >=4.14.0
+    , cardano-api
+    , containers
     , tasty
+    , tasty-hunit
