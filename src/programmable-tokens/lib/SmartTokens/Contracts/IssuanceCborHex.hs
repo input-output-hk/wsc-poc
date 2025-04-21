@@ -19,7 +19,6 @@ import Plutarch.Core.Value
 import Plutarch.LedgerApi.V3
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
-import Plutarch.Repr.Data
 import PlutusLedgerApi.V3 (BuiltinByteString)
 import PlutusTx qualified
 import PlutusTx.Builtins.Internal qualified as BI

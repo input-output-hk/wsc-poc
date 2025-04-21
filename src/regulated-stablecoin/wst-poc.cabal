@@ -195,7 +195,6 @@ test-suite wst-poc-test
     , cardano-api
     , cardano-ledger-api
     , cardano-ledger-core
-    , containers
     , convex-base
     , convex-coin-selection
     , convex-mockchain

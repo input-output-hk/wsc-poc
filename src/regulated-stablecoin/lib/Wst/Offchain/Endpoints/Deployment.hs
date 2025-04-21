@@ -117,7 +117,8 @@ insertNodeTx args = do
 
   -- 2. Find the global parameter node
   paramsNode <- Query.globalParamsNode @era
-  (tx, _) <- Env.balanceTxEnv_ (BuildTx.insertDirectoryNode paramsNode headNode args)
+  cborHexTxIn <- Query.issuanceCborHexUTxO @era
+  (tx, _) <- Env.balanceTxEnv_ (BuildTx.insertDirectoryNode paramsNode cborHexTxIn headNode args)
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 {-| Build a transaction that issues a progammable token
@@ -139,9 +140,11 @@ issueProgrammableTokenTx :: forall era env m.
 issueProgrammableTokenTx assetName quantity = do
   directory <- Query.registryNodes @era
   paramsNode <- Query.globalParamsNode @era
+  cborHexTxIn <- Query.issuanceCborHexUTxO @era
+
   Env.TransferLogicEnv{Env.tleMintingScript} <- asks Env.transferLogicEnv
   (tx, _) <- Env.balanceTxEnv_ $ do
-    polId <- BuildTx.issueProgrammableToken paramsNode (assetName, quantity) directory
+    polId <- BuildTx.issueProgrammableToken paramsNode cborHexTxIn (assetName, quantity) directory
     Env.operatorPaymentCredential
       >>= BuildTx.paySmartTokensToDestination (assetName, quantity) polId
     let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion tleMintingScript)
@@ -189,8 +192,9 @@ issueSmartTokensTx :: forall era env m.
 issueSmartTokensTx assetName quantity destinationCred = do
   directory <- Query.registryNodes @era
   paramsNode <- Query.globalParamsNode @era
+  cborHexTxIn <- Query.issuanceCborHexUTxO @era
   ((tx, _), aid) <- Env.balanceTxEnv $ do
-    BuildTx.issueSmartTokens paramsNode (assetName, quantity) directory destinationCred
+    BuildTx.issueSmartTokens paramsNode cborHexTxIn (assetName, quantity) directory destinationCred
   pure (Convex.CoinSelection.signBalancedTxBody [] tx, aid)
 
 {-| Build a transaction that issues a progammable token

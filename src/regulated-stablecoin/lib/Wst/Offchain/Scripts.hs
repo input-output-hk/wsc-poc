@@ -36,6 +36,7 @@ import Cardano.Api.Shelley qualified as C
 import Convex.PlutusLedger.V1 (transCredential, transPolicyId, transPubKeyHash,
                                transStakeCredential)
 import Convex.PlutusLedger.V3 (transTxOutRef)
+import Plutarch.Evaluate (applyArguments)
 import Plutarch.Prelude
 import Plutarch.Script (serialiseScript)
 import PlutusLedgerApi.V3
@@ -85,9 +86,10 @@ issuanceCborHexSpendingScript target =
 
 -- | The minting script for the directory node tokens, takes initial TxIn for
 -- symbol uniqueness across instances
-directoryNodeMintingScript :: ScriptTarget -> C.TxIn -> C.PlutusScript C.PlutusScriptV3
-directoryNodeMintingScript target txIn =
-  let script = Scripts.tryCompile target $ mkDirectoryNodeMP # pdata (pconstant $ transTxOutRef txIn)
+directoryNodeMintingScript :: ScriptTarget -> C.TxIn -> C.TxIn -> C.PlutusScript C.PlutusScriptV3
+directoryNodeMintingScript target txIn issuanceInitTxIn =
+  let issuanceCS = transPolicyId $ scriptPolicyIdV3 $ issuanceCborHexMintingScript target issuanceInitTxIn
+      script = Scripts.tryCompile target $ mkDirectoryNodeMP # pdata (pconstant $ transTxOutRef txIn) # pdata (pconstant issuanceCS)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- | The spending script for the directory node tokens, parameterized by the
@@ -99,11 +101,11 @@ directoryNodeSpendingScript target paramsPolId =
 
 -- TODO: can we change the signature to just take the param policy id?
 programmableLogicMintingScript :: ScriptTarget -> C.PaymentCredential -> C.StakeCredential -> C.PlutusScript C.PlutusScriptV3
-programmableLogicMintingScript target progLogicBaseSpndingCred mintingCred =
-  let script = Scripts.tryCompile target
+programmableLogicMintingScript _target progLogicBaseSpndingCred mintingCred =
+  let unappliedScript = Scripts.tryCompile Production
                $ mkProgrammableLogicMinting
                   # pdata (pconstant $ transCredential progLogicBaseSpndingCred)
-                  # pdata (pconstant $ extractScriptHash $ transStakeCredential mintingCred)
+      script = applyArguments unappliedScript [toData $ extractScriptHash $ transStakeCredential mintingCred]
   in C.PlutusScriptSerialised $ serialiseScript script
   where
     extractScriptHash :: Credential -> ScriptHash

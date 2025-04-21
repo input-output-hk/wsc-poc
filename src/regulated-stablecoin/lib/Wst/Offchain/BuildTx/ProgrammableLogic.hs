@@ -27,6 +27,8 @@ import Convex.CardanoApi.Lenses as L
 import Convex.Class (MonadBlockchain (queryNetworkId))
 import Convex.PlutusLedger.V1 (transPolicyId, transPubKeyHash, transScriptHash)
 import Convex.Utils qualified as Utils
+import Data.ByteString.Base16 qualified as Base16
+import Data.ByteString.Char8 qualified as BSC
 import Data.Foldable (find, maximumBy, traverse_)
 import Data.Function (on)
 import Data.List (partition)
@@ -35,6 +37,7 @@ import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (CurrencySymbol (..))
 import PlutusLedgerApi.V3 qualified as PV3
 import SmartTokens.Contracts.Issuance (SmartTokenMintingAction (..))
+import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (..))
 import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedeemer (..),
                                                     TokenProof (..))
 import SmartTokens.Types.ProtocolParams
@@ -51,14 +54,16 @@ import Wst.Offchain.Query (UTxODat (..))
   - If the programmable token is not in the directory, then it is registered
   - If the programmable token is in the directory, then it is minted
 -}
-issueProgrammableToken :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> [UTxODat era DirectorySetNode] -> m C.PolicyId
-issueProgrammableToken paramsTxOut (an, q) directoryList = Utils.inBabbage @era $ do
+issueProgrammableToken :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era IssuanceCborHex -> (C.AssetName, C.Quantity) -> [UTxODat era DirectorySetNode] -> m C.PolicyId
+issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) directoryList = Utils.inBabbage @era $ do
   inta@TransferLogicEnv{tleTransferScript, tleIssuerScript, tleMintingScript} <- asks Env.transferLogicEnv
   glParams <- asks (Env.globalParams . Env.directoryEnv)
   dir <- asks Env.directoryEnv
 
   let mintingLogicHash = C.hashScript $ C.PlutusScript C.plutusScriptVersion tleMintingScript
       mintingLogicCred = SmartTokenMintingAction $ transCredential $ C.PaymentCredentialByScript mintingLogicHash
+
+  -- Debug.Trace.traceM $ "mintingLogicHash: " <> show mintingLogicHash
 
   -- The global params in the UTxO need to match those in our 'DirectoryEnv'.
   -- If they don't, we get a script error when trying to balance the transaction.
@@ -75,6 +80,9 @@ issueProgrammableToken paramsTxOut (an, q) directoryList = Utils.inBabbage @era 
         maximumBy (compare `on` (key . uDatum)) $
           filter ((<= issuedSymbol) . key . uDatum) directoryList
 
+  -- Debug.Trace.traceM $ "mintingLogicScript: " <> BSC.unpack (Base16.encode $ C.serialiseToRawBytes mintingScript)
+  -- Debug.Trace.traceM $ "issuedCurrencySymbol: " <> show issuedSymbol
+
   if key dirNodeData == issuedSymbol
     then
       mintPlutus mintingScript mintingLogicCred an q
@@ -89,7 +97,7 @@ issueProgrammableToken paramsTxOut (an, q) directoryList = Utils.inBabbage @era 
               }
 
       mintPlutus mintingScript mintingLogicCred an q
-      insertDirectoryNode paramsTxOut udat nodeArgs
+      insertDirectoryNode paramsTxOut issuanceCborHexTxOut udat nodeArgs
 
   pure issuedPolicyId
     where

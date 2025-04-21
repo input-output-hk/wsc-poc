@@ -20,6 +20,7 @@ import Plutarch.Builtin.ByteString (pintegerToByteString, pmostSignificantFirst)
 import Plutarch.Builtin.Crypto (pblake2b_224)
 import Plutarch.Core.Context
 import Plutarch.Core.List
+import Plutarch.Core.Trace (pdebug)
 import Plutarch.Core.Utils
 import Plutarch.Core.Value
 import Plutarch.Evaluate (unsafeEvalTerm)
@@ -187,7 +188,7 @@ pInsert ::
   forall (s :: S).
   Term s (PAsData PCurrencySymbol) ->
   PDirectoryCommon s ->
-  Term s (PByteString :--> PByteString :--> PUnit)
+  Term s (PByteString :--> PAsData PByteString :--> PUnit)
 pInsert issuanceCborHexCS common = plam $ \keyToInsert hashedParam -> P.do
   let issuanceCborHexUTxO =
         ptxInInfoResolved $ pfromData $
@@ -199,6 +200,11 @@ pInsert issuanceCborHexCS common = plam $ \keyToInsert hashedParam -> P.do
             # common.referenceInputs
   POutputDatum issuanceDat' <- pmatch $ ptxOutDatum issuanceCborHexUTxO
   PIssuanceCborHex {pprefixCborHex, ppostfixCborHex} <- pmatch (pfromData $ punsafeCoerce @(PAsData PIssuanceCborHex) (pto issuanceDat'))
+  ptraceInfo $ "Prefix Script" <> (pshow $ pfromData pprefixCborHex)
+  ptraceInfo $ "Hashed Param" <> (pshow $ pserialiseData # pforgetData hashedParam)
+  ptraceInfo $ "Postfix Script" <> (pshow $ pfromData ppostfixCborHex)
+  ptraceInfo $ "Key to insert" <> (pshow keyToInsert)
+  ptraceInfo $ "Computed CS: " <> (pshow $ _papplyHashedParameter (pfromData pprefixCborHex) (pfromData ppostfixCborHex) hashedParam)
   passert "Registry Entry must be valid programmable asset" $ _pisProgrammableTokenRegistration keyToInsert (pfromData pprefixCborHex) (pfromData ppostfixCborHex) hashedParam common.mint
   passert "Key to insert must be valid Currency Symbol" $ ptraceInfoIfFalse (pshow keyToInsert) $ plengthBS # keyToInsert #== 28
 
@@ -247,26 +253,26 @@ data PDirectoryCommon (s :: S) = MkCommon
   }
   deriving stock (Generic)
 
-_pisProgrammableTokenRegistration :: Term s PByteString -> Term s PByteString -> Term s PByteString -> Term s PByteString -> Term s (PValue 'Sorted 'NonZero) -> Term s PBool
+_pisProgrammableTokenRegistration :: Term s PByteString -> Term s PByteString -> Term s PByteString -> Term s (PAsData PByteString) -> Term s (PValue 'Sorted 'NonZero) -> Term s PBool
 _pisProgrammableTokenRegistration csToInsert prefixScriptBytes postfixScriptBytes hashedParam mintValue =
   pand'List
-    [ phasCS # mintValue # (pcon $ PCurrencySymbol csToInsert)
+    [ pdebug "must mint registered token" $ phasCS # mintValue # pcon (PCurrencySymbol csToInsert)
     , _papplyHashedParameter prefixScriptBytes postfixScriptBytes hashedParam #== csToInsert
     ]
 
 _papplyHashedParameter ::
   Term s PByteString
   -> Term s PByteString
-  -> Term s PByteString
+  -> Term s (PAsData PByteString)
   -> Term s PByteString
 _papplyHashedParameter prefix postfix hashedParam =
   pblake2b_224 # (scriptHeader <> postfix)
   where
-    versionHeader :: Term s PByteString
-    versionHeader = unsafeEvalTerm NoTracing (pintegerToByteString # pmostSignificantFirst # 1 # plutusVersion)
+    _versionHeader :: Term s PByteString
+    _versionHeader = unsafeEvalTerm NoTracing (pintegerToByteString # pmostSignificantFirst # 1 # _plutusVersion)
 
-    plutusVersion :: Term s PInteger
-    plutusVersion = pconstant 3
+    _plutusVersion :: Term s PInteger
+    _plutusVersion = pconstant 3
 
     scriptHeader :: Term _ PByteString
-    scriptHeader = versionHeader <> prefix <> hashedParam
+    scriptHeader = _versionHeader <> prefix <> (pserialiseData # pforgetData hashedParam)

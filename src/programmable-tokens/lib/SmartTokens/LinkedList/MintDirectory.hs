@@ -30,7 +30,6 @@ import Plutarch.LedgerApi.V3 (PCurrencySymbol, PScriptContext (..),
                               PTxInfo (..), PTxOutRef)
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
-import Plutarch.Repr.Data
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V3 (CurrencySymbol, ScriptHash)
 import PlutusTx qualified
@@ -80,4 +79,4 @@ mkDirectoryNodeMP = plam $ \initUTxO issuanceCborHexCS ctx -> P.do
       pInit common
     PInsert action hashedParam -> P.do
       pkToInsert <- plet action
-      pInsert issuanceCborHexCS common # pfromData pkToInsert # pfromData hashedParam
+      pInsert issuanceCborHexCS common # pfromData pkToInsert # hashedParam

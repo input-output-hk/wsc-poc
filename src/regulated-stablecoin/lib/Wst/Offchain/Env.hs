@@ -32,6 +32,7 @@ module Wst.Offchain.Env(
   programmableLogicBaseCredential,
   directoryNodePolicyId,
   protocolParamsPolicyId,
+  issuanceCborHexPolicyId,
   globalParams,
   getGlobalParams,
 
@@ -122,6 +123,7 @@ import Wst.Offchain.Scripts (alwaysSucceedsScript, blacklistMintingScript,
                              programmableLogicMintingScript,
                              protocolParamsMintingScript,
                              protocolParamsSpendingScript, scriptPolicyIdV3)
+
 {-| Environments that have an 'OperatorEnv'
 -}
 class HasOperatorEnv era e | e -> era where
@@ -249,7 +251,7 @@ data DirectoryEnv =
 
 mkDirectoryEnv :: DirectoryScriptRoot -> DirectoryEnv
 mkDirectoryEnv dsScriptRoot@DirectoryScriptRoot{srTxIn, issuanceCborHexTxIn, srTarget} =
-  let dsDirectoryMintingScript        = directoryNodeMintingScript srTarget srTxIn
+  let dsDirectoryMintingScript        = directoryNodeMintingScript srTarget srTxIn issuanceCborHexTxIn
       dsProtocolParamsMintingScript   = protocolParamsMintingScript srTarget srTxIn
       dsProtocolParamsSpendingScript  = protocolParamsSpendingScript srTarget
       dsIssuanceCborHexMintingScript  = issuanceCborHexMintingScript srTarget issuanceCborHexTxIn
@@ -283,6 +285,9 @@ directoryNodePolicyId = scriptPolicyIdV3 . dsDirectoryMintingScript
 
 protocolParamsPolicyId :: DirectoryEnv -> C.PolicyId
 protocolParamsPolicyId = scriptPolicyIdV3 . dsProtocolParamsMintingScript
+
+issuanceCborHexPolicyId :: DirectoryEnv -> C.PolicyId
+issuanceCborHexPolicyId = scriptPolicyIdV3 . dsIssuanceCborHexMintingScript
 
 globalParams :: DirectoryEnv -> ProgrammableLogicGlobalParams
 globalParams scripts =
@@ -497,7 +502,6 @@ programmableTokenAssetId :: DirectoryEnv -> TransferLogicEnv -> C.AssetName -> C
 programmableTokenAssetId dirEnv inta =
   C.AssetId
     (C.scriptPolicyId $ C.PlutusScript C.plutusScriptVersion $ programmableTokenMintingScript dirEnv inta)
-
 
 {-| Add a 'DirectoryEnv' for the 'C.TxIn' in to the environment and run the
 action with the modified environment

@@ -11,19 +11,23 @@ import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx, mintPlutus, prependTxOut,
                        spendPublicKeyOutput)
 import Convex.Class (MonadBlockchain (..))
-import Convex.PlutusLedger.V1 (unTransAssetName)
+import Convex.PlutusLedger.V1 (transCredential, transStakeCredential,
+                               unTransAssetName, unTransCredential)
 import Convex.Scripts (fromHashableScriptData, toHashableScriptData)
 import Convex.Utils qualified as Utils
 import Data.ByteString qualified as BS
-import Data.ByteString.Char8 qualified as BSC
 import Data.ByteString.Short qualified as SBS
+import Data.Either (fromRight)
 import GHC.Exts (IsList (..))
 import Plutarch.Evaluate (applyArguments)
 import Plutarch.Internal.Term (Config (..), compile)
 import Plutarch.Prelude (pconstant, (#))
-import Plutarch.Script (Script (..))
-import PlutusLedgerApi.Common (serialiseUPLC, toBuiltin, toData)
+import Plutarch.Script (Script (..), serialiseScript)
+import PlutusLedgerApi.Common (fromBuiltin, serialiseUPLC, toBuiltin, toData)
+import PlutusLedgerApi.V1
 import PlutusLedgerApi.V3 qualified as V3
+import PlutusTx qualified
+import PlutusTx.Builtins qualified as BI
 import PlutusTx.Builtins.HasOpaque (stringToBuiltinByteStringHex)
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (IssuanceCborHex))
@@ -36,10 +40,12 @@ import Wst.Offchain.Scripts (scriptPolicyIdV3)
 issuerPrefixPostfixBytes :: V3.Credential -> (BS.ByteString, BS.ByteString)
 issuerPrefixPostfixBytes progLogicCred =
   let
-      dummyHex = BSC.pack "deadbeefcafebabe"  -- Use ByteString for the dummy hex
-      placeholderMintingLogic = V3.ScriptHash $ stringToBuiltinByteStringHex "deadbeefcafebabe"
-      issuerScriptBase =
-        case compile NoTracing (mkProgrammableLogicMinting # pconstant progLogicCred) of
+      placeholderMintingLogic = V3.ScriptHash $ stringToBuiltinByteStringHex "deadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeef"
+      dummyHex = fromBuiltin $ BI.serialiseData $ PlutusTx.toBuiltinData placeholderMintingLogic
+      progCred = fromRight (error "could not parse protocol params") $ unTransCredential progLogicCred
+      -- progLogicScriptCredential = fromRight (error "could not parse protocol params") $ unTransCredential progLogicCred
+      issuerScriptBase = -- programmableLogicMintingScript progLogicScriptCredential (transStakeCredential progLogicCred)
+        case compile NoTracing (mkProgrammableLogicMinting # pconstant (transCredential progCred)) of
           Right compiledScript -> compiledScript
           Left err -> error $ "Failed to compile issuer script: " <> show err
       dummyIssuerInstanceCborHex = SBS.fromShort . serialiseUPLC . unScript $ applyArguments issuerScriptBase [toData placeholderMintingLogic]
@@ -47,9 +53,9 @@ issuerPrefixPostfixBytes progLogicCred =
 
 breakCborHexBS :: BS.ByteString -> BS.ByteString -> (BS.ByteString, BS.ByteString)
 breakCborHexBS toSplitOn cborHex =
-  case BSC.breakSubstring toSplitOn cborHex of
-    (before, after)
-      | not (BS.null after) -> (before, BS.drop (BS.length toSplitOn) after)
+  case BS.breakSubstring toSplitOn cborHex of
+    (before_, after_)
+      | not (BS.null after_) -> (before_, BS.drop (BS.length toSplitOn) after_)
       | otherwise           -> error $ "breakCborHexBS: Failed to split on " <> show toSplitOn <> " in " <> show cborHex
 
 issuanceCborHexTokenC :: C.AssetName
@@ -61,12 +67,12 @@ mintIssuanceCborHexNFT :: forall era env m. (MonadReader env m, Env.HasDirectory
 mintIssuanceCborHexNFT = Utils.inBabbage @era $ do
   txIn <- asks (Env.issuanceCborHexTxIn . Env.dsScriptRoot . Env.directoryEnv)
   netId <- queryNetworkId
-  dir@DirectoryEnv{dsProtocolParamsMintingScript, dsProtocolParamsSpendingScript} <- asks Env.directoryEnv
+  dir@DirectoryEnv{dsIssuanceCborHexMintingScript, dsIssuanceCborHexSpendingScript} <- asks Env.directoryEnv
   let ProgrammableLogicGlobalParams {progLogicCred} = globalParams dir
       (toBuiltin -> prefixCborHex, toBuiltin -> postfixCborHex) = issuerPrefixPostfixBytes progLogicCred
       issuanceCborHexDatum = IssuanceCborHex prefixCborHex postfixCborHex
 
-  let policyId = scriptPolicyIdV3 dsProtocolParamsMintingScript
+  let policyId = scriptPolicyIdV3 dsIssuanceCborHexMintingScript
 
       val = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
             $ fromList [(C.AssetId policyId issuanceCborHexTokenC, 1)]
@@ -75,7 +81,7 @@ mintIssuanceCborHexNFT = Utils.inBabbage @era $ do
         C.makeShelleyAddressInEra
           C.shelleyBasedEra
           netId
-          (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 dsProtocolParamsSpendingScript)
+          (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 dsIssuanceCborHexSpendingScript)
           C.NoStakeAddress
 
       -- prefix and postfix bytes of issuance script.
@@ -85,7 +91,7 @@ mintIssuanceCborHexNFT = Utils.inBabbage @era $ do
       output = C.TxOut addr val dat C.ReferenceScriptNone
 
   spendPublicKeyOutput txIn
-  mintPlutus dsProtocolParamsMintingScript () issuanceCborHexTokenC 1
+  mintPlutus dsIssuanceCborHexMintingScript () issuanceCborHexTokenC 1
   prependTxOut output
 
 frackUTxOs :: forall era m. (C.IsBabbageBasedEra era, MonadBuildTx era m, MonadBlockchain era m) => (C.Hash C.PaymentKey, C.StakeAddressReference) -> m ()
