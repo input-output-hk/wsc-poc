@@ -52,7 +52,7 @@ import Wst.Offchain.Query (UTxODat (..))
 -}
 issueProgrammableToken :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> (C.AssetName, C.Quantity) -> [UTxODat era DirectorySetNode] -> m C.PolicyId
 issueProgrammableToken paramsTxOut (an, q) directoryList = Utils.inBabbage @era $ do
-  inta@TransferLogicEnv{tleTransferScript, tleIssuerScript} <- asks Env.transferLogicEnv
+  inta@TransferLogicEnv{tleTransferScript, tleIssuerScript, tleGlobalParamsNft} <- asks Env.transferLogicEnv
   glParams <- asks (Env.globalParams . Env.directoryEnv)
   dir <- asks Env.directoryEnv
 
@@ -77,10 +77,10 @@ issueProgrammableToken paramsTxOut (an, q) directoryList = Utils.inBabbage @era 
     else do
       let nodeArgs =
             InsertNodeArgs
-              { inaNewKey = issuedSymbol
+              { inaNewKey        = issuedSymbol
               , inaTransferLogic = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleTransferScript
-              , inaIssuerLogic = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleIssuerScript
-              , inaGlobalStateCS = CurrencySymbol ""
+              , inaIssuerLogic   = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleIssuerScript
+              , inaGlobalStateCS = tleGlobalParamsNft
               }
 
       mintPlutus mintingScript MintPToken an q
