@@ -95,7 +95,7 @@ deserialise Preamble{plutusVersion = BlueprintScriptVersion v} validators =
 deserialiseScript :: AnyPlutusScriptVersion -> BlueprintValidator -> Either String (BlueprintKey, ScriptInAnyLang)
 deserialiseScript (C.AnyPlutusScriptVersion v) BlueprintValidator{title, compiledCode} =
     let lng = C.PlutusScriptLanguage v
-     in fmap ((title,) . C.ScriptInAnyLang lng . C.PlutusScript v) (deserialisePlutus v compiledCode)
+     in fmap ((title,) . C.ScriptInAnyLang lng) (deserialisePlutus v compiledCode)
 
-deserialisePlutus :: forall lang. (C.HasTypeProxy lang) => C.PlutusScriptVersion lang -> Text -> Either String (C.PlutusScript lang)
-deserialisePlutus _ text = first show $ C.deserialiseFromCBOR (C.proxyToAsType $ Proxy @(C.PlutusScript lang)) (TE.encodeUtf8 text)
+deserialisePlutus :: forall lang. (C.IsScriptLanguage lang) => C.PlutusScriptVersion lang -> Text -> Either String (C.Script lang)
+deserialisePlutus _ text = first show $ C.deserialiseFromCBOR (C.proxyToAsType $ Proxy @(C.Script lang)) (TE.encodeUtf8 text)

@@ -7,10 +7,9 @@ module Wst.Aiken.Test(
 import Cardano.Api qualified as C
 import Data.Functor (void)
 import Data.Map qualified as Map
-import Data.Maybe (isJust)
 import Paths_aiken_example qualified as Pkg
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, testCase)
+import Test.Tasty.HUnit (Assertion, assertEqual, testCase)
 import Wst.Aiken.Blueprint (Blueprint (..))
 import Wst.Aiken.Blueprint qualified as Blueprint
 
@@ -31,7 +30,7 @@ deserialiseScript = do
     >>= \case
       (C.ScriptInAnyLang (C.PlutusScriptLanguage C.PlutusScriptV3) script) -> do
         let hsh = C.hashScript script
-        assertEqual "Script hash" "cc068514c844ed3f6c6d0f131b20cda83dbd50f340242b5740d0f81f" hsh
+        assertEqual "Script hash" "9c4802ae9a38d64cf970d68f34f55c6504c749c64fe0968fea77dac8" hsh
       _ -> fail "Unexpected script language"
 
 loadExample :: IO Blueprint

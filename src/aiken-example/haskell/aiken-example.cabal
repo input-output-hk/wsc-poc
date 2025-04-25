@@ -54,7 +54,10 @@ common lang
 
 library
   import:          lang
-  exposed-modules: Wst.Aiken.Blueprint
+  exposed-modules:
+    Wst.Aiken.Blueprint
+    Wst.Aiken.Offchain
+
   hs-source-dirs:  lib
   build-depends:
     , aeson
@@ -63,6 +66,7 @@ library
     , cardano-api
     , containers
     , text
+    , wst-poc
 
 test-suite wst-aiken-test
   import:         lang
