@@ -86,15 +86,15 @@ initDirectorySet = Utils.inBabbage @era $ do
   prependTxOut output
 
 
-{-| Data for a  new node to be inserted into the directory
+{-| Data for a new node to be inserted into the directory
 -}
 data InsertNodeArgs =
   InsertNodeArgs
-    { inaNewKey :: CurrencySymbol
+    { inaNewKey :: CurrencySymbol -- ^ currency symbol of the CIP-0143 token
     , inaHashedParam :: ScriptHash
-    , inaTransferLogic :: C.StakeCredential
-    , inaIssuerLogic :: C.StakeCredential
-    , inaGlobalStateCS :: Maybe CurrencySymbol
+    , inaTransferLogic :: C.StakeCredential -- ^ Stake validator for transfers
+    , inaIssuerLogic :: C.StakeCredential -- ^ Stake validator for minting and burning
+    , inaGlobalStateCS :: Maybe CurrencySymbol -- ^ Currency symbol of an NFT that identifies a UTxO with global parameters specific to the new token
     }
 
 insertDirectoryNode :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era IssuanceCborHex -> UTxODat era DirectorySetNode -> InsertNodeArgs -> m ()
