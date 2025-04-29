@@ -8,13 +8,13 @@ import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Plutus.ExUnits (ExUnits (..))
-import Control.Lens ((%~), (&), (^.))
+import Control.Lens ((%~), (&))
 import Control.Monad (void)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader (ask), ReaderT (runReaderT), asks)
 import Convex.BuildTx qualified as BuildTx
-import Convex.Class (MonadBlockchain (queryProtocolParameters, sendTx),
-                     MonadMockchain, MonadUtxoQuery, ValidationError, getTxById)
+import Convex.Class (MonadBlockchain (sendTx), MonadMockchain, MonadUtxoQuery,
+                     ValidationError, getTxById)
 import Convex.CoinSelection (ChangeOutputPosition (TrailingChange))
 import Convex.MockChain (MockchainT)
 import Convex.MockChain.CoinSelection (tryBalanceAndSubmit)
@@ -271,10 +271,10 @@ seizeUserOutput scriptRoot = failOnError $ Env.withEnv $ do
 dummyNodeArgs :: InsertNodeArgs
 dummyNodeArgs =
   InsertNodeArgs
-    { inaNewKey = CurrencySymbol (stringToBuiltinByteStringHex "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23")
+    { inaNewKey        = CurrencySymbol (stringToBuiltinByteStringHex "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23")
     , inaTransferLogic = C.StakeCredentialByScript "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
-    , inaIssuerLogic = C.StakeCredentialByScript "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
-    , inaGlobalStateCS = CurrencySymbol ""
+    , inaIssuerLogic   = C.StakeCredentialByScript "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
+    , inaGlobalStateCS = Nothing
     }
 
 {-| Register the 'alwaysSucceedsScript' stake validator

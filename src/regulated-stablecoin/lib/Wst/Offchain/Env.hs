@@ -101,6 +101,7 @@ import Data.Maybe (listToMaybe)
 import Data.Proxy (Proxy (..))
 import Data.Text qualified as Text
 import GHC.Generics (Generic)
+import PlutusLedgerApi.V3 (CurrencySymbol)
 import SmartTokens.Core.Scripts (ScriptTarget)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 import System.Environment qualified
@@ -280,6 +281,7 @@ data TransferLogicEnv =
     , tleMintingScript           :: PlutusScript PlutusScriptV3
     , tleTransferScript          :: PlutusScript PlutusScriptV3
     , tleIssuerScript            :: PlutusScript PlutusScriptV3
+    , tleGlobalParamsNft         :: Maybe CurrencySymbol
     }
 
 {-| 'IssueNewTokenArgs' for the policy that always succeeds (no checks)
@@ -292,6 +294,7 @@ alwaysSucceedsTransferLogic target =
     , tleMintingScript = alwaysSucceedsScript target
     , tleTransferScript = alwaysSucceedsScript target
     , tleIssuerScript = alwaysSucceedsScript target
+    , tleGlobalParamsNft = Nothing
     }
 
 class HasTransferLogicEnv e where
@@ -325,6 +328,7 @@ mkTransferLogicEnv BlacklistTransferLogicScriptRoot{tlrTarget, tlrDirEnv, tlrIss
     , tleMintingScript =  permissionedMintingScript tlrTarget tlrIssuer
     , tleTransferScript = freezeTransferScript tlrTarget progLogicBaseCred blacklistPolicy
     , tleIssuerScript = permissionedSpendingScript tlrTarget tlrIssuer
+    , tleGlobalParamsNft = Nothing
     }
 
 blacklistNodePolicyId :: TransferLogicEnv -> C.PolicyId
