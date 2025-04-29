@@ -54,3 +54,5 @@ jobs:
       run: nix build --accept-flake-config .#wst-poc-cli
     - name: nix flake check
       run: nix flake --accept-flake-config check
+    - name: Check aiken
+      run: nix develop --accept-flake-config --command bash -c "cd src/aiken-example/aiken && aiken build && aiken check"
