@@ -83,14 +83,13 @@ initDirectorySet = Utils.inBabbage @era $ do
 
   prependTxOut output
 
-
 {-| Data for a new node to be inserted into the directory
 -}
 data InsertNodeArgs =
   InsertNodeArgs
-    { inaNewKey :: CurrencySymbol -- ^ currency symbol of the CIP-0143 token
+    { inaNewKey        :: CurrencySymbol -- ^ currency symbol of the CIP-0143 token
     , inaTransferLogic :: C.StakeCredential -- ^ Stake validator for transfers
-    , inaIssuerLogic :: C.StakeCredential -- ^ Stake validator for minting and burning
+    , inaIssuerLogic   :: C.StakeCredential -- ^ Stake validator for minting and burning
     , inaGlobalStateCS :: Maybe CurrencySymbol -- ^ Currency symbol of an NFT that identifies a UTxO with global parameters specific to the new token
     }
 
