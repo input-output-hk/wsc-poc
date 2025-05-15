@@ -65,7 +65,11 @@ library
     , bytestring
     , cardano-api
     , containers
+    , convex-base
+    , mtl
+    , plutus-ledger-api
     , text
+    , transformers
     , wst-poc
 
 test-suite wst-aiken-test
