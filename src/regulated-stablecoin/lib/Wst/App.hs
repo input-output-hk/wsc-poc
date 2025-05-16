@@ -17,7 +17,7 @@ import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Data.String (IsString (..))
 import Servant.Server (Handler (..))
 import Servant.Server qualified as S
-import Wst.AppError (AppError (BlockfrostErr))
+import Wst.AppError (AppError (..), ProgrammableTokensError (..))
 import Wst.Offchain.Env (RuntimeEnv (..))
 import Wst.Offchain.Env qualified as Env
 
@@ -31,7 +31,7 @@ runWstApp :: forall env era a. (Env.HasRuntimeEnv env) => env -> WstApp env era 
 runWstApp env WstApp{unWstApp} = do
   let RuntimeEnv{envBlockfrost} = Env.runtimeEnv env
   evalBlockfrostT envBlockfrost (runExceptT (runReaderT unWstApp env)) >>= \case
-    Left e -> pure (Left $ BlockfrostErr e)
+    Left e -> pure (Left $ ProgTokensError $ BlockfrostErr e)
     Right a -> pure  a
 
 {-| Interpret the 'WstApp' in a servant handler

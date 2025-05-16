@@ -34,6 +34,7 @@ import PlutusTx.Builtins.HasOpaque (stringToBuiltinByteStringHex)
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertEqual, testCase)
+import Wst.AppError (AppError)
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..))
 import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy (..))
 import Wst.Offchain.BuildTx.Utils (addConwayStakeCredentialCertificate)
@@ -71,7 +72,7 @@ scriptTargetTests target =
 deployAll :: (MonadReader ScriptTarget m, MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => m ()
 deployAll = do
   target <- ask
-  failOnError $ Env.withEnv $ asAdmin @C.ConwayEra $ do
+  failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ asAdmin @C.ConwayEra $ do
     (tx, scriptRoot) <- Endpoints.deployFullTx target
     void $ sendTx $ signTxOperator admin tx
     Env.withDirectoryFor scriptRoot $ do
@@ -83,7 +84,7 @@ deployAll = do
 deployDirectorySet :: (MonadReader ScriptTarget m, MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => m DirectoryScriptRoot
 deployDirectorySet = do
   target <- ask
-  failOnError $ Env.withEnv $ asAdmin @C.ConwayEra $ do
+  failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ asAdmin @C.ConwayEra $ do
     (tx, scriptRoot) <- Endpoints.deployTx target
     void $ sendTx $ signTxOperator admin tx
     Env.withDirectoryFor scriptRoot $ do
@@ -93,7 +94,7 @@ deployDirectorySet = do
     pure scriptRoot
 
 insertDirectoryNode :: (MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => DirectoryScriptRoot -> m ()
-insertDirectoryNode scriptRoot = failOnError $ Env.withEnv $ asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ do
+insertDirectoryNode scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ do
   Endpoints.insertNodeTx dummyNodeArgs >>= void . sendTx . signTxOperator admin
   Query.registryNodes @C.ConwayEra
     >>= void . expectN 2 "registry outputs"
@@ -101,7 +102,7 @@ insertDirectoryNode scriptRoot = failOnError $ Env.withEnv $ asAdmin @C.ConwayEr
 {-| Issue some tokens with the "always succeeds" validator
 -}
 issueAlwaysSucceedsValidator :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m ()
-issueAlwaysSucceedsValidator scriptRoot = failOnError $ Env.withEnv $ do
+issueAlwaysSucceedsValidator scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
 
   -- Register the stake validator
   -- Oddly, the tests passes even if we don't do this.
@@ -122,7 +123,7 @@ issueSmartTokensScenario = deployDirectorySet >>= issueTransferLogicProgrammable
 {-| Issue some tokens with the smart stablecoin transfer logic validator
 -}
 issueTransferLogicProgrammableToken :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m C.AssetId
-issueTransferLogicProgrammableToken scriptRoot = failOnError $ Env.withEnv $ do
+issueTransferLogicProgrammableToken scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
@@ -144,7 +145,7 @@ issueTransferLogicProgrammableToken scriptRoot = failOnError $ Env.withEnv $ do
 {-| Issue some tokens with the smart stablecoin transfer logic validator
 -}
 transferSmartTokens :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m ()
-transferSmartTokens scriptRoot = failOnError $ Env.withEnv $ do
+transferSmartTokens scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
@@ -169,7 +170,7 @@ transferSmartTokens scriptRoot = failOnError $ Env.withEnv $ do
       >>= void . expectN 1 "user programmable outputs"
 
 blacklistCredential :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m C.PaymentCredential
-blacklistCredential scriptRoot = failOnError $ Env.withEnv $ do
+blacklistCredential scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
   let paymentCred = C.PaymentCredentialByKey userPkh
 
@@ -189,7 +190,7 @@ blacklistCredential scriptRoot = failOnError $ Env.withEnv $ do
   pure paymentCred
 
 unblacklistCredential :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m C.PaymentCredential
-unblacklistCredential scriptRoot = failOnError $ Env.withEnv $ do
+unblacklistCredential scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
   let paymentCred = C.PaymentCredentialByKey userPkh
 
@@ -215,7 +216,7 @@ unblacklistCredential scriptRoot = failOnError $ Env.withEnv $ do
   pure paymentCred
 
 blacklistTransfer :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => BlacklistedTransferPolicy -> m (Either (ValidationError C.ConwayEra) C.TxId)
-blacklistTransfer policy = failOnError $ Env.withEnv $ do
+blacklistTransfer policy = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
   scriptRoot <- runReaderT deployDirectorySet Production
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
   let userPaymentCred = C.PaymentCredentialByKey userPkh
@@ -240,7 +241,7 @@ blacklistTransfer policy = failOnError $ Env.withEnv $ do
     >>= sendTx . signTxOperator (user Wallet.w2)
 
 seizeUserOutput :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m ()
-seizeUserOutput scriptRoot = failOnError $ Env.withEnv $ do
+seizeUserOutput scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
   let userPaymentCred = C.PaymentCredentialByKey userPkh
 
@@ -338,7 +339,7 @@ _expectLeft msg = \case
 -}
 assertBlacklistedAddressException :: SomeException -> Assertion
 assertBlacklistedAddressException ex
-  | "user error (TransferBlacklistedCredential (PubKeyCredential" `isPrefixOf` show ex = pure ()
+  | "user error (ProgTokensError (TransferBlacklistedCredential (PubKeyCredential" `isPrefixOf` show ex = pure ()
   | otherwise = throw ex
 
 nodeParamsFor :: ScriptTarget -> NodeParams C.ConwayEra
