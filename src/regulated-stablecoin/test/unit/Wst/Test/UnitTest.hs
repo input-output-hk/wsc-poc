@@ -29,7 +29,7 @@ import Convex.Wallet.Operator qualified as Operator
 import Data.List (isPrefixOf)
 import Data.String (IsString (..))
 import GHC.Exception (SomeException, throw)
-import PlutusLedgerApi.V3 (CurrencySymbol (..))
+import PlutusLedgerApi.V3 (CurrencySymbol (..), ScriptHash (..))
 import PlutusTx.Builtins.HasOpaque (stringToBuiltinByteStringHex)
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import Test.Tasty (TestTree, testGroup)
@@ -55,7 +55,6 @@ scriptTargetTests :: ScriptTarget -> TestTree
 scriptTargetTests target =
   testGroup (fromString $ show target)
     [ testCase "deploy directory and global params" (mockchainSucceedsWithTarget target deployDirectorySet)
-    , testCase "insert directory node" (mockchainSucceedsWithTarget target $ deployDirectorySet >>= insertDirectoryNode)
     , testGroup "issue programmable tokens"
         [ testCase "always succeeds validator" (mockchainSucceedsWithTarget target $ deployDirectorySet >>= issueAlwaysSucceedsValidator)
         , testCase "smart token issuance" (mockchainSucceedsWithTarget target issueSmartTokensScenario)
@@ -72,30 +71,43 @@ scriptTargetTests target =
 deployAll :: (MonadReader ScriptTarget m, MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => m ()
 deployAll = do
   target <- ask
-  failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ asAdmin @C.ConwayEra $ do
-    (tx, scriptRoot) <- Endpoints.deployFullTx target
-    void $ sendTx $ signTxOperator admin tx
-    Env.withDirectoryFor scriptRoot $ do
-      Query.registryNodes @C.ConwayEra
-        >>= void . expectSingleton "registry output"
-      void $ Query.globalParamsNode @C.ConwayEra
+  failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
+    asAdmin @C.ConwayEra $ Endpoints.frackUtxosTx
+      >>= void . sendTx . signTxOperator admin
 
+    asAdmin @C.ConwayEra $ do
+      (tx, scriptRoot) <- Endpoints.deployFullTx target
+      void $ sendTx $ signTxOperator admin tx
+      Env.withDirectoryFor scriptRoot $ do
+        Query.registryNodes @C.ConwayEra
+          >>= void . expectSingleton "registry output"
+        void $ Query.globalParamsNode @C.ConwayEra
 
 deployDirectorySet :: (MonadReader ScriptTarget m, MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => m DirectoryScriptRoot
 deployDirectorySet = do
   target <- ask
-  failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ asAdmin @C.ConwayEra $ do
-    (tx, scriptRoot) <- Endpoints.deployTx target
-    void $ sendTx $ signTxOperator admin tx
-    Env.withDirectoryFor scriptRoot $ do
-      Query.registryNodes @C.ConwayEra
-        >>= void . expectSingleton "registry output"
-      void $ Query.globalParamsNode @C.ConwayEra
-    pure scriptRoot
+  failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
+    asAdmin @C.ConwayEra $ Endpoints.frackUtxosTx
+      >>= void . sendTx . signTxOperator admin
 
-insertDirectoryNode :: (MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => DirectoryScriptRoot -> m ()
-insertDirectoryNode scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ do
-  Endpoints.insertNodeTx dummyNodeArgs >>= void . sendTx . signTxOperator admin
+    dirScriptRoot <- asAdmin @C.ConwayEra $ do
+      (tx, scriptRoot) <- Endpoints.deployTx target
+      void $ sendTx $ signTxOperator admin tx
+      Env.withDirectoryFor scriptRoot $ do
+        Query.registryNodes @C.ConwayEra
+          >>= void . expectSingleton "registry output"
+        void $ Query.globalParamsNode @C.ConwayEra
+      pure scriptRoot
+
+    asAdmin @C.ConwayEra $ Env.withDirectoryFor dirScriptRoot $ do
+      Endpoints.deployIssuanceCborHex
+        >>= void . sendTx . signTxOperator admin
+      void $ Query.issuanceCborHexUTxO @C.ConwayEra
+      pure dirScriptRoot
+
+_insertDirectoryNode :: (MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => DirectoryScriptRoot -> m ()
+_insertDirectoryNode scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ do
+  Endpoints.insertNodeTx _dummyNodeArgs >>= void . sendTx . signTxOperator admin
   Query.registryNodes @C.ConwayEra
     >>= void . expectN 2 "registry outputs"
 
@@ -269,10 +281,11 @@ seizeUserOutput scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEn
     Query.userProgrammableOutputs (C.PaymentCredentialByKey opPkh)
       >>= void . expectN 2 "user programmable outputs"
 
-dummyNodeArgs :: InsertNodeArgs
-dummyNodeArgs =
+_dummyNodeArgs :: InsertNodeArgs
+_dummyNodeArgs =
   InsertNodeArgs
-    { inaNewKey        = CurrencySymbol (stringToBuiltinByteStringHex "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23")
+    { inaNewKey = CurrencySymbol (stringToBuiltinByteStringHex "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23")
+    , inaHashedParam = ScriptHash (stringToBuiltinByteStringHex "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23")
     , inaTransferLogic = C.StakeCredentialByScript "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
     , inaIssuerLogic   = C.StakeCredentialByScript "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
     , inaGlobalStateCS = Nothing

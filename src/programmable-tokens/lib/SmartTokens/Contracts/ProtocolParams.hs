@@ -10,6 +10,7 @@ module SmartTokens.Contracts.ProtocolParams (
 
 import Plutarch.Core.Context
 import Plutarch.Core.List
+import Plutarch.Core.Trace (pdebug)
 import Plutarch.Core.Utils
 import Plutarch.Core.ValidationLogic
 import Plutarch.Core.Value
@@ -34,9 +35,9 @@ mkProtocolParametersMinting = plam $ \oref ctx -> P.do
   ownTokenName <- plet (pfstBuiltin # ownTkPair)
   ownNumMinted <- plet (psndBuiltin # ownTkPair)
   pvalidateConditions
-    [ ownTokenName #== pprotocolParamsTokenData
-    , ownNumMinted #== pconstant 1
-    , phasUTxO # pfromData oref # pfromData ptxInfo'inputs
+    [ pdebug "minted tn must match protocolParamsToken" $ ownTokenName #== pprotocolParamsTokenData
+    , pdebug "only single pp token must be minted" $ ownNumMinted #== pconstant 1
+    , pdebug "must spent ppInitTxOutRef" $ phasUTxO # pfromData oref # pfromData ptxInfo'inputs
     ]
 
 -- | Permissioned Minting Policy

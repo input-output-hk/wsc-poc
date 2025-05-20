@@ -8,7 +8,12 @@ module SmartTokens.Types.Constants(
     -- * Directory node token name
     directoryNodeToken,
     pdirectoryNodeToken,
-    pdirectoryNodeTokenData
+    pdirectoryNodeTokenData,
+
+    -- * Issuance cbor hex token name
+    issuanceCborHexToken,
+    pissuanceCborHexToken,
+    pissuanceCborHexTokenData,
 ) where
 
 import Plutarch.LedgerApi.V1 (PTokenName (..))
@@ -33,3 +38,13 @@ pdirectoryNodeToken = pconstant directoryNodeToken
 
 pdirectoryNodeTokenData :: ClosedTerm (PAsData PTokenName)
 pdirectoryNodeTokenData = pconstant directoryNodeToken
+
+issuanceCborHexToken :: TokenName
+issuanceCborHexToken = TokenName (stringToBuiltinByteString "IssuanceCborHex")
+
+pissuanceCborHexToken :: ClosedTerm PTokenName
+pissuanceCborHexToken = pconstant issuanceCborHexToken
+
+pissuanceCborHexTokenData :: ClosedTerm (PAsData PTokenName)
+pissuanceCborHexTokenData = pconstant issuanceCborHexToken
+

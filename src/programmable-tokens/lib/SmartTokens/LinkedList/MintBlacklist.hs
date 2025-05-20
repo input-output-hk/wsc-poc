@@ -32,7 +32,6 @@ import Plutarch.LedgerApi.V3 (PPubKeyHash, PScriptContext (..), PTxInfo (..),
                               PTxOutRef)
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
-import Plutarch.Repr.Data
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V3 (PubKeyHash)
 import PlutusTx qualified

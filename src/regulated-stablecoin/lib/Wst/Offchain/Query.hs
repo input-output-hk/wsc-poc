@@ -6,6 +6,7 @@ module Wst.Offchain.Query(
   blacklistNodes,
   registryNodes,
   globalParamsNode,
+  issuanceCborHexUTxO,
   programmableLogicOutputs,
   userProgrammableOutputs,
 
@@ -37,6 +38,7 @@ import Data.Typeable (Typeable)
 import GHC.Exts (IsList (..))
 import GHC.Generics (Generic)
 import PlutusTx qualified
+import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (..))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import SmartTokens.Types.PTokenDirectory (BlacklistNode, DirectorySetNode (..))
 import Wst.AppError (AsProgrammableTokensError (..))
@@ -45,7 +47,7 @@ import Wst.Offchain.Env (DirectoryEnv (..), HasDirectoryEnv (directoryEnv),
                          HasTransferLogicEnv (transferLogicEnv),
                          TransferLogicEnv (tleBlacklistSpendingScript),
                          blacklistNodePolicyId, directoryNodePolicyId,
-                         protocolParamsPolicyId)
+                         issuanceCborHexPolicyId, protocolParamsPolicyId)
 import Wst.Orphans ()
 
 -- TODO: We should probably filter the UTxOs to check that they have the correct NFTs
@@ -100,6 +102,16 @@ userProgrammableOutputs userCred = do
       isUserUtxo UTxODat{uOut=(C.TxOut addr _ _ _)} = addr == expectedAddress
 
   filter isUserUtxo <$> programmableLogicOutputs
+
+{-| Find the UTxO with the issuance script cbor hex
+-}
+issuanceCborHexUTxO :: forall era env err m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadError err m, AsProgrammableTokensError err) => m (UTxODat era IssuanceCborHex)
+issuanceCborHexUTxO = do
+  env@DirectoryEnv{dsIssuanceCborHexSpendingScript} <- asks directoryEnv
+  let cred   = C.PaymentCredentialByScript . C.hashScript $ C.PlutusScript C.PlutusScriptV3 dsIssuanceCborHexSpendingScript
+      hasNft = utxoHasPolicyId (issuanceCborHexPolicyId env)
+  utxosByPaymentCredential cred
+    >>= maybe (throwing_ _IssuanceCborHexUTxONotFound) pure . listToMaybe . filter hasNft . extractUTxO @era
 
 {-| Find the UTxO with the global params
 -}

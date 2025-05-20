@@ -44,8 +44,8 @@ runCommand com = do
   env <- Env.addRuntimeEnv <$> Env.loadRuntimeEnv <*> pure Env.empty
   result <- case com of
     Deploy config -> runWstApp env (deploy config)
-    Manage txIn com_ -> do
-      let env' = Env.addDirectoryEnvFor (Env.DirectoryScriptRoot txIn Production) env
+    Manage txIn issuanceCborHexTxIn com_ -> do
+      let env' = Env.addDirectoryEnvFor (Env.DirectoryScriptRoot txIn issuanceCborHexTxIn Production) env
       runWstApp env' $ case com_ of
         Status -> do
           -- TODO: status check (call the query endpoints and print out a summary of the results)

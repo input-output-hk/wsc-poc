@@ -23,7 +23,7 @@ import PlutusLedgerApi.V3 (Credential)
 data ProgrammableTokensError =
   OperatorNoUTxOs -- ^ The operator does not have any UTxOs
   | GlobalParamsNodeNotFound -- ^ The node with the global parameters was not found
-  | BlockfrostErr BlockfrostError
+  | IssuanceCborHexUTxONotFound -- ^ The UTxO with the issuance minting cbor hex was not found
   -- TODO: The following errors are specific to the regulated stablecoin
   -- They should be separated out
   | NoTokensToSeize -- ^ No tokens to seize
@@ -38,6 +38,7 @@ data AppError era =
   BalancingError (CoinSelection.BalanceTxError era)
   | SubmitError (ValidationError era)
   | ProgTokensError ProgrammableTokensError
+  | BlockfrostErr BlockfrostError
   deriving stock (Show)
 
 makeClassyPrisms ''AppError
