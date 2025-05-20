@@ -15,8 +15,8 @@ repository cardano-haskell-packages
     d4a35cd3121aa00d18544bb0ac01c3e1691d618f462c46129271bccf39f7e8ee
 
 index-state:
-  , hackage.haskell.org 2025-02-08T01:45:27Z
-  , cardano-haskell-packages 2025-02-08T01:45:27Z
+  , hackage.haskell.org 2025-04-15T08:13:08Z
+  , cardano-haskell-packages 2025-04-11T16:42:25Z
 
 constraints:
   plutus-core == 1.40.0.0,
@@ -42,8 +42,8 @@ packages:
 source-repository-package
   type: git
   location: https://github.com/j-mueller/sc-tools
-  tag: d091a671a7747e63fb88c3a7aecf16832963ac76
-  --sha256: sha256-pYYLpem/W2kFyC5Qat6zrVnLKYyhvWp2ey+VQSk1BpY=
+  tag: 100452e6b64200cdffcb2582be07c47e1efebb6b
+  --sha256: sha256-65swdL2zk1mbqdjten6SIX/2v8tADOX4AhzyE0ocpwY=
   subdir:
     src/devnet
     src/coin-selection

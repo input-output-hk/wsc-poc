@@ -22,6 +22,7 @@ import Convex.PlutusLedger.V1 (transStakeCredential, unTransAssetName)
 import Convex.Scripts (toHashableScriptData)
 import Convex.Utils qualified as Utils
 import Data.ByteString.Base16 (decode)
+import Data.Maybe (fromMaybe)
 import GHC.Exts (IsList (..))
 import Plutarch.Evaluate (unsafeEvalTerm)
 import Plutarch.Internal.Term (Config (NoTracing))
@@ -93,7 +94,7 @@ data InsertNodeArgs =
     , inaHashedParam :: ScriptHash
     , inaTransferLogic :: C.StakeCredential
     , inaIssuerLogic :: C.StakeCredential
-    , inaGlobalStateCS :: CurrencySymbol
+    , inaGlobalStateCS :: Maybe CurrencySymbol
     }
 
 insertDirectoryNode :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era IssuanceCborHex -> UTxODat era DirectorySetNode -> InsertNodeArgs -> m ()
@@ -126,7 +127,7 @@ insertDirectoryNode UTxODat{uIn=paramsRef} UTxODat{uIn=issuanceCborHexRef} UTxOD
             , next = next firstTxData
             , transferLogicScript = transStakeCredential inaTransferLogic
             , issuerLogicScript = transStakeCredential inaIssuerLogic
-            , globalStateCS = inaGlobalStateCS
+            , globalStateCS = fromMaybe (CurrencySymbol "") inaGlobalStateCS
             }
       newDat = C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData dsn
       insertedNode = C.TxOut addr newVal newDat C.ReferenceScriptNone

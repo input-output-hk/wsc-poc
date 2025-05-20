@@ -8,13 +8,13 @@ import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Plutus.ExUnits (ExUnits (..))
-import Control.Lens ((%~), (&), (^.))
+import Control.Lens ((%~), (&))
 import Control.Monad (void)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader (ask), ReaderT (runReaderT), asks)
 import Convex.BuildTx qualified as BuildTx
-import Convex.Class (MonadBlockchain (queryProtocolParameters, sendTx),
-                     MonadMockchain, MonadUtxoQuery, ValidationError, getTxById)
+import Convex.Class (MonadBlockchain (sendTx), MonadMockchain, MonadUtxoQuery,
+                     ValidationError, getTxById)
 import Convex.CoinSelection (ChangeOutputPosition (TrailingChange))
 import Convex.MockChain (MockchainT)
 import Convex.MockChain.CoinSelection (tryBalanceAndSubmit)
@@ -34,6 +34,7 @@ import PlutusTx.Builtins.HasOpaque (stringToBuiltinByteStringHex)
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertEqual, testCase)
+import Wst.AppError (AppError)
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..))
 import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy (..))
 import Wst.Offchain.BuildTx.Utils (addConwayStakeCredentialCertificate)
@@ -70,7 +71,7 @@ scriptTargetTests target =
 deployAll :: (MonadReader ScriptTarget m, MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => m ()
 deployAll = do
   target <- ask
-  failOnError $ Env.withEnv $ do
+  failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
     asAdmin @C.ConwayEra $ Endpoints.frackUtxosTx
       >>= void . sendTx . signTxOperator admin
 
@@ -85,7 +86,7 @@ deployAll = do
 deployDirectorySet :: (MonadReader ScriptTarget m, MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => m DirectoryScriptRoot
 deployDirectorySet = do
   target <- ask
-  failOnError $ Env.withEnv $ do
+  failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
     asAdmin @C.ConwayEra $ Endpoints.frackUtxosTx
       >>= void . sendTx . signTxOperator admin
 
@@ -105,7 +106,7 @@ deployDirectorySet = do
       pure dirScriptRoot
 
 _insertDirectoryNode :: (MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => DirectoryScriptRoot -> m ()
-_insertDirectoryNode scriptRoot = failOnError $ Env.withEnv $ asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ do
+_insertDirectoryNode scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ do
   Endpoints.insertNodeTx _dummyNodeArgs >>= void . sendTx . signTxOperator admin
   Query.registryNodes @C.ConwayEra
     >>= void . expectN 2 "registry outputs"
@@ -113,7 +114,7 @@ _insertDirectoryNode scriptRoot = failOnError $ Env.withEnv $ asAdmin @C.ConwayE
 {-| Issue some tokens with the "always succeeds" validator
 -}
 issueAlwaysSucceedsValidator :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m ()
-issueAlwaysSucceedsValidator scriptRoot = failOnError $ Env.withEnv $ do
+issueAlwaysSucceedsValidator scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
 
   -- Register the stake validator
   -- Oddly, the tests passes even if we don't do this.
@@ -131,10 +132,10 @@ issueAlwaysSucceedsValidator scriptRoot = failOnError $ Env.withEnv $ do
 issueSmartTokensScenario :: (MonadReader ScriptTarget m, MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m C.AssetId
 issueSmartTokensScenario = deployDirectorySet >>= issueTransferLogicProgrammableToken
 
-{-| Issue some tokens with the smart stabelcoin transfer logic validator
+{-| Issue some tokens with the smart stablecoin transfer logic validator
 -}
 issueTransferLogicProgrammableToken :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m C.AssetId
-issueTransferLogicProgrammableToken scriptRoot = failOnError $ Env.withEnv $ do
+issueTransferLogicProgrammableToken scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
@@ -153,10 +154,10 @@ issueTransferLogicProgrammableToken scriptRoot = failOnError $ Env.withEnv $ do
       >>= void . expectN 1 "programmable logic outputs"
     pure aid
 
-{-| Issue some tokens with the smart stabelcoin transfer logic validator
+{-| Issue some tokens with the smart stablecoin transfer logic validator
 -}
 transferSmartTokens :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m ()
-transferSmartTokens scriptRoot = failOnError $ Env.withEnv $ do
+transferSmartTokens scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
@@ -181,7 +182,7 @@ transferSmartTokens scriptRoot = failOnError $ Env.withEnv $ do
       >>= void . expectN 1 "user programmable outputs"
 
 blacklistCredential :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m C.PaymentCredential
-blacklistCredential scriptRoot = failOnError $ Env.withEnv $ do
+blacklistCredential scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
   let paymentCred = C.PaymentCredentialByKey userPkh
 
@@ -201,7 +202,7 @@ blacklistCredential scriptRoot = failOnError $ Env.withEnv $ do
   pure paymentCred
 
 unblacklistCredential :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m C.PaymentCredential
-unblacklistCredential scriptRoot = failOnError $ Env.withEnv $ do
+unblacklistCredential scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
   let paymentCred = C.PaymentCredentialByKey userPkh
 
@@ -227,7 +228,7 @@ unblacklistCredential scriptRoot = failOnError $ Env.withEnv $ do
   pure paymentCred
 
 blacklistTransfer :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => BlacklistedTransferPolicy -> m (Either (ValidationError C.ConwayEra) C.TxId)
-blacklistTransfer policy = failOnError $ Env.withEnv $ do
+blacklistTransfer policy = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
   scriptRoot <- runReaderT deployDirectorySet Production
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
   let userPaymentCred = C.PaymentCredentialByKey userPkh
@@ -252,7 +253,7 @@ blacklistTransfer policy = failOnError $ Env.withEnv $ do
     >>= sendTx . signTxOperator (user Wallet.w2)
 
 seizeUserOutput :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m ()
-seizeUserOutput scriptRoot = failOnError $ Env.withEnv $ do
+seizeUserOutput scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
   userPkh <- asWallet Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv)
   let userPaymentCred = C.PaymentCredentialByKey userPkh
 
@@ -286,21 +287,20 @@ _dummyNodeArgs =
     { inaNewKey = CurrencySymbol (stringToBuiltinByteStringHex "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23")
     , inaHashedParam = ScriptHash (stringToBuiltinByteStringHex "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23")
     , inaTransferLogic = C.StakeCredentialByScript "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
-    , inaIssuerLogic = C.StakeCredentialByScript "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
-    , inaGlobalStateCS = CurrencySymbol ""
+    , inaIssuerLogic   = C.StakeCredentialByScript "e165610232235bbbbeff5b998b23e165610232235bbbbeff5b998b23"
+    , inaGlobalStateCS = Nothing
     }
 
 {-| Register the 'alwaysSucceedsScript' stake validator
 -}
 registerAlwaysSucceedsStakingCert :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) =>  m ()
 registerAlwaysSucceedsStakingCert = failOnError $ do
-  pp <- fmap C.unLedgerProtocolParameters queryProtocolParameters
   let script = C.PlutusScript C.plutusScriptVersion $ Scripts.alwaysSucceedsScript Production
       hsh = C.hashScript script
       cred = C.StakeCredentialByScript hsh
   txBody <- BuildTx.execBuildTxT $ do
-    BuildTx.addStakeScriptWitness cred (Scripts.alwaysSucceedsScript Production) ()
-    BuildTx.addConwayStakeCredentialRegistrationCertificate cred (pp ^. Ledger.ppKeyDepositL)
+    cert <- BuildTx.mkConwayStakeCredentialRegistrationCertificate cred
+    BuildTx.addStakeScriptWitness cert cred (Scripts.alwaysSucceedsScript Production) ()
   void (tryBalanceAndSubmit mempty Wallet.w1 txBody TrailingChange [])
 
 -- TODO: registration to be moved to the endpoints
@@ -352,7 +352,7 @@ _expectLeft msg = \case
 -}
 assertBlacklistedAddressException :: SomeException -> Assertion
 assertBlacklistedAddressException ex
-  | "user error (TransferBlacklistedCredential (PubKeyCredential" `isPrefixOf` show ex = pure ()
+  | "user error (ProgTokensError (TransferBlacklistedCredential (PubKeyCredential" `isPrefixOf` show ex = pure ()
   | otherwise = throw ex
 
 nodeParamsFor :: ScriptTarget -> NodeParams C.ConwayEra

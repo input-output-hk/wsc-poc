@@ -18,7 +18,8 @@ module Wst.Offchain.Query(
 import Cardano.Api qualified as C
 import Control.Lens qualified as L
 import Control.Monad ((>=>))
-import Control.Monad.Except (MonadError, throwError)
+import Control.Monad.Error.Lens (throwing_)
+import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain (queryNetworkId), MonadUtxoQuery,
@@ -40,7 +41,7 @@ import PlutusTx qualified
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (..))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import SmartTokens.Types.PTokenDirectory (BlacklistNode, DirectorySetNode (..))
-import Wst.AppError (AppError (GlobalParamsNodeNotFound, IssuanceCborHexUTxONotFound))
+import Wst.AppError (AsProgrammableTokensError (..))
 import Wst.JSON.Utils qualified as JSON
 import Wst.Offchain.Env (DirectoryEnv (..), HasDirectoryEnv (directoryEnv),
                          HasTransferLogicEnv (transferLogicEnv),
@@ -104,23 +105,23 @@ userProgrammableOutputs userCred = do
 
 {-| Find the UTxO with the issuance script cbor hex
 -}
-issuanceCborHexUTxO :: forall era env m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadError (AppError era) m) => m (UTxODat era IssuanceCborHex)
+issuanceCborHexUTxO :: forall era env err m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadError err m, AsProgrammableTokensError err) => m (UTxODat era IssuanceCborHex)
 issuanceCborHexUTxO = do
   env@DirectoryEnv{dsIssuanceCborHexSpendingScript} <- asks directoryEnv
   let cred   = C.PaymentCredentialByScript . C.hashScript $ C.PlutusScript C.PlutusScriptV3 dsIssuanceCborHexSpendingScript
       hasNft = utxoHasPolicyId (issuanceCborHexPolicyId env)
   utxosByPaymentCredential cred
-    >>= maybe (throwError IssuanceCborHexUTxONotFound) pure . listToMaybe . filter hasNft . extractUTxO @era
+    >>= maybe (throwing_ _IssuanceCborHexUTxONotFound) pure . listToMaybe . filter hasNft . extractUTxO @era
 
 {-| Find the UTxO with the global params
 -}
-globalParamsNode :: forall era env m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadError (AppError era) m) => m (UTxODat era ProgrammableLogicGlobalParams)
+globalParamsNode :: forall era env err m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadError err m, AsProgrammableTokensError err) => m (UTxODat era ProgrammableLogicGlobalParams)
 globalParamsNode = do
   env@DirectoryEnv{dsProtocolParamsSpendingScript} <- asks directoryEnv
   let cred   = C.PaymentCredentialByScript . C.hashScript $ C.PlutusScript C.PlutusScriptV3 dsProtocolParamsSpendingScript
       hasNft = utxoHasPolicyId (protocolParamsPolicyId env)
   utxosByPaymentCredential cred
-    >>= maybe (throwError GlobalParamsNodeNotFound) pure . listToMaybe . filter hasNft . extractUTxO @era
+    >>= maybe (throwing_ _GlobalParamsNodeNotFound) pure . listToMaybe . filter hasNft . extractUTxO @era
 
 {-| Outputs that are locked by the programmable logic base script.
 -}

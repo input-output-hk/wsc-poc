@@ -83,16 +83,17 @@ import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Control.Lens (makeLensesFor)
 import Control.Lens qualified as L
-import Control.Monad.Except (MonadError, throwError)
+import Control.Monad.Error.Lens (throwing_)
+import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader, ReaderT, ask, asks, runReaderT)
 import Convex.BuildTx (BuildTxT)
 import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain (queryNetworkId), MonadUtxoQuery (..),
                      queryProtocolParameters, utxosByPaymentCredential)
+import Convex.CoinSelection (AsBalancingError (..), AsCoinSelectionError (..))
 import Convex.CoinSelection qualified as CoinSelection
 import Convex.PlutusLedger.V1 (transCredential, transPolicyId,
                                unTransCredential, unTransStakeCredential)
-import Convex.Utils (mapError)
 import Convex.Utxos (BalanceChanges)
 import Convex.Utxos qualified as Utxos
 import Convex.Wallet.Operator (returnOutputFor)
@@ -104,12 +105,12 @@ import Data.Maybe (listToMaybe)
 import Data.Proxy (Proxy (..))
 import Data.Set qualified as Set
 import Data.Text qualified as Text
-import Debug.Trace qualified
 import GHC.Generics (Generic)
+import PlutusLedgerApi.V3 (CurrencySymbol)
 import SmartTokens.Core.Scripts (ScriptTarget)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 import System.Environment qualified
-import Wst.AppError (AppError (..))
+import Wst.AppError (AsProgrammableTokensError (..))
 import Wst.Offchain.Scripts (alwaysSucceedsScript, blacklistMintingScript,
                              blacklistSpendingScript,
                              directoryNodeMintingScript,
@@ -161,21 +162,21 @@ loadOperatorEnvFromAddress = \case
 
 {-| Select an output owned by the operator
 -}
-selectOperatorOutput :: (MonadReader env m, HasOperatorEnv era env, MonadError (AppError era) m) => m (C.TxIn, C.TxOut C.CtxUTxO era)
+selectOperatorOutput :: (MonadReader env m, HasOperatorEnv era env, MonadError err m, AsProgrammableTokensError err) => m (C.TxIn, C.TxOut C.CtxUTxO era)
 selectOperatorOutput = asks (listToMaybe . Map.toList . C.unUTxO . bteOperatorUtxos . operatorEnv) >>= \case
-  Nothing -> throwError OperatorNoUTxOs
+  Nothing -> throwing_ _OperatorNoUTxOs
   Just k -> pure k
 
-selectTwoOperatorOutputs :: (MonadReader env m, HasOperatorEnv era env, MonadError (AppError era) m) => m ((C.TxIn, C.TxOut C.CtxUTxO era), (C.TxIn, C.TxOut C.CtxUTxO era))
+selectTwoOperatorOutputs :: (MonadReader env m, HasOperatorEnv era env, MonadError err m, AsProgrammableTokensError err) => m ((C.TxIn, C.TxOut C.CtxUTxO era), (C.TxIn, C.TxOut C.CtxUTxO era))
 selectTwoOperatorOutputs = do
   utxos <- asks (C.unUTxO . bteOperatorUtxos . operatorEnv)
   case Map.toList utxos of
     (k1, v1) : (k2, v2) : _rest -> pure ((k1, v1), (k2, v2))
-    _ -> throwError OperatorNoUTxOs
+    _ -> throwing_ _OperatorNoUTxOs
 
 {-| Balance a transaction using the operator's funds and return output
 -}
-balanceTxEnv_ :: forall era env a m. (MonadBlockchain era m, MonadReader env m, HasOperatorEnv era env, MonadError (AppError era) m, C.IsBabbageBasedEra era) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
+balanceTxEnv_ :: forall era env err a m. (MonadBlockchain era m, MonadReader env m, HasOperatorEnv era env, MonadError err m, C.IsBabbageBasedEra era, CoinSelection.AsCoinSelectionError err, CoinSelection.AsBalancingError err era) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
 balanceTxEnv_ btx = do
   OperatorEnv{bteOperatorUtxos, bteOperator} <- asks operatorEnv
   params <- queryProtocolParameters
@@ -183,11 +184,11 @@ balanceTxEnv_ btx = do
   -- TODO: change returnOutputFor to consider the stake address reference
   -- (needs to be done in sc-tools)
   output <- returnOutputFor (C.PaymentCredentialByKey $ fst bteOperator)
-  mapError BalancingError (CoinSelection.balanceTx mempty output (Utxos.fromApiUtxo bteOperatorUtxos) txBuilder CoinSelection.TrailingChange)
+  CoinSelection.balanceTx mempty output (Utxos.fromApiUtxo bteOperatorUtxos) txBuilder CoinSelection.TrailingChange
 
 {-| Balance a transaction using the operator's funds and return output
 -}
-balanceTxEnv :: forall era env a m. (MonadBlockchain era m, MonadReader env m, HasOperatorEnv era env, MonadError (AppError era) m, C.IsBabbageBasedEra era) => BuildTxT era m a -> m ((C.BalancedTxBody era, BalanceChanges), a)
+balanceTxEnv :: forall era env err a m. (MonadBlockchain era m, MonadReader env m, HasOperatorEnv era env, MonadError err m, C.IsBabbageBasedEra era, CoinSelection.AsBalancingError err era, CoinSelection.AsCoinSelectionError err) => BuildTxT era m a -> m ((C.BalancedTxBody era, BalanceChanges), a)
 balanceTxEnv btx = do
   OperatorEnv{bteOperatorUtxos, bteOperator} <- asks operatorEnv
   params <- queryProtocolParameters
@@ -195,12 +196,12 @@ balanceTxEnv btx = do
   -- TODO: change returnOutputFor to consider the stake address reference
   -- (needs to be done in sc-tools)
   output <- returnOutputFor (C.PaymentCredentialByKey $ fst bteOperator)
-  (balBody, balChanges) <- mapError BalancingError (CoinSelection.balanceTx mempty output (Utxos.fromApiUtxo bteOperatorUtxos) txBuilder CoinSelection.TrailingChange)
+  (balBody, balChanges) <- CoinSelection.balanceTx mempty output (Utxos.fromApiUtxo bteOperatorUtxos) txBuilder CoinSelection.TrailingChange
   pure ((balBody, balChanges), r)
 
 {-| Balance a transaction using the operator's funds and return output ensuring that the issuanceCborHex TxIn is not spent.
 -}
-balanceDeployTxEnv_ :: forall era env a m. (MonadBlockchain era m, MonadReader env m, HasDirectoryEnv env, HasOperatorEnv era env, MonadError (AppError era) m, C.IsBabbageBasedEra era) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
+balanceDeployTxEnv_ :: forall era env err a m. (MonadBlockchain era m, MonadReader env m, HasDirectoryEnv env, HasOperatorEnv era env, MonadError err m, C.IsBabbageBasedEra era, AsBalancingError err era, AsCoinSelectionError err) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
 balanceDeployTxEnv_ btx = do
   issuanceCborHexTxIn <- asks (issuanceCborHexTxIn . dsScriptRoot . directoryEnv)
   OperatorEnv{bteOperatorUtxos, bteOperator} <- asks operatorEnv
@@ -211,7 +212,7 @@ balanceDeployTxEnv_ btx = do
   -- TODO: change returnOutputFor to consider the stake address reference
   -- (needs to be done in sc-tools)
   output <- returnOutputFor (C.PaymentCredentialByKey $ fst bteOperator)
-  mapError BalancingError (CoinSelection.balanceTx mempty output operatorEligibleUTxOs txBuilder CoinSelection.TrailingChange)
+  CoinSelection.balanceTx mempty output operatorEligibleUTxOs txBuilder CoinSelection.TrailingChange
 
 {-| Data that completely determines the on-chain scripts of the programmable
 token directory, and their hashes. Any information that results in different
@@ -319,6 +320,7 @@ data TransferLogicEnv =
     , tleMintingScript           :: PlutusScript PlutusScriptV3
     , tleTransferScript          :: PlutusScript PlutusScriptV3
     , tleIssuerScript            :: PlutusScript PlutusScriptV3
+    , tleGlobalParamsNft         :: Maybe CurrencySymbol
     }
 
 {-| 'IssueNewTokenArgs' for the policy that always succeeds (no checks)
@@ -331,6 +333,7 @@ alwaysSucceedsTransferLogic target =
     , tleMintingScript = alwaysSucceedsScript target
     , tleTransferScript = alwaysSucceedsScript target
     , tleIssuerScript = alwaysSucceedsScript target
+    , tleGlobalParamsNft = Nothing
     }
 
 class HasTransferLogicEnv e where
@@ -364,6 +367,7 @@ mkTransferLogicEnv BlacklistTransferLogicScriptRoot{tlrTarget, tlrDirEnv, tlrIss
     , tleMintingScript =  permissionedMintingScript tlrTarget tlrIssuer
     , tleTransferScript = freezeTransferScript tlrTarget progLogicBaseCred blacklistPolicy
     , tleIssuerScript = permissionedSpendingScript tlrTarget tlrIssuer
+    , tleGlobalParamsNft = Nothing
     }
 
 blacklistNodePolicyId :: TransferLogicEnv -> C.PolicyId

@@ -17,7 +17,7 @@ import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Data.String (IsString (..))
 import Servant.Server (Handler (..))
 import Servant.Server qualified as S
-import Wst.AppError (AppError (BlockfrostErr))
+import Wst.AppError (AppError (..))
 import Wst.Offchain.Env (RuntimeEnv (..))
 import Wst.Offchain.Env qualified as Env
 

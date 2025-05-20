@@ -27,8 +27,6 @@ import Convex.CardanoApi.Lenses as L
 import Convex.Class (MonadBlockchain (queryNetworkId))
 import Convex.PlutusLedger.V1 (transPolicyId, transPubKeyHash, transScriptHash)
 import Convex.Utils qualified as Utils
-import Data.ByteString.Base16 qualified as Base16
-import Data.ByteString.Char8 qualified as BSC
 import Data.Foldable (find, maximumBy, traverse_)
 import Data.Function (on)
 import Data.List (partition)
@@ -56,7 +54,7 @@ import Wst.Offchain.Query (UTxODat (..))
 -}
 issueProgrammableToken :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era IssuanceCborHex -> (C.AssetName, C.Quantity) -> [UTxODat era DirectorySetNode] -> m C.PolicyId
 issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) directoryList = Utils.inBabbage @era $ do
-  inta@TransferLogicEnv{tleTransferScript, tleIssuerScript, tleMintingScript} <- asks Env.transferLogicEnv
+  inta@TransferLogicEnv{tleTransferScript, tleIssuerScript, tleMintingScript, tleGlobalParamsNft} <- asks Env.transferLogicEnv
   glParams <- asks (Env.globalParams . Env.directoryEnv)
   dir <- asks Env.directoryEnv
 
@@ -92,8 +90,8 @@ issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) directoryList = 
               { inaNewKey = issuedSymbol
               , inaHashedParam = transScriptHash mintingLogicHash
               , inaTransferLogic = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleTransferScript
-              , inaIssuerLogic = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleIssuerScript
-              , inaGlobalStateCS = CurrencySymbol ""
+              , inaIssuerLogic   = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleIssuerScript
+              , inaGlobalStateCS = tleGlobalParamsNft
               }
 
       mintPlutus mintingScript mintingLogicCred an q

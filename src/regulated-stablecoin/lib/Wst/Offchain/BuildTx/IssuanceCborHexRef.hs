@@ -11,8 +11,8 @@ import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx, mintPlutus, prependTxOut,
                        spendPublicKeyOutput)
 import Convex.Class (MonadBlockchain (..))
-import Convex.PlutusLedger.V1 (transCredential, transStakeCredential,
-                               unTransAssetName, unTransCredential)
+import Convex.PlutusLedger.V1 (transCredential, unTransAssetName,
+                               unTransCredential)
 import Convex.Scripts (fromHashableScriptData, toHashableScriptData)
 import Convex.Utils qualified as Utils
 import Data.ByteString qualified as BS
@@ -22,8 +22,7 @@ import GHC.Exts (IsList (..))
 import Plutarch.Evaluate (applyArguments)
 import Plutarch.Internal.Term (Config (..), compile)
 import Plutarch.Prelude (pconstant, (#))
-import Plutarch.Script (Script (..), serialiseScript)
-import PlutusLedgerApi.Common (fromBuiltin, serialiseUPLC, toBuiltin, toData)
+import Plutarch.Script (Script (..))
 import PlutusLedgerApi.V1
 import PlutusLedgerApi.V3 qualified as V3
 import PlutusTx qualified

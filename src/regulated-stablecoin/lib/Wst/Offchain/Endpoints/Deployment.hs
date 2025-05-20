@@ -19,17 +19,19 @@ module Wst.Offchain.Endpoints.Deployment(
 import Cardano.Api (Quantity)
 import Cardano.Api.Shelley qualified as C
 import Control.Monad (when)
+import Control.Monad.Error.Lens (throwing_)
 import Control.Monad.Except (MonadError (..))
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain, MonadUtxoQuery)
+import Convex.CoinSelection (AsBalancingError, AsCoinSelectionError)
 import Convex.CoinSelection qualified
 import Data.Foldable (maximumBy)
 import Data.Function (on)
 import GHC.IsList (IsList (..))
 import SmartTokens.Core.Scripts (ScriptTarget (..))
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
-import Wst.AppError (AppError (NoTokensToSeize))
+import Wst.AppError (AsProgrammableTokensError (..))
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (inaNewKey))
 import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
 import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy,
@@ -46,7 +48,7 @@ import Wst.Offchain.Query qualified as Query
 
 {-| Build a transaction that fractionalizes the operators UTxOs.
 -}
-frackUtxosTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era) => m (C.Tx era)
+frackUtxosTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, AsBalancingError err era, AsCoinSelectionError err) => m (C.Tx era)
 frackUtxosTx = do
   opEnv@OperatorEnv{bteOperator} <- asks Env.operatorEnv
   (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.balanceTxEnv_ $ BuildTx.frackUTxOs bteOperator
@@ -56,7 +58,7 @@ frackUtxosTx = do
 {-| Build a transaction that deploys the directory and global params. Returns the
 transaction and the 'TxIn' that was selected for the one-shot NFTs.
 -}
-deployTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => ScriptTarget -> m (C.Tx era, DirectoryScriptRoot)
+deployTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, AsProgrammableTokensError err, AsCoinSelectionError err, AsBalancingError err era) => ScriptTarget -> m (C.Tx era, DirectoryScriptRoot)
 deployTx target = do
   ((txi, _), (issuanceCborHexTxIn, _)) <- Env.selectTwoOperatorOutputs
   opEnv <- asks Env.operatorEnv
@@ -72,7 +74,7 @@ deployTx target = do
 the relevant stablecoin transfer logic scripts and registrations. Returns the
 transaction and the 'TxIn' that was selected for the one-shot NFTs.
 -}
-deployFullTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => ScriptTarget -> m (C.Tx era, DirectoryScriptRoot)
+deployFullTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, AsProgrammableTokensError err, AsCoinSelectionError err, AsBalancingError err era) => ScriptTarget -> m (C.Tx era, DirectoryScriptRoot)
 deployFullTx target = do
   ((txi, _), (issuanceCborHexTxIn, _)) <- Env.selectTwoOperatorOutputs
   opEnv <- asks Env.operatorEnv
@@ -87,7 +89,7 @@ deployFullTx target = do
 
   pure (Convex.CoinSelection.signBalancedTxBody [] tx, root)
 
-deployIssuanceCborHex :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasDirectoryEnv env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => m (C.Tx era)
+deployIssuanceCborHex :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasDirectoryEnv env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, AsCoinSelectionError err, AsBalancingError err era) => m (C.Tx era)
 deployIssuanceCborHex = do
   opEnv <- asks Env.operatorEnv
   dirEnv <- asks Env.directoryEnv
@@ -105,7 +107,7 @@ deployIssuanceCborHex = do
 
 {-| Build a transaction that inserts a node into the directory
 -}
-insertNodeTx :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasDirectoryEnv env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m) => InsertNodeArgs -> m (C.Tx era)
+insertNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasDirectoryEnv env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsProgrammableTokensError err, AsBalancingError err era, AsCoinSelectionError err) => InsertNodeArgs -> m (C.Tx era)
 insertNodeTx args = do
   -- 1. Find the head node
   directoryList <- Query.registryNodes @era
@@ -123,16 +125,19 @@ insertNodeTx args = do
 
 {-| Build a transaction that issues a progammable token
 -}
-issueProgrammableTokenTx :: forall era env m.
+issueProgrammableTokenTx :: forall era env err m.
   ( MonadReader env m
   , Env.HasOperatorEnv era env
   , Env.HasDirectoryEnv env
   , Env.HasTransferLogicEnv env
   , MonadBlockchain era m
-  , MonadError (AppError era) m
+  , MonadError err m
   , C.IsBabbageBasedEra era
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadUtxoQuery m
+  , AsProgrammableTokensError err
+  , AsCoinSelectionError err
+  , AsBalancingError err era
   )
   => C.AssetName -- ^ Name of the asset
   -> Quantity -- ^ Amount of tokens to be minted
@@ -151,7 +156,7 @@ issueProgrammableTokenTx assetName quantity = do
     BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness tleMintingScript C.NoScriptDatumForStake ()
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
-deployBlacklistTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, Env.HasDirectoryEnv env) => m (C.Tx era)
+deployBlacklistTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, Env.HasDirectoryEnv env, AsCoinSelectionError err, AsBalancingError err era) => m (C.Tx era)
 deployBlacklistTx = do
   opEnv <- asks Env.operatorEnv
   dirEnv <- asks Env.directoryEnv
@@ -159,13 +164,13 @@ deployBlacklistTx = do
               $ Env.balanceTxEnv_ BuildTx.initBlacklist
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
-insertBlacklistNodeTx :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m) => BlacklistReason -> C.PaymentCredential -> m (C.Tx era)
+insertBlacklistNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsCoinSelectionError err, AsBalancingError err era, AsProgrammableTokensError err) => BlacklistReason -> C.PaymentCredential -> m (C.Tx era)
 insertBlacklistNodeTx reason cred = do
   blacklist <- Query.blacklistNodes @era
   (tx, _)  <- Env.balanceTxEnv_ (BuildTx.insertBlacklistNode reason cred blacklist)
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
-removeBlacklistNodeTx :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError (AppError era) m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m) => C.PaymentCredential -> m (C.Tx era)
+removeBlacklistNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsCoinSelectionError err, AsBalancingError err era, AsProgrammableTokensError err) => C.PaymentCredential -> m (C.Tx era)
 removeBlacklistNodeTx cred = do
   blacklist <- Query.blacklistNodes @era
   (tx, _)  <- Env.balanceTxEnv_ (BuildTx.removeBlacklistNode cred blacklist)
@@ -174,16 +179,19 @@ removeBlacklistNodeTx cred = do
 
 {-| Build a transaction that issues a progammable token
 -}
-issueSmartTokensTx :: forall era env m.
+issueSmartTokensTx :: forall era env err m.
   ( MonadReader env m
   , Env.HasOperatorEnv era env
   , Env.HasDirectoryEnv env
   , Env.HasTransferLogicEnv env
   , MonadBlockchain era m
-  , MonadError (AppError era) m
+  , MonadError err m
   , C.IsBabbageBasedEra era
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadUtxoQuery m
+  , AsProgrammableTokensError err
+  , AsCoinSelectionError err
+  , AsBalancingError err era
   )
   => C.AssetName -- ^ Name of the asset
   -> Quantity -- ^ Amount of tokens to be minted
@@ -199,16 +207,19 @@ issueSmartTokensTx assetName quantity destinationCred = do
 
 {-| Build a transaction that issues a progammable token
 -}
-transferSmartTokensTx :: forall era env m.
+transferSmartTokensTx :: forall era env err m.
   ( MonadReader env m
   , Env.HasOperatorEnv era env
   , Env.HasDirectoryEnv env
   , Env.HasTransferLogicEnv env
   , MonadBlockchain era m
-  , MonadError (AppError era) m
+  , MonadError err m
   , C.IsBabbageBasedEra era
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadUtxoQuery m
+  , AsProgrammableTokensError err
+  , AsCoinSelectionError err
+  , AsBalancingError err era
   )
   => BlacklistedTransferPolicy
   -> C.AssetId -- ^ AssetId to transfer
@@ -225,16 +236,19 @@ transferSmartTokensTx policy assetId quantity destCred = do
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 
-seizeCredentialAssetsTx :: forall era env m.
+seizeCredentialAssetsTx :: forall era env err m.
   ( MonadReader env m
   , Env.HasOperatorEnv era env
   , Env.HasTransferLogicEnv env
   , Env.HasDirectoryEnv env
   , MonadBlockchain era m
-  , MonadError (AppError era) m
+  , MonadError err m
   , C.IsBabbageBasedEra era
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadUtxoQuery m
+  , AsProgrammableTokensError err
+  , AsBalancingError err era
+  , AsCoinSelectionError err
   )
   => BuildTx.SeizeReason
   -> C.PaymentCredential -- ^ Source/User credential
@@ -252,7 +266,7 @@ seizeCredentialAssetsTx reason sanctionedCred = do
       getNonAdaTokens = nonAda . C.txOutValueToValue . getTxOutValue . uOut
   seizeTxo <- maximumBy (compare `on` getNonAdaTokens) <$> Query.userProgrammableOutputs sanctionedCred
   when (getNonAdaTokens seizeTxo == 0) $
-    throwError NoTokensToSeize
+    throwing_ _NoTokensToSeize
   paramsTxIn <- Query.globalParamsNode @era
   (tx, _) <- Env.balanceTxEnv_ $ do
     BuildTx.seizeSmartTokens reason paramsTxIn seizeTxo (C.PaymentCredentialByKey opPkh) directory

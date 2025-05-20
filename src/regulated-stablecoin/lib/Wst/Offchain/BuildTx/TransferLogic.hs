@@ -23,7 +23,8 @@ import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Control.Lens (at, over, set, (&), (?~), (^.))
 import Control.Monad (when)
-import Control.Monad.Except (MonadError (throwError))
+import Control.Monad.Error.Lens (throwing_)
+import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx (addTxBuilder), TxBuilder (TxBuilder),
                        addBtx, addRequiredSignature, addScriptWithdrawal,
@@ -57,7 +58,7 @@ import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (..))
 import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (BlacklistNode (..),
                                           DirectorySetNode (..))
-import Wst.AppError (AppError (BlacklistNodeNotFound, DuplicateBlacklistNode))
+import Wst.AppError (AsProgrammableTokensError (..))
 import Wst.Offchain.BuildTx.ProgrammableLogic (issueProgrammableToken,
                                                seizeProgrammableToken,
                                                transferProgrammableToken)
@@ -122,7 +123,7 @@ addBlacklistReason :: (C.IsShelleyBasedEra era, MonadBuildTx era m) => Blacklist
 addBlacklistReason (BlacklistReason reason) =
   addBtx (set (L.txMetadata . L._TxMetadata . at 1) (Just (C.TxMetaMap [(C.TxMetaText "reason", C.metaTextChunks reason)])))
 
-insertBlacklistNode :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError (AppError era) m) => BlacklistReason -> C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
+insertBlacklistNode :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError err m, AsProgrammableTokensError err) => BlacklistReason -> C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
 insertBlacklistNode reason cred blacklistNodes = Utils.inBabbage @era $ do
   -- mint new blacklist token
   mintingScript <- asks (Env.tleBlacklistMintingScript . Env.transferLogicEnv)
@@ -150,7 +151,7 @@ insertBlacklistNode reason cred blacklistNodes = Utils.inBabbage @era $ do
       newPrevNodeOutput = C.TxOut prevAddr prevVal newPrevNodeDatum C.ReferenceScriptNone
 
   when (blnKey prevNode == blnKey newNode)
-    $ throwError DuplicateBlacklistNode
+    $ throwing_ _DuplicateBlacklistNode
 
   -- spend previous node
   spendingScript <- asks (Env.tleBlacklistSpendingScript . Env.transferLogicEnv)
@@ -166,7 +167,7 @@ insertBlacklistNode reason cred blacklistNodes = Utils.inBabbage @era $ do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   addRequiredSignature opPkh
 
-removeBlacklistNode :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError (AppError era) m) => C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
+removeBlacklistNode :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError err m, AsProgrammableTokensError err) => C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
 removeBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   blacklistSpendingScript <- asks (Env.tleBlacklistSpendingScript . Env.transferLogicEnv)
@@ -175,7 +176,7 @@ removeBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
 
   -- find node to remove
   UTxODat{uIn = delNodeRef, uOut = (C.TxOut _delAddr delOutVal _ _),  uDatum = delNodeDatum}
-    <- maybe (throwError BlacklistNodeNotFound) pure $ find ((== unwrapCredential (transCredential cred)) . blnKey . uDatum) blacklistNodes
+    <- maybe (throwing_ _BlacklistNodeNotFound) pure $ find ((== unwrapCredential (transCredential cred)) . blnKey . uDatum) blacklistNodes
 
 
   let expectedAssetName = C.AssetName $  case transCredential cred of
@@ -225,7 +226,7 @@ issueSmartTokens paramsTxOut issuanceCborHexTxOut (an, q) directoryList destinat
   paySmartTokensToDestination (an, q) issuedPolicyId destinationCred
   pure $ C.AssetId issuedPolicyId an
 
-transferSmartTokens :: forall env era a m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env, MonadError (AppError era) m) => UTxODat era ProgrammableLogicGlobalParams -> [UTxODat era BlacklistNode] -> [UTxODat era DirectorySetNode] -> [UTxODat era a] -> (C.AssetId, C.Quantity) -> C.PaymentCredential -> m (FindProofResult era)
+transferSmartTokens :: forall env era err a m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env, MonadError err m) => UTxODat era ProgrammableLogicGlobalParams -> [UTxODat era BlacklistNode] -> [UTxODat era DirectorySetNode] -> [UTxODat era a] -> (C.AssetId, C.Quantity) -> C.PaymentCredential -> m (FindProofResult era)
 transferSmartTokens paramsTxIn blacklistNodes directoryList spendingUserOutputs (assetId, q) destinationCred = Utils.inBabbage @era $ do
   nid <- queryNetworkId
   userCred <- Env.operatorPaymentCredential
@@ -360,7 +361,7 @@ findProof blacklistNodes cred =
 {-| Add a proof that the user is allowed to transfer programmable tokens.
 Uses the user from 'HasOperatorEnv env'. Fails if the user is blacklisted.
 -}
-addTransferWitness :: forall env era m. (MonadError (AppError era) m, MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => [UTxODat era BlacklistNode] -> m (FindProofResult era)
+addTransferWitness :: forall env era err m. (MonadError err m, MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => [UTxODat era BlacklistNode] -> m (FindProofResult era)
 addTransferWitness blacklistNodes = Utils.inBabbage @era $ do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv) -- In this case 'operator' is the user
   nid <- queryNetworkId
