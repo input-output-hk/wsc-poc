@@ -3,7 +3,10 @@
 module Wst.Cli.Command(
   parseCommand,
   Command(..),
-  ManageCommand(..)
+  ManageCommand(..),
+
+  -- * Other parsers
+  parseTxIn
 ) where
 
 import Cardano.Api (TxIn (..), TxIx (..))

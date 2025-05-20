@@ -51,6 +51,7 @@ import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 import Text.Read (readMaybe)
+import Wst.Cli.Command qualified as Cli.Command
 import Wst.Offchain.Env (BlacklistTransferLogicScriptRoot (..),
                          DirectoryEnv (..),
                          DirectoryScriptRoot (DirectoryScriptRoot),
@@ -272,16 +273,16 @@ parseExportCommand =
     <*> optional parseAppliedScriptArgs
 
 parseAppliedScriptArgs :: Parser AppliedScriptArgs
-parseAppliedScriptArgs = AppliedScriptArgs <$> parseTxIn <*> parseTxIn <*> parseAddress
+parseAppliedScriptArgs = AppliedScriptArgs <$> Cli.Command.parseTxIn <*> parseIssuerTxIn <*> parseAddress
 
 parseAddress :: Parser (SerialiseAddress (C.Address C.ShelleyAddr))
 parseAddress = argument (eitherReader (eitherDecode . LBS8.pack)) (help "The address to use for the issuer" <> metavar "ISSUER_ADDRESS")
 
-parseTxIn :: Parser C.TxIn
-parseTxIn =
+parseIssuerTxIn :: Parser C.TxIn
+parseIssuerTxIn =
   argument
     txInReader
-    (help "The TxIn that was selected when deploying the system. Format: <tx-id>.<index>" <> metavar "TX_IN")
+    (help "The reference utxo with the prefix and postfix cborhex of the issuance script. Format: <tx-id>.<index>" <> metavar "ISSUER_TX_IN")
 
 txInReader :: ReadM C.TxIn
 txInReader = eitherReader $ \str -> do
