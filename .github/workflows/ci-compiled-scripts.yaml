@@ -45,7 +45,7 @@ jobs:
         # git diff --quiet implies --exit-code
         run: |
           cabal run export-smart-tokens ./generated/scripts/unapplied
-          cabal run export-smart-tokens ./generated/scripts/preview 08a8d0bb8717839931b0a594f7c28b0a3b7c78f6e9172e977e250eab7637d879.0 '"addr_test1qq986m3uel86pl674mkzneqtycyg7csrdgdxj6uf7v7kd857kquweuh5kmrj28zs8czrwkl692jm67vna2rf7xtafhpqk3hecm"'
-          cabal run export-smart-tokens ./generated/scripts/mainnet b1977c1eb33590ca1311384ab68cd36209832213ad4483feb8a1b7cb64828946.0 '"addr_test1qq986m3uel86pl674mkzneqtycyg7csrdgdxj6uf7v7kd857kquweuh5kmrj28zs8czrwkl692jm67vna2rf7xtafhpqk3hecm"'
+          cabal run export-smart-tokens ./generated/scripts/preview 08a8d0bb8717839931b0a594f7c28b0a3b7c78f6e9172e977e250eab7637d879.0 08a8d0bb8717839931b0a594f7c28b0a3b7c78f6e9172e977e250eab7637d879.0 '"addr_test1qq986m3uel86pl674mkzneqtycyg7csrdgdxj6uf7v7kd857kquweuh5kmrj28zs8czrwkl692jm67vna2rf7xtafhpqk3hecm"'
+          cabal run export-smart-tokens ./generated/scripts/mainnet b1977c1eb33590ca1311384ab68cd36209832213ad4483feb8a1b7cb64828946.0 b1977c1eb33590ca1311384ab68cd36209832213ad4483feb8a1b7cb64828946.0 '"addr_test1qq986m3uel86pl674mkzneqtycyg7csrdgdxj6uf7v7kd857kquweuh5kmrj28zs8czrwkl692jm67vna2rf7xtafhpqk3hecm"'
           cabal run write-openapi-schema -- generated/openapi/schema.json
           git diff --quiet
