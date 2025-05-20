@@ -49,7 +49,7 @@ PlutusTx.makeIsDataIndexed ''DirectoryNodeAction
 
 data PDirectoryNodeAction (s :: S)
   = PInit
-  | PInsert { pkeyToInsert :: Term s (PAsData PByteString), phashedParam :: Term s (PAsData PByteString) }
+  | PInsert { pkeyToInsert :: Term s (PAsData PByteString), pmintingLogicCred :: Term s (PAsData PByteString) }
   deriving stock (Generic)
   deriving anyclass (SOP.Generic, PIsData, PEq)
   deriving (PlutusType) via DeriveAsDataStruct PDirectoryNodeAction
@@ -77,6 +77,6 @@ mkDirectoryNodeMP = plam $ \initUTxO issuanceCborHexCS ctx -> P.do
       passert "Init must consume TxOutRef" $
         phasUTxO # pfromData initUTxO # pfromData ptxInfo'inputs
       pInit common
-    PInsert action hashedParam -> P.do
+    PInsert action pmintingLogicCred -> P.do
       pkToInsert <- plet action
-      pInsert issuanceCborHexCS common # pfromData pkToInsert # hashedParam
+      pInsert issuanceCborHexCS common # pfromData pkToInsert # pmintingLogicCred

@@ -119,9 +119,6 @@ mkProgrammableLogicMinting = plam $ \(pfromData -> programmableLogicBase) mintin
           # plam (pfstBuiltin #)
           # pto (pfromData ptxInfo'wdrl)
   red <- plet pscriptContext'redeemer
-  -- PMintPToken is used to register a new programmable token in the directory and to mint the programmable token upon registration and
-  -- in any subsequent transaction.
-  -- At registration this creates a permanent association between the currency symbol with a transferLogicScript and issuerLogicScript.
   -- All transfers of the token will be validated by either the transferLogicScript or the issuerLogicScript.
   -- Registration can only occurr once per instance of this minting policy since the directory contracts do not permit duplicate
   -- entries.
@@ -144,7 +141,7 @@ mkProgrammableLogicMinting = plam $ \(pfromData -> programmableLogicBase) mintin
           ]
       )
 
--- | Check that exactly one redeemer with the mintingLogic credential is present in the transaction.
+-- | Check that exactly one `PMinting` redeemer with the mintingLogic credential is present in the transaction.
 psingleMintWithCredential :: Term (s :: S) (PAsData PRedeemer :--> AssocMap.PMap 'AssocMap.Unsorted PScriptPurpose PRedeemer :--> PBool)
 psingleMintWithCredential =
   phoistAcyclic $ plam $ \rdmr redeemers ->
