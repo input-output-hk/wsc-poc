@@ -12,6 +12,7 @@ in
     pkgs.ghcid
     pkgs.nixpkgs-fmt
     cardano-cli
+    pkgs.aiken
   ];
 
   env = { };
