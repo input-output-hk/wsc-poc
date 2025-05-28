@@ -19,6 +19,10 @@ module Wst.Offchain.Scripts (
   blacklistMintingScript,
   blacklistSpendingScript,
 
+  -- * Issuance Cbor Hex Script
+  issuanceCborHexSpendingScript,
+  issuanceCborHexMintingScript,
+
   -- * Always suceeds
   alwaysSucceedsScript,
 
@@ -32,12 +36,15 @@ import Cardano.Api.Shelley qualified as C
 import Convex.PlutusLedger.V1 (transCredential, transPolicyId, transPubKeyHash,
                                transStakeCredential)
 import Convex.PlutusLedger.V3 (transTxOutRef)
+import Plutarch.Evaluate (applyArguments)
 import Plutarch.Prelude
 import Plutarch.Script (serialiseScript)
+import PlutusLedgerApi.V3
 import SmartTokens.Contracts.AlwaysYields (palwaysSucceed)
 import SmartTokens.Contracts.ExampleTransferLogic (mkFreezeAndSeizeTransfer,
                                                    mkPermissionedTransfer)
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
+import SmartTokens.Contracts.IssuanceCborHex (mkIssuanceCborHexMinting)
 import SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicBase,
                                                     mkProgrammableLogicGlobal)
 import SmartTokens.Contracts.ProtocolParams (alwaysFailScript,
@@ -64,11 +71,25 @@ protocolParamsSpendingScript target =
   let script = Scripts.tryCompile target $ alwaysFailScript # pforgetData (pdata (pconstant "" :: ClosedTerm PByteString))
   in C.PlutusScriptSerialised $ serialiseScript script
 
+-- | The minting script for the issuance cbor hex NFT, takes initial TxIn for
+-- one shot mint
+issuanceCborHexMintingScript :: ScriptTarget -> C.TxIn -> C.PlutusScript C.PlutusScriptV3
+issuanceCborHexMintingScript target txIn =
+  let script = Scripts.tryCompile target $ mkIssuanceCborHexMinting # pdata (pconstant $ transTxOutRef txIn)
+  in C.PlutusScriptSerialised $ serialiseScript script
+
+-- | The spending script for the issuance cbor hex NFT parameterized by the nonce "deadbeef"
+issuanceCborHexSpendingScript :: ScriptTarget -> C.PlutusScript C.PlutusScriptV3
+issuanceCborHexSpendingScript target =
+  let script = Scripts.tryCompile target $ alwaysFailScript # pforgetData (pdata (pconstant "deadbeef" :: ClosedTerm PByteString))
+  in C.PlutusScriptSerialised $ serialiseScript script
+
 -- | The minting script for the directory node tokens, takes initial TxIn for
 -- symbol uniqueness across instances
-directoryNodeMintingScript :: ScriptTarget -> C.TxIn -> C.PlutusScript C.PlutusScriptV3
-directoryNodeMintingScript target txIn =
-  let script = Scripts.tryCompile target $ mkDirectoryNodeMP # pdata (pconstant $ transTxOutRef txIn)
+directoryNodeMintingScript :: ScriptTarget -> C.TxIn -> C.TxIn -> C.PlutusScript C.PlutusScriptV3
+directoryNodeMintingScript target txIn issuanceInitTxIn =
+  let issuanceCS = transPolicyId $ scriptPolicyIdV3 $ issuanceCborHexMintingScript target issuanceInitTxIn
+      script = Scripts.tryCompile target $ mkDirectoryNodeMP # pdata (pconstant $ transTxOutRef txIn) # pdata (pconstant issuanceCS)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- | The spending script for the directory node tokens, parameterized by the
@@ -80,12 +101,16 @@ directoryNodeSpendingScript target paramsPolId =
 
 -- TODO: can we change the signature to just take the param policy id?
 programmableLogicMintingScript :: ScriptTarget -> C.PaymentCredential -> C.StakeCredential -> C.PlutusScript C.PlutusScriptV3
-programmableLogicMintingScript target progLogicBaseSpndingCred mintingCred =
-  let script = Scripts.tryCompile target
+programmableLogicMintingScript _target progLogicBaseSpndingCred mintingCred =
+  let unappliedScript = Scripts.tryCompile Production
                $ mkProgrammableLogicMinting
                   # pdata (pconstant $ transCredential progLogicBaseSpndingCred)
-                  # pdata (pconstant $ transStakeCredential mintingCred)
+      script = applyArguments unappliedScript [toData $ extractScriptHash $ transStakeCredential mintingCred]
   in C.PlutusScriptSerialised $ serialiseScript script
+  where
+    extractScriptHash :: Credential -> ScriptHash
+    extractScriptHash (ScriptCredential h) = h
+    extractScriptHash _ = error "Expected ScriptCredential"
 
 programmableLogicBaseScript :: ScriptTarget -> C.StakeCredential -> C.PlutusScript C.PlutusScriptV3 -- Parameterized by the stake cred of the global script
 programmableLogicBaseScript target globalCred =

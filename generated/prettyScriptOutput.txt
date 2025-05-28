@@ -1,0 +1,309 @@
+let frSndPair = !!sndPair
+    frTailList = !tailList
+    frHeadList = !headList
+    frFstPair = !!fstPair
+    frIfThenElse = !ifThenElse
+    frChooseList = !!chooseList
+    fix =
+      \xF ->
+        let qsrxlF0Y7 = \oP4ECBT -> xF (\cjlB6yrGk -> oP4ECBT oP4ECBT cjlB6yrGk)
+        in xF (\cRFO -> qsrxlF0Y7 qsrxlF0Y7 cRFO)
+    cs9iR = \w4 -> (Case ((Constr 0 (w4 False True)) (frIfThenElse)))
+    vModHwqYB =
+      \ePDSInSEC blM6d67 ->
+        fix
+          (\mC x5sad ->
+             !(Case ((Constr 0 (x5sad ~False ~!(Case ((Constr 0 ((cs9iR
+                                                                    (equalsInteger
+                                                                       (frFstPair
+                                                                          (unConstrData
+                                                                             (frFstPair
+                                                                                (frHeadList
+                                                                                   x5sad))))
+                                                                       0)) ~(mC
+                                                                               (frTailList
+                                                                                  x5sad)) ~!(Case ((Constr 0 ((equalsData
+                                                                                                                 (frSndPair
+                                                                                                                    (frHeadList
+                                                                                                                       x5sad))
+                                                                                                                 ePDSInSEC) ~(fix
+                                                                                                                                (\itzT jfZs ->
+                                                                                                                                   !(Case ((Constr 0 (jfZs ~True ~!(Case ((Constr 0 ((equalsInteger
+                                                                                                                                                                                        (frFstPair
+                                                                                                                                                                                           (unConstrData
+                                                                                                                                                                                              (frFstPair
+                                                                                                                                                                                                 (frHeadList
+                                                                                                                                                                                                    jfZs))))
+                                                                                                                                                                                        0) ~!(Case ((Constr 0 ((equalsData
+                                                                                                                                                                                                                  (frSndPair
+                                                                                                                                                                                                                     (frHeadList
+                                                                                                                                                                                                                        jfZs))
+                                                                                                                                                                                                                  ePDSInSEC) ~False ~(itzT
+                                                                                                                                                                                                                                        (frTailList
+                                                                                                                                                                                                                                           jfZs))))
+                                                                                                                                                                                                (frIfThenElse))) ~True))
+                                                                                                                                                                      (frIfThenElse)))))
+                                                                                                                                       (frChooseList))))
+                                                                                                                                (frTailList
+                                                                                                                                   x5sad)) ~(fix
+                                                                                                                                               (\q6X3 ispwp_oeT ->
+                                                                                                                                                  !(Case ((Constr 0 (ispwp_oeT ~False ~!(Case ((Constr 0 ((equalsInteger
+                                                                                                                                                                                                             (frFstPair
+                                                                                                                                                                                                                (unConstrData
+                                                                                                                                                                                                                   (frFstPair
+                                                                                                                                                                                                                      (frHeadList
+                                                                                                                                                                                                                         ispwp_oeT))))
+                                                                                                                                                                                                             0) ~!(Case ((Constr 0 ((equalsData
+                                                                                                                                                                                                                                       (frSndPair
+                                                                                                                                                                                                                                          (frHeadList
+                                                                                                                                                                                                                                             ispwp_oeT))
+                                                                                                                                                                                                                                       ePDSInSEC) ~(fix
+                                                                                                                                                                                                                                                      (\xVx olbZ ->
+                                                                                                                                                                                                                                                         !(Case ((Constr 0 (olbZ ~True ~!(Case ((Constr 0 ((equalsInteger
+                                                                                                                                                                                                                                                                                                              (frFstPair
+                                                                                                                                                                                                                                                                                                                 (unConstrData
+                                                                                                                                                                                                                                                                                                                    (frFstPair
+                                                                                                                                                                                                                                                                                                                       (frHeadList
+                                                                                                                                                                                                                                                                                                                          olbZ))))
+                                                                                                                                                                                                                                                                                                              0) ~!(Case ((Constr 0 ((equalsData
+                                                                                                                                                                                                                                                                                                                                        (frSndPair
+                                                                                                                                                                                                                                                                                                                                           (frHeadList
+                                                                                                                                                                                                                                                                                                                                              olbZ))
+                                                                                                                                                                                                                                                                                                                                        ePDSInSEC) ~False ~(xVx
+                                                                                                                                                                                                                                                                                                                                                              (frTailList
+                                                                                                                                                                                                                                                                                                                                                                 olbZ))))
+                                                                                                                                                                                                                                                                                                                      (frIfThenElse))) ~True))
+                                                                                                                                                                                                                                                                                            (frIfThenElse)))))
+                                                                                                                                                                                                                                                             (frChooseList))))
+                                                                                                                                                                                                                                                      (frTailList
+                                                                                                                                                                                                                                                         ispwp_oeT)) ~(q6X3
+                                                                                                                                                                                                                                                                         (frTailList
+                                                                                                                                                                                                                                                                            ispwp_oeT))))
+                                                                                                                                                                                                                     (frIfThenElse))) ~False))
+                                                                                                                                                                                           (frIfThenElse)))))
+                                                                                                                                                      (frChooseList))))
+                                                                                                                                               (frTailList
+                                                                                                                                                  x5sad))))
+                                                                                               (frIfThenElse)))))
+                                                  (frIfThenElse)))))
+                 (frChooseList))))
+          blM6d67
+    frMkCons = !mkCons
+    bX = []
+    mB1 =
+      \mb ->
+        fix
+          (\fCVVl4d9 k0d_ghNz ->
+             !(Case ((Constr 0 (k0d_ghNz ~bX ~(frMkCons
+                                                 (mb (frHeadList k0d_ghNz))
+                                                 (fCVVl4d9
+                                                    (frTailList k0d_ghNz)))))
+                 (frChooseList))))
+    lu =
+      \p6rJRrf ->
+        fix
+          (\swz4 x9sz ->
+             !(Case ((Constr 0 (x9sz ~False ~!(Case ((Constr 0 ((equalsData
+                                                                   (frHeadList
+                                                                      x9sz)
+                                                                   p6rJRrf) ~True ~(swz4
+                                                                                      (frTailList
+                                                                                         x9sz))))
+                                                 (frIfThenElse)))))
+                 (frChooseList))))
+    ljW =
+      \jkeTk7'v mCZJa9 ->
+        (Case ((Constr 0 (jkeTk7'v mCZJa9 False))
+           (frIfThenElse)))
+    pSr =
+      \pVMBdky2J uVr8 g14 dwF ->
+        fix
+          (\wFgFZanQw pnBKyGRo ->
+             !(Case ((Constr 0 (pnBKyGRo ~uVr8 ~!(Case ((Constr 0 ((equalsData
+                                                                      (frFstPair
+                                                                         (frHeadList
+                                                                            pnBKyGRo))
+                                                                      pVMBdky2J) ~(g14
+                                                                                     (frSndPair
+                                                                                        (frHeadList
+                                                                                           pnBKyGRo))) ~(wFgFZanQw
+                                                                                                           (frTailList
+                                                                                                              pnBKyGRo))))
+                                                    (frIfThenElse)))))
+                 (frChooseList))))
+          dwF
+    on3zL = \bAP -> pSr (bData bAP)
+in \tpJn bY ->
+     let p6_D = frSndPair (unConstrData bY)
+         hjAeH = frTailList p6_D
+         wEh1c =
+           frTailList (frTailList (frSndPair (unConstrData (frHeadList p6_D))))
+         dYR = frTailList (frTailList wEh1c)
+         ktR4n1H = frTailList (frTailList dYR)
+         xSy = unConstrData (frHeadList (frTailList hjAeH))
+         am8qI1 = frFstPair xSy
+         deeKSs6T = frSndPair xSy
+     in !(Case ((Constr 0 ((equalsInteger 0 am8qI1) ~(let jIeNNSc1 =
+                                                            frHeadList deeKSs6T
+                                                          qjngSjHp =
+                                                            unMapData
+                                                              (frHeadList dYR)
+                                                          yCpDp =
+                                                            let bAHGQ_Ux =
+                                                                  fix
+                                                                    (\ruQPXt l7Wc ->
+                                                                       !(Case ((Constr 0 (l7Wc ~ERROR ~!(Case ((Constr 0 ((equalsData
+                                                                                                                             (frFstPair
+                                                                                                                                (frHeadList
+                                                                                                                                   l7Wc))
+                                                                                                                             jIeNNSc1) ~(unMapData
+                                                                                                                                           (frSndPair
+                                                                                                                                              (frHeadList
+                                                                                                                                                 l7Wc))) ~(ruQPXt
+                                                                                                                                                             (frTailList
+                                                                                                                                                                l7Wc))))
+                                                                                                           (frIfThenElse)))))
+                                                                           (frChooseList))))
+                                                                    qjngSjHp
+                                                            in !(Case ((Constr 0 (bAHGQ_Ux ~ERROR ~(let u1xovV =
+                                                                                                          frTailList
+                                                                                                            bAHGQ_Ux
+                                                                                                    in !(Case ((Constr 0 (u1xovV ~(frHeadList
+                                                                                                                                     bAHGQ_Ux) ~ERROR))
+                                                                                                           (frChooseList))))))
+                                                                   (fix)))
+                                                          gxi6yUaE1 =
+                                                            frFstPair yCpDp
+                                                          qog =
+                                                            unIData
+                                                              (frSndPair yCpDp)
+                                                          qxMojhO =
+                                                            unListData
+                                                              (frHeadList wEh1c)
+                                                          rGzg =
+                                                            frSndPair
+                                                              (unConstrData
+                                                                 (frHeadList
+                                                                    qxMojhO))
+                                                          o84 = frHeadList hjAeH
+                                                      in !(Case ((Constr 0 ((lessThanInteger
+                                                                               0
+                                                                               qog) ~!(Case ((Constr 0 ((ljW
+                                                                                                           (ljW
+                                                                                                              (ljW
+                                                                                                                 (ljW
+                                                                                                                    (equalsInteger
+                                                                                                                       (Case ((Constr 0 ((unMapData
+                                                                                                                                            (frHeadList
+                                                                                                                                               (frTailList
+                                                                                                                                                  rGzg))) (unBData
+                                                                                                                                                             jIeNNSc1) (unBData
+                                                                                                                                                                          gxi6yUaE1)))
+                                                                                                                          ((\p9Iw2 i7x_ uivFLQ ->
+                                                                                                                              (Case ((Constr 0 (i7x_ 0 \elKXgT ->
+                                                                                                                                                         (Case ((Constr 0 (uivFLQ 0 unIData unMapData
+                                                                                                                                                                                              elKXgT))
+                                                                                                                                                            (on3zL))) i7x_))
+                                                                                                                                 (tpJn)))))))
+                                                                                                                       qog)
+                                                                                                                    (let f3xIRbD =
+                                                                                                                           frHeadList
+                                                                                                                             (frSndPair
+                                                                                                                                (unConstrData
+                                                                                                                                   (frHeadList
+                                                                                                                                      rGzg)))
+                                                                                                                         z8l_Q4Ty =
+                                                                                                                           unConstrData
+                                                                                                                             f3xIRbD
+                                                                                                                         lQvTt =
+                                                                                                                           frFstPair
+                                                                                                                             z8l_Q4Ty
+                                                                                                                         ixC =
+                                                                                                                           frSndPair
+                                                                                                                             z8l_Q4Ty
+                                                                                                                     in !(Case ((Constr 0 ((equalsInteger
+                                                                                                                                              0
+                                                                                                                                              lQvTt) ~(let vfBPvne =
+                                                                                                                                                             unConstrData
+                                                                                                                                                               Σ1.[ #0x6465616462656566 ]
+                                                                                                                                                           g1g48t =
+                                                                                                                                                             frFstPair
+                                                                                                                                                               vfBPvne
+                                                                                                                                                           kQcba9e6 =
+                                                                                                                                                             frSndPair
+                                                                                                                                                               vfBPvne
+                                                                                                                                                       in !(Case ((Constr 0 ((equalsInteger
+                                                                                                                                                                                0
+                                                                                                                                                                                g1g48t) ~(equalsData
+                                                                                                                                                                                            (frHeadList
+                                                                                                                                                                                               ixC)
+                                                                                                                                                                                            (frHeadList
+                                                                                                                                                                                               kQcba9e6)) ~False))
+                                                                                                                                                              (frIfThenElse)))) ~(let s85M27JDa =
+                                                                                                                                                                                        unConstrData
+                                                                                                                                                                                          Σ1.[ #0x6465616462656566 ]
+                                                                                                                                                                                      fE5M =
+                                                                                                                                                                                        fix
+                                                                                                                                                                                          s85M27JDa
+                                                                                                                                                                                      cUva7w =
+                                                                                                                                                                                        frFstPair
+                                                                                                                                                                                          s85M27JDa
+                                                                                                                                                                                  in !(Case ((Constr 0 ((equalsInteger
+                                                                                                                                                                                                           1
+                                                                                                                                                                                                           fE5M) ~(equalsData
+                                                                                                                                                                                                                     (frChooseList
+                                                                                                                                                                                                                        kQcba9e6)
+                                                                                                                                                                                                                     (frChooseList
+                                                                                                                                                                                                                        cUva7w)) ~False))
+                                                                                                                                                                                         (cs9iR))))))
+                                                                                                                            (bX)))))
+                                                                                                                 (lu
+                                                                                                                    (constrData
+                                                                                                                       1
+                                                                                                                       (frMkCons
+                                                                                                                          tpJn
+                                                                                                                          bX))
+                                                                                                                    (mB1
+                                                                                                                       frFstPair
+                                                                                                                       (unMapData
+                                                                                                                          (frHeadList
+                                                                                                                             ktR4n1H)))))
+                                                                                                              (equalsData
+                                                                                                                 o84
+                                                                                                                 (constrData
+                                                                                                                    1
+                                                                                                                    (frMkCons
+                                                                                                                       tpJn
+                                                                                                                       bX))))
+                                                                                                           (vModHwqYB
+                                                                                                              o84
+                                                                                                              (unMapData
+                                                                                                                 (frHeadList
+                                                                                                                    (frTailList
+                                                                                                                       (frTailList
+                                                                                                                          (frTailList
+                                                                                                                             ktR4n1H))))))) ~() ~ERROR))
+                                                                                         (frIfThenElse))) ~!(Case ((Constr 0 ((ljW
+                                                                                                                                 (lu
+                                                                                                                                    (constrData
+                                                                                                                                       1
+                                                                                                                                       (frMkCons
+                                                                                                                                          tpJn
+                                                                                                                                          bX))
+                                                                                                                                    (mB1
+                                                                                                                                       frFstPair
+                                                                                                                                       (unMapData
+                                                                                                                                          (frHeadList
+                                                                                                                                             ktR4n1H))))
+                                                                                                                                 (vModHwqYB
+                                                                                                                                    (frHeadList
+                                                                                                                                       hjAeH)
+                                                                                                                                    (unMapData
+                                                                                                                                       (frHeadList
+                                                                                                                                          (frTailList
+                                                                                                                                             (frTailList
+                                                                                                                                                (frTailList
+                                                                                                                                                   ktR4n1H))))))) ~() ~ERROR))
+                                                                                                               (frIfThenElse)))))
+                                                             (frIfThenElse)))) ~ERROR))
+            (lu)))

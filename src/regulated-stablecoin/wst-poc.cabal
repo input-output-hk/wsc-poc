@@ -56,6 +56,7 @@ library
     Wst.JSON.Utils
     Wst.Offchain.BuildTx.DirectorySet
     Wst.Offchain.BuildTx.Failing
+    Wst.Offchain.BuildTx.IssuanceCborHexRef
     Wst.Offchain.BuildTx.LinkedList
     Wst.Offchain.BuildTx.ProgrammableLogic
     Wst.Offchain.BuildTx.ProtocolParams
@@ -158,6 +159,7 @@ executable export-smart-tokens
     , optparse-applicative
     , plutarch
     , plutus-ledger-api
+    , plutus-tx
     , programmable-tokens
     , text
     , wst-poc

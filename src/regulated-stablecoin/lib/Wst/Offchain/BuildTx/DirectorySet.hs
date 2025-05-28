@@ -28,9 +28,11 @@ import Plutarch.Evaluate (unsafeEvalTerm)
 import Plutarch.Internal.Term (Config (NoTracing))
 import Plutarch.Prelude (pconstant)
 import PlutusLedgerApi.V1 qualified as PlutusTx
-import PlutusLedgerApi.V3 (Credential (..), CurrencySymbol (..))
+import PlutusLedgerApi.V3 (Credential (..), CurrencySymbol (..),
+                           ScriptHash (..))
 import PlutusTx.Prelude (toBuiltin)
 import SmartTokens.CodeLens (_printTerm)
+import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (..))
 import SmartTokens.LinkedList.MintDirectory (DirectoryNodeAction (..))
 import SmartTokens.Types.Constants (directoryNodeToken)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
@@ -89,13 +91,14 @@ initDirectorySet = Utils.inBabbage @era $ do
 data InsertNodeArgs =
   InsertNodeArgs
     { inaNewKey :: CurrencySymbol
+    , inaHashedParam :: ScriptHash
     , inaTransferLogic :: C.StakeCredential
     , inaIssuerLogic :: C.StakeCredential
     , inaGlobalStateCS :: Maybe CurrencySymbol
     }
 
-insertDirectoryNode :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era DirectorySetNode -> InsertNodeArgs -> m ()
-insertDirectoryNode UTxODat{uIn=paramsRef} UTxODat{uIn, uOut=firstTxOut, uDatum=firstTxData} InsertNodeArgs{inaNewKey, inaTransferLogic, inaIssuerLogic, inaGlobalStateCS} = Utils.inBabbage @era $ do
+insertDirectoryNode :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era IssuanceCborHex -> UTxODat era DirectorySetNode -> InsertNodeArgs -> m ()
+insertDirectoryNode UTxODat{uIn=paramsRef} UTxODat{uIn=issuanceCborHexRef} UTxODat{uIn, uOut=firstTxOut, uDatum=firstTxData} InsertNodeArgs{inaNewKey, inaHashedParam, inaTransferLogic, inaIssuerLogic, inaGlobalStateCS} = Utils.inBabbage @era $ do
   netId <- queryNetworkId
   directorySpendingScript <- asks (Env.dsDirectorySpendingScript . Env.directoryEnv)
   directoryMintingScript <- asks (Env.dsDirectoryMintingScript . Env.directoryEnv)
@@ -132,7 +135,8 @@ insertDirectoryNode UTxODat{uIn=paramsRef} UTxODat{uIn, uOut=firstTxOut, uDatum=
       firstDat = firstTxData { next = inaNewKey }
       firstOutput = C.TxOut addr firstTxVal (C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData firstDat) C.ReferenceScriptNone
   addReference paramsRef
+  addReference issuanceCborHexRef
   spendPlutusInlineDatum uIn directorySpendingScript ()
-  mintPlutus directoryMintingScript (InsertDirectoryNode inaNewKey) newTokenName 1
+  mintPlutus directoryMintingScript (InsertDirectoryNode inaNewKey inaHashedParam) newTokenName 1
   prependTxOut insertedNode
   prependTxOut firstOutput

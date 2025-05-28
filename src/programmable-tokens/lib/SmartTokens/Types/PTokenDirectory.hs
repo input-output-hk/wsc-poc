@@ -40,7 +40,6 @@ import Plutarch.Internal.Lift
 import Plutarch.Internal.Term (Config (NoTracing))
 import Plutarch.LedgerApi.V3 (PCredential, PCurrencySymbol)
 import Plutarch.Prelude
-import Plutarch.Repr.Data
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V3 (BuiltinByteString, Credential, CurrencySymbol)
 import PlutusTx (Data (B, Constr))

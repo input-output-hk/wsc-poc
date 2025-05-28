@@ -3,7 +3,10 @@
 module Wst.Cli.Command(
   parseCommand,
   Command(..),
-  ManageCommand(..)
+  ManageCommand(..),
+
+  -- * Other parsers
+  parseTxIn
 ) where
 
 import Cardano.Api (TxIn (..), TxIx (..))
@@ -29,7 +32,7 @@ parseCommand =
 
 data Command =
   Deploy OperatorConfigSigning
-  | Manage TxIn ManageCommand
+  | Manage TxIn TxIn ManageCommand
   deriving Show
 
 -- | Commands that require a deployed system
@@ -46,7 +49,7 @@ parseDeploy =
 parseManage :: Mod CommandFields Command
 parseManage =
   command "manage" $
-    info (Manage <$> parseTxIn <*> parseManageCommand) (fullDesc <> progDesc "Manage a deployed system")
+    info (Manage <$> parseTxIn <*> parseTxIn <*> parseManageCommand) (fullDesc <> progDesc "Manage a deployed system")
 
 parseManageCommand :: Parser ManageCommand
 parseManageCommand = subparser $ mconcat [parseStatus, parseStartServer]

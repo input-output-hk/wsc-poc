@@ -12,6 +12,8 @@ module Wst.Offchain.Endpoints.Deployment(
   insertBlacklistNodeTx,
   removeBlacklistNodeTx,
   seizeCredentialAssetsTx,
+  deployIssuanceCborHex,
+  frackUtxosTx,
 ) where
 
 import Cardano.Api (Quantity)
@@ -34,25 +36,35 @@ import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (inaNewKey))
 import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
 import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy,
                                      balanceTxEnvFailing)
+import Wst.Offchain.BuildTx.IssuanceCborHexRef qualified as BuildTx
 import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
 import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
 import Wst.Offchain.BuildTx.TransferLogic (BlacklistReason)
 import Wst.Offchain.BuildTx.TransferLogic qualified as BuildTx
-import Wst.Offchain.Env (DirectoryScriptRoot (..))
+import Wst.Offchain.Env (DirectoryScriptRoot (..), OperatorEnv (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Query qualified as Query
+
+{-| Build a transaction that fractionalizes the operators UTxOs.
+-}
+frackUtxosTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, AsBalancingError err era, AsCoinSelectionError err) => m (C.Tx era)
+frackUtxosTx = do
+  opEnv@OperatorEnv{bteOperator} <- asks Env.operatorEnv
+  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.balanceTxEnv_ $ BuildTx.frackUTxOs bteOperator
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
 
 {-| Build a transaction that deploys the directory and global params. Returns the
 transaction and the 'TxIn' that was selected for the one-shot NFTs.
 -}
 deployTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, AsProgrammableTokensError err, AsCoinSelectionError err, AsBalancingError err era) => ScriptTarget -> m (C.Tx era, DirectoryScriptRoot)
 deployTx target = do
-  (txi, _) <- Env.selectOperatorOutput
+  ((txi, _), (issuanceCborHexTxIn, _)) <- Env.selectTwoOperatorOutputs
   opEnv <- asks Env.operatorEnv
-  let root = DirectoryScriptRoot txi target
+  let root = DirectoryScriptRoot txi issuanceCborHexTxIn target
   (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectoryFor root
-              $ Env.balanceTxEnv_
+              $ Env.balanceDeployTxEnv_
               $ BuildTx.mintProtocolParams
                 >> BuildTx.initDirectorySet
                 >> BuildTx.registerProgrammableGlobalScript
@@ -64,11 +76,11 @@ transaction and the 'TxIn' that was selected for the one-shot NFTs.
 -}
 deployFullTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, AsProgrammableTokensError err, AsCoinSelectionError err, AsBalancingError err era) => ScriptTarget -> m (C.Tx era, DirectoryScriptRoot)
 deployFullTx target = do
-  (txi, _) <- Env.selectOperatorOutput
+  ((txi, _), (issuanceCborHexTxIn, _)) <- Env.selectTwoOperatorOutputs
   opEnv <- asks Env.operatorEnv
-  let root = DirectoryScriptRoot txi target
+  let root = DirectoryScriptRoot txi issuanceCborHexTxIn target
   (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectoryFor root $ Env.withTransferFromOperator
-              $ Env.balanceTxEnv_
+              $ Env.balanceDeployTxEnv_
               $ BuildTx.mintProtocolParams
                 >> BuildTx.initDirectorySet
                 >> BuildTx.initBlacklist
@@ -76,6 +88,22 @@ deployFullTx target = do
                 >> BuildTx.registerTransferScripts
 
   pure (Convex.CoinSelection.signBalancedTxBody [] tx, root)
+
+deployIssuanceCborHex :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasDirectoryEnv env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, AsCoinSelectionError err, AsBalancingError err era) => m (C.Tx era)
+deployIssuanceCborHex = do
+  opEnv <- asks Env.operatorEnv
+  dirEnv <- asks Env.directoryEnv
+  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectory dirEnv $ Env.withTransferFromOperator
+              $ Env.balanceTxEnv_ BuildTx.mintIssuanceCborHexNFT
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+  -- let root = DirectoryScriptRoot txi issuanceCborHexTxIn target
+  -- (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectoryFor root
+  --             $ Env.balanceDeployTxEnv_
+  --             $ BuildTx.mintProtocolParams
+  --               >> BuildTx.initDirectorySet
+  --               >> BuildTx.registerProgrammableGlobalScript
+  --               >> BuildTx.mintIssuanceCborHexNFT
+  -- pure (Convex.CoinSelection.signBalancedTxBody [] tx, root)
 
 {-| Build a transaction that inserts a node into the directory
 -}
@@ -91,7 +119,8 @@ insertNodeTx args = do
 
   -- 2. Find the global parameter node
   paramsNode <- Query.globalParamsNode @era
-  (tx, _) <- Env.balanceTxEnv_ (BuildTx.insertDirectoryNode paramsNode headNode args)
+  cborHexTxIn <- Query.issuanceCborHexUTxO @era
+  (tx, _) <- Env.balanceTxEnv_ (BuildTx.insertDirectoryNode paramsNode cborHexTxIn headNode args)
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 {-| Build a transaction that issues a progammable token
@@ -116,9 +145,11 @@ issueProgrammableTokenTx :: forall era env err m.
 issueProgrammableTokenTx assetName quantity = do
   directory <- Query.registryNodes @era
   paramsNode <- Query.globalParamsNode @era
+  cborHexTxIn <- Query.issuanceCborHexUTxO @era
+
   Env.TransferLogicEnv{Env.tleMintingScript} <- asks Env.transferLogicEnv
   (tx, _) <- Env.balanceTxEnv_ $ do
-    polId <- BuildTx.issueProgrammableToken paramsNode (assetName, quantity) directory
+    polId <- BuildTx.issueProgrammableToken paramsNode cborHexTxIn (assetName, quantity) directory
     Env.operatorPaymentCredential
       >>= BuildTx.paySmartTokensToDestination (assetName, quantity) polId
     let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion tleMintingScript)
@@ -169,8 +200,9 @@ issueSmartTokensTx :: forall era env err m.
 issueSmartTokensTx assetName quantity destinationCred = do
   directory <- Query.registryNodes @era
   paramsNode <- Query.globalParamsNode @era
+  cborHexTxIn <- Query.issuanceCborHexUTxO @era
   ((tx, _), aid) <- Env.balanceTxEnv $ do
-    BuildTx.issueSmartTokens paramsNode (assetName, quantity) directory destinationCred
+    BuildTx.issueSmartTokens paramsNode cborHexTxIn (assetName, quantity) directory destinationCred
   pure (Convex.CoinSelection.signBalancedTxBody [] tx, aid)
 
 {-| Build a transaction that issues a progammable token
