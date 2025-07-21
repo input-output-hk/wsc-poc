@@ -143,13 +143,13 @@ issueProgrammableTokenTx :: forall era env err m.
   -> Quantity -- ^ Amount of tokens to be minted
   -> m (C.Tx era)
 issueProgrammableTokenTx assetName quantity = do
-  directory <- Query.registryNodes @era
+  directoryNode <- Query.registryNode @era
   paramsNode <- Query.globalParamsNode @era
   cborHexTxIn <- Query.issuanceCborHexUTxO @era
 
   Env.TransferLogicEnv{Env.tleMintingScript} <- asks Env.transferLogicEnv
   (tx, _) <- Env.balanceTxEnv_ $ do
-    polId <- BuildTx.issueProgrammableToken paramsNode cborHexTxIn (assetName, quantity) directory
+    polId <- BuildTx.issueProgrammableToken paramsNode cborHexTxIn (assetName, quantity) directoryNode
     Env.operatorPaymentCredential
       >>= BuildTx.paySmartTokensToDestination (assetName, quantity) polId
     let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion tleMintingScript)
@@ -198,7 +198,7 @@ issueSmartTokensTx :: forall era env err m.
   -> C.PaymentCredential -- ^ Destination credential
   -> m (C.Tx era, C.AssetId)
 issueSmartTokensTx assetName quantity destinationCred = do
-  directory <- Query.registryNodes @era
+  directory <- Query.registryNode @era
   paramsNode <- Query.globalParamsNode @era
   cborHexTxIn <- Query.issuanceCborHexUTxO @era
   ((tx, _), aid) <- Env.balanceTxEnv $ do

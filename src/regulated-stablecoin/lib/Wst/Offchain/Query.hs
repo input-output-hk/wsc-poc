@@ -5,6 +5,7 @@ module Wst.Offchain.Query(
   -- * Queries
   blacklistNodes,
   registryNodes,
+  registryNode,
   globalParamsNode,
   issuanceCborHexUTxO,
   programmableLogicOutputs,
@@ -24,16 +25,19 @@ import Control.Monad.Reader (MonadReader, asks)
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain (queryNetworkId), MonadUtxoQuery,
                      utxosByPaymentCredential)
-import Convex.PlutusLedger.V1 (transCredential, unTransStakeCredential)
+import Convex.PlutusLedger.V1 (transCredential, transPolicyId,
+                               unTransStakeCredential)
 import Convex.Scripts (fromHashableScriptData)
 import Convex.Utxos (UtxoSet, toApiUtxo)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Aeson qualified as JSON
+import Data.List (sortOn)
 import Data.Map qualified as Map
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.OpenApi.Schema (ToSchema (..))
 import Data.OpenApi.Schema qualified as Schema
 import Data.OpenApi.SchemaOptions qualified as SchemaOptions
+import Data.Ord (Down (..))
 import Data.Typeable (Typeable)
 import GHC.Exts (IsList (..))
 import GHC.Generics (Generic)
@@ -47,7 +51,8 @@ import Wst.Offchain.Env (DirectoryEnv (..), HasDirectoryEnv (directoryEnv),
                          HasTransferLogicEnv (transferLogicEnv),
                          TransferLogicEnv (tleBlacklistSpendingScript),
                          blacklistNodePolicyId, directoryNodePolicyId,
-                         issuanceCborHexPolicyId, protocolParamsPolicyId)
+                         issuanceCborHexPolicyId,
+                         programmableTokenMintingScript, protocolParamsPolicyId)
 import Wst.Orphans ()
 
 -- TODO: We should probably filter the UTxOs to check that they have the correct NFTs
@@ -83,6 +88,24 @@ registryNodes = do
   utxosAtDirectoryScript <- asks (C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsDirectorySpendingScript . directoryEnv) >>= fmap (extractUTxO @era) . utxosByPaymentCredential
   registryPolicy <- asks (directoryNodePolicyId . directoryEnv)
   pure $ filter (utxoHasPolicyId registryPolicy) utxosAtDirectoryScript
+
+-- | Find the specific directory set node for the policy what we're working with.
+registryNode :: forall era env err m. (MonadUtxoQuery m, C.IsBabbageBasedEra era, HasDirectoryEnv env, MonadReader env m, HasTransferLogicEnv env, MonadError err m, AsProgrammableTokensError err) => m (UTxODat era DirectorySetNode)
+registryNode = do
+  directoryList <- registryNodes @era
+  dir <- asks directoryEnv
+  inta <- asks transferLogicEnv
+
+  let mintingScript = programmableTokenMintingScript dir inta
+      issuedPolicyId = C.scriptPolicyId $ C.PlutusScript C.PlutusScriptV3 mintingScript
+      issuedSymbol = transPolicyId issuedPolicyId
+  let udats =
+        sortOn (Down . key . uDatum)
+        $
+          filter ((<= issuedSymbol) . key . uDatum) directoryList -- TODO: Should this be equality instead of LEQ?
+  case udats of
+    [] -> throwing_ _DirectorySetNodeNotFound
+    x : _ -> pure x
 
 {-| Find all UTxOs that make up the blacklist
 -}

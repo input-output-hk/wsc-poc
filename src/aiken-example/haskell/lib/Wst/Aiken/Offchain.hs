@@ -76,7 +76,6 @@ findDirectorySetNode = do
       issuedSymbol = transPolicyId issuedPolicyId
   let udats =
         sortOn (Down . key . uDatum)
-        -- maximumBy (compare `on` (key . uDatum)) $
         $
           filter ((<= issuedSymbol) . key . uDatum) directoryList -- TODO: Should this be equality instead of LEQ?
   case udats of

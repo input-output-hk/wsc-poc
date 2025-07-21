@@ -52,8 +52,8 @@ import Wst.Offchain.Query (UTxODat (..))
   - If the programmable token is not in the directory, then it is registered
   - If the programmable token is in the directory, then it is minted
 -}
-issueProgrammableToken :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era IssuanceCborHex -> (C.AssetName, C.Quantity) -> [UTxODat era DirectorySetNode] -> m C.PolicyId
-issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) directoryList = Utils.inBabbage @era $ do
+issueProgrammableToken :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era IssuanceCborHex -> (C.AssetName, C.Quantity) -> UTxODat era DirectorySetNode -> m C.PolicyId
+issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) udat@UTxODat{uDatum = dirNodeData} = Utils.inBabbage @era $ do
   inta@TransferLogicEnv{tleTransferScript, tleIssuerScript, tleMintingScript, tleGlobalParamsNft} <- asks Env.transferLogicEnv
   glParams <- asks (Env.globalParams . Env.directoryEnv)
   dir <- asks Env.directoryEnv
@@ -74,9 +74,6 @@ issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) directoryList = 
       issuedPolicyId = C.scriptPolicyId $ C.PlutusScript C.PlutusScriptV3 mintingScript
       issuedSymbol = transPolicyId issuedPolicyId
 
-      udat@UTxODat{uDatum = dirNodeData} =
-        maximumBy (compare `on` (key . uDatum)) $
-          filter ((<= issuedSymbol) . key . uDatum) directoryList
 
   -- Debug.Trace.traceM $ "mintingLogicScript: " <> BSC.unpack (Base16.encode $ C.serialiseToRawBytes mintingScript)
   -- Debug.Trace.traceM $ "issuedCurrencySymbol: " <> show issuedSymbol

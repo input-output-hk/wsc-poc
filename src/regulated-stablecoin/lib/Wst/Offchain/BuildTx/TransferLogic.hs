@@ -218,9 +218,9 @@ paySmartTokensToDestination (an, q) issuedPolicyId destinationCred = Utils.inBab
   addr <- Env.programmableTokenReceivingAddress destinationCred
   payToAddress addr value
 
-issueSmartTokens :: forall era env m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era IssuanceCborHex -> (C.AssetName, C.Quantity) -> [UTxODat era DirectorySetNode] -> C.PaymentCredential -> m C.AssetId
-issueSmartTokens paramsTxOut issuanceCborHexTxOut (an, q) directoryList destinationCred = Utils.inBabbage @era $ do
-  issuedPolicyId <- issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) directoryList
+issueSmartTokens :: forall era env m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era IssuanceCborHex -> (C.AssetName, C.Quantity) -> UTxODat era DirectorySetNode -> C.PaymentCredential -> m C.AssetId
+issueSmartTokens paramsTxOut issuanceCborHexTxOut (an, q) directoryNode destinationCred = Utils.inBabbage @era $ do
+  issuedPolicyId <- issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) directoryNode
   addIssueWitness
   --  payToAddress addr value
   paySmartTokensToDestination (an, q) issuedPolicyId destinationCred
