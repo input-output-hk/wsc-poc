@@ -66,8 +66,10 @@ library
     , cardano-api
     , containers
     , convex-base
+    , lens
     , mtl
     , plutus-ledger-api
+    , programmable-tokens
     , text
     , transformers
     , wst-poc

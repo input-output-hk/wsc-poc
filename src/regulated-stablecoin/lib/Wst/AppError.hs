@@ -24,6 +24,7 @@ data ProgrammableTokensError =
   OperatorNoUTxOs -- ^ The operator does not have any UTxOs
   | GlobalParamsNodeNotFound -- ^ The node with the global parameters was not found
   | IssuanceCborHexUTxONotFound -- ^ The UTxO with the issuance minting cbor hex was not found
+  | DirectorySetNodeNotFound -- ^ The UTxO with the directory entry for the policy was not found. (Policy not registered properly?)
   -- TODO: The following errors are specific to the regulated stablecoin
   -- They should be separated out
   | NoTokensToSeize -- ^ No tokens to seize
