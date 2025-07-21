@@ -27,8 +27,7 @@ import Convex.CardanoApi.Lenses as L
 import Convex.Class (MonadBlockchain (queryNetworkId))
 import Convex.PlutusLedger.V1 (transPolicyId, transPubKeyHash, transScriptHash)
 import Convex.Utils qualified as Utils
-import Data.Foldable (find, maximumBy, traverse_)
-import Data.Function (on)
+import Data.Foldable (find, traverse_)
 import Data.List (partition)
 import Data.Maybe (fromJust)
 import GHC.Exts (IsList (..))
@@ -112,22 +111,17 @@ issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) udat@UTxODat{uDa
    programmable token(s) in this transaction all correspond to the same
    programmable logic payment credential otherwise the transaction will fail onchain validation.
 -}
-transferProgrammableToken :: forall env era m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams ->  [C.TxIn] -> CurrencySymbol -> [UTxODat era DirectorySetNode] -> m ()
-transferProgrammableToken _ _ _ [] = error "directory list not initialised"
-transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol directoryList = Utils.inBabbage @era $ do
+transferProgrammableToken :: forall env era m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams ->  [C.TxIn] -> CurrencySymbol -> UTxODat era DirectorySetNode -> m ()
+transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol UTxODat{uIn = dirNodeRef, uDatum = dirNodeDat} = Utils.inBabbage @era $ do
   nid <- queryNetworkId
+
+  -- TODO: Check that the directory node is an exact match for our policy
 
   baseSpendingScript <- asks (Env.dsProgrammableLogicBaseScript . Env.directoryEnv)
   globalStakeScript <- asks (Env.dsProgrammableLogicGlobalScript . Env.directoryEnv)
 
 
   let globalStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 globalStakeScript
-
-      -- Finds the directory node with the highest key that is less than or equal
-      -- to the programmable token symbol
-      UTxODat{uIn = dirNodeRef, uDatum = dirNodeDat} =
-        maximumBy (compare `on` (key . uDatum)) $
-          filter ((<= programmableTokenSymbol) . key . uDatum) directoryList
 
       -- Finds the index of the directory node reference in the transaction ref
       -- inputs

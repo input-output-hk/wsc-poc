@@ -227,7 +227,7 @@ transferSmartTokensTx :: forall era env err m.
   -> C.PaymentCredential -- ^ Destination credential
   -> m (C.Tx era)
 transferSmartTokensTx policy assetId quantity destCred = do
-  directory <- Query.registryNodes @era
+  directory <- Query.registryNode @era
   blacklist <- Query.blacklistNodes @era
   userOutputsAtProgrammable <- Env.operatorPaymentCredential >>= Query.userProgrammableOutputs
   paramsTxIn <- Query.globalParamsNode @era
