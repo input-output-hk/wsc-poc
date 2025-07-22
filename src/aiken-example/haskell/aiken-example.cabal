@@ -66,10 +66,9 @@ library
     , cardano-api
     , containers
     , convex-base
-    , lens
+    , convex-coin-selection
     , mtl
     , plutus-ledger-api
-    , programmable-tokens
     , text
     , transformers
     , wst-poc
@@ -82,8 +81,9 @@ test-suite wst-aiken-test
   other-modules:  Wst.Aiken.Test
   build-depends:
     , aiken-example
-    , base           >=4.14.0
+    , base                 >=4.14.0
     , cardano-api
     , containers
+    , programmable-tokens
     , tasty
     , tasty-hunit

@@ -169,16 +169,25 @@ executable export-smart-tokens
 library test-lib
   import:          lang
   hs-source-dirs:  test/lib
-  exposed-modules: Wst.Test.Gen
+  exposed-modules:
+    SmartTokens.Test
+    Wst.Test.Gen
+
   build-depends:
     , base
     , cardano-api
     , cardano-api:gen
+    , cardano-ledger-api
+    , cardano-ledger-core
     , convex-base
+    , convex-mockchain
     , hedgehog-quickcheck
+    , lens
+    , mtl
     , plutus-ledger-api
     , programmable-tokens
     , QuickCheck
+    , tasty-hunit
     , wst-poc
 
 test-suite wst-poc-test
@@ -193,13 +202,10 @@ test-suite wst-poc-test
   build-depends:
     , base                   >=4.14.0
     , cardano-api
-    , cardano-ledger-api
-    , cardano-ledger-core
     , convex-base
     , convex-coin-selection
     , convex-mockchain
     , convex-wallet
-    , lens
     , mtl
     , plutus-ledger-api
     , plutus-tx
@@ -207,6 +213,7 @@ test-suite wst-poc-test
     , tasty
     , tasty-hunit
     , wst-poc
+    , wst-poc:test-lib
 
 executable write-openapi-schema
   import:         lang

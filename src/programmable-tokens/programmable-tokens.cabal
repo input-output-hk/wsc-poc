@@ -88,5 +88,3 @@ library
     , plutus-ledger-api
     , plutus-tx
     , text
-
-  hs-source-dirs:  lib

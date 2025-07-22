@@ -6,34 +6,25 @@ module Wst.Test.UnitTest(
 
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
-import Cardano.Ledger.Api qualified as Ledger
-import Cardano.Ledger.Plutus.ExUnits (ExUnits (..))
-import Control.Lens ((%~), (&))
 import Control.Monad (void)
-import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader (ask), ReaderT (runReaderT), asks)
 import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain (sendTx), MonadMockchain, MonadUtxoQuery,
-                     ValidationError, getTxById)
+                     ValidationError)
 import Convex.CoinSelection (ChangeOutputPosition (TrailingChange))
-import Convex.MockChain (MockchainT)
 import Convex.MockChain.CoinSelection (tryBalanceAndSubmit)
-import Convex.MockChain.Defaults qualified as Defaults
-import Convex.MockChain.Utils (mockchainFails, mockchainSucceedsWith)
-import Convex.NodeParams (NodeParams, ledgerProtocolParameters,
-                          protocolParameters)
+import Convex.MockChain.Utils (mockchainFails)
 import Convex.Utils (failOnError)
 import Convex.Wallet.MockWallet qualified as Wallet
 import Convex.Wallet.Operator (signTxOperator)
 import Convex.Wallet.Operator qualified as Operator
-import Data.List (isPrefixOf)
 import Data.String (IsString (..))
-import GHC.Exception (SomeException, throw)
 import PlutusLedgerApi.V3 (CurrencySymbol (..), ScriptHash (..))
 import PlutusTx.Builtins.HasOpaque (stringToBuiltinByteStringHex)
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
+import SmartTokens.Test qualified as Test
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, assertEqual, testCase)
+import Test.Tasty.HUnit (testCase)
 import Wst.AppError (AppError)
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..))
 import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy (..))
@@ -54,17 +45,17 @@ tests = testGroup "unit tests"
 scriptTargetTests :: ScriptTarget -> TestTree
 scriptTargetTests target =
   testGroup (fromString $ show target)
-    [ testCase "deploy directory and global params" (mockchainSucceedsWithTarget target deployDirectorySet)
+    [ testCase "deploy directory and global params" (Test.mockchainSucceedsWithTarget target deployDirectorySet)
     , testGroup "issue programmable tokens"
-        [ testCase "always succeeds validator" (mockchainSucceedsWithTarget target $ deployDirectorySet >>= issueAlwaysSucceedsValidator)
-        , testCase "smart token issuance" (mockchainSucceedsWithTarget target issueSmartTokensScenario)
-        , testCase "smart token transfer" (mockchainSucceedsWithTarget target $ deployDirectorySet >>= transferSmartTokens)
-        , testCase "blacklist credential" (mockchainSucceedsWithTarget target $ void $ deployDirectorySet >>= blacklistCredential)
-        , testCase "unblacklist credential" (mockchainSucceedsWithTarget target $ void $ deployDirectorySet >>= unblacklistCredential)
-        , testCase "blacklisted transfer" (mockchainFails (blacklistTransfer DontSubmitFailingTx) assertBlacklistedAddressException)
-        , testCase "blacklisted transfer (failing tx)" (mockchainSucceedsWithTarget target (blacklistTransfer SubmitFailingTx >>= assertFailingTx))
-        , testCase "seize user output" (mockchainSucceedsWithTarget target $ deployDirectorySet >>= seizeUserOutput)
-        , testCase "deploy all" (mockchainSucceedsWithTarget target deployAll)
+        [ testCase "always succeeds validator" (Test.mockchainSucceedsWithTarget target $ deployDirectorySet >>= issueAlwaysSucceedsValidator)
+        , testCase "smart token issuance" (Test.mockchainSucceedsWithTarget target issueSmartTokensScenario)
+        , testCase "smart token transfer" (Test.mockchainSucceedsWithTarget target $ deployDirectorySet >>= transferSmartTokens)
+        , testCase "blacklist credential" (Test.mockchainSucceedsWithTarget target $ void $ deployDirectorySet >>= blacklistCredential)
+        , testCase "unblacklist credential" (Test.mockchainSucceedsWithTarget target $ void $ deployDirectorySet >>= unblacklistCredential)
+        , testCase "blacklisted transfer" (mockchainFails (blacklistTransfer DontSubmitFailingTx) Test.assertBlacklistedAddressException)
+        , testCase "blacklisted transfer (failing tx)" (Test.mockchainSucceedsWithTarget target (blacklistTransfer SubmitFailingTx >>= Test.assertFailingTx))
+        , testCase "seize user output" (Test.mockchainSucceedsWithTarget target $ deployDirectorySet >>= seizeUserOutput)
+        , testCase "deploy all" (Test.mockchainSucceedsWithTarget target deployAll)
         ]
     ]
 
@@ -80,7 +71,7 @@ deployAll = do
       void $ sendTx $ signTxOperator admin tx
       Env.withDirectoryFor scriptRoot $ do
         Query.registryNodes @C.ConwayEra
-          >>= void . expectSingleton "registry output"
+          >>= void . Test.expectSingleton "registry output"
         void $ Query.globalParamsNode @C.ConwayEra
 
 deployDirectorySet :: (MonadReader ScriptTarget m, MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadFail m) => m DirectoryScriptRoot
@@ -95,7 +86,7 @@ deployDirectorySet = do
       void $ sendTx $ signTxOperator admin tx
       Env.withDirectoryFor scriptRoot $ do
         Query.registryNodes @C.ConwayEra
-          >>= void . expectSingleton "registry output"
+          >>= void . Test.expectSingleton "registry output"
         void $ Query.globalParamsNode @C.ConwayEra
       pure scriptRoot
 
@@ -109,7 +100,7 @@ _insertDirectoryNode :: (MonadUtxoQuery m, MonadBlockchain C.ConwayEra m, MonadF
 _insertDirectoryNode scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ do
   Endpoints.insertNodeTx _dummyNodeArgs >>= void . sendTx . signTxOperator admin
   Query.registryNodes @C.ConwayEra
-    >>= void . expectN 2 "registry outputs"
+    >>= void . Test.expectN 2 "registry outputs"
 
 {-| Issue some tokens with the "always succeeds" validator
 -}
@@ -125,9 +116,9 @@ issueAlwaysSucceedsValidator scriptRoot = failOnError @_ @(AppError C.ConwayEra)
     Endpoints.issueProgrammableTokenTx "dummy asset" 100
       >>= void . sendTx . signTxOperator admin
     Query.registryNodes @C.ConwayEra
-      >>= void . expectN 2 "registry outputs"
+      >>= void . Test.expectN 2 "registry outputs"
     Query.programmableLogicOutputs @C.ConwayEra
-      >>= void . expectN 1 "programmable logic outputs"
+      >>= void . Test.expectN 1 "programmable logic outputs"
 
 issueSmartTokensScenario :: (MonadReader ScriptTarget m, MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m C.AssetId
 issueSmartTokensScenario = deployDirectorySet >>= issueTransferLogicProgrammableToken
@@ -149,9 +140,9 @@ issueTransferLogicProgrammableToken scriptRoot = failOnError @_ @(AppError C.Con
     void $ sendTx $ signTxOperator admin balTx
 
     Query.registryNodes @C.ConwayEra
-      >>= void . expectN 2 " registry outputs"
+      >>= void . Test.expectN 2 " registry outputs"
     Query.programmableLogicOutputs @C.ConwayEra
-      >>= void . expectN 1 "programmable logic outputs"
+      >>= void . Test.expectN 1 "programmable logic outputs"
     pure aid
 
 {-| Issue some tokens with the smart stablecoin transfer logic validator
@@ -164,7 +155,7 @@ transferSmartTokens scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.wi
     Endpoints.deployBlacklistTx
       >>= void . sendTx . signTxOperator admin
     Query.blacklistNodes @C.ConwayEra
-      >>= void . expectSingleton "blacklist output"
+      >>= void . Test.expectSingleton "blacklist output"
 
   aid <- issueTransferLogicProgrammableToken scriptRoot
 
@@ -175,11 +166,11 @@ transferSmartTokens scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.wi
       >>= void . sendTx . signTxOperator admin
 
     Query.programmableLogicOutputs @C.ConwayEra
-      >>= void . expectN 2 "programmable logic outputs"
+      >>= void . Test.expectN 2 "programmable logic outputs"
     Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh)
-      >>= void . expectN 1 "user programmable outputs"
+      >>= void . Test.expectN 1 "user programmable outputs"
     Query.userProgrammableOutputs (C.PaymentCredentialByKey opPkh)
-      >>= void . expectN 1 "user programmable outputs"
+      >>= void . Test.expectN 1 "user programmable outputs"
 
 blacklistCredential :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m C.PaymentCredential
 blacklistCredential scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
@@ -190,14 +181,14 @@ blacklistCredential scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.wi
     Endpoints.deployBlacklistTx
       >>= void . sendTx . signTxOperator admin
     Query.blacklistNodes @C.ConwayEra
-      >>= void . expectSingleton "blacklist output"
+      >>= void . Test.expectSingleton "blacklist output"
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
     Endpoints.insertBlacklistNodeTx "" paymentCred
       >>= void . sendTx . signTxOperator admin
 
     Query.blacklistNodes @C.ConwayEra
-      >>= void . expectN 2 "blacklist output"
+      >>= void . Test.expectN 2 "blacklist output"
 
   pure paymentCred
 
@@ -210,20 +201,20 @@ unblacklistCredential scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.
     Endpoints.deployBlacklistTx
       >>= void . sendTx . signTxOperator admin
     Query.blacklistNodes @C.ConwayEra
-      >>= void . expectSingleton "blacklist output"
+      >>= void . Test.expectSingleton "blacklist output"
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
     Endpoints.insertBlacklistNodeTx "" paymentCred
       >>= void . sendTx . signTxOperator admin
 
     Query.blacklistNodes @C.ConwayEra
-      >>= void . expectN 2 "blacklist output"
+      >>= void . Test.expectN 2 "blacklist output"
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
     Endpoints.removeBlacklistNodeTx paymentCred
       >>= void . sendTx . signTxOperator admin
     Query.blacklistNodes @C.ConwayEra
-      >>= void . expectSingleton "blacklist output"
+      >>= void . Test.expectSingleton "blacklist output"
 
   pure paymentCred
 
@@ -266,20 +257,20 @@ seizeUserOutput scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEn
     Endpoints.transferSmartTokensTx DontSubmitFailingTx aid 50 (C.PaymentCredentialByKey userPkh)
       >>= void . sendTx . signTxOperator admin
     Query.programmableLogicOutputs @C.ConwayEra
-      >>= void . expectN 2 "programmable logic outputs"
+      >>= void . Test.expectN 2 "programmable logic outputs"
     Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh)
-      >>= void . expectN 1 "user programmable outputs"
+      >>= void . Test.expectN 1 "user programmable outputs"
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
     Endpoints.seizeCredentialAssetsTx mempty userPaymentCred
       >>= void . sendTx . signTxOperator admin
     Query.programmableLogicOutputs @C.ConwayEra
-      >>= void . expectN 3 "programmable logic outputs"
+      >>= void . Test.expectN 3 "programmable logic outputs"
     Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh)
-      >>= void . expectN 1 "user programmable outputs"
+      >>= void . Test.expectN 1 "user programmable outputs"
     Query.userProgrammableOutputs (C.PaymentCredentialByKey opPkh)
-      >>= void . expectN 2 "user programmable outputs"
+      >>= void . Test.expectN 2 "user programmable outputs"
 
 _dummyNodeArgs :: InsertNodeArgs
 _dummyNodeArgs =
@@ -331,52 +322,3 @@ registerTransferScripts pkh = failOnError $ do
 
   x <- tryBalanceAndSubmit mempty Wallet.w1 txBody TrailingChange []
   pure $ C.getTxId $ C.getTxBody x
-
-expectSingleton :: MonadFail m => String -> [a] -> m a
-expectSingleton msg = \case
-  [a] -> pure a
-  ls  -> fail $ "Expected a single " ++ msg ++ " but found " ++ show (length ls)
-
-expectN :: MonadFail m => Int -> String -> [a] -> m ()
-expectN n msg lst
-  | length lst == n = pure ()
-  | otherwise       = fail $ "Expected " ++ show n ++ " " ++ msg ++ " but found " ++ show (length lst)
-
-_expectLeft :: (MonadFail m, Show b) => String -> Either a b -> m ()
-_expectLeft msg = \case
-  Left _ -> pure ()
-  (Right r) -> fail $ "Expected " ++ msg ++ " but found Right " ++ show r
-
--- TODO: Need to make this nicer
-{-| Make sure that the exception is a failure due to blacklisted address
--}
-assertBlacklistedAddressException :: SomeException -> Assertion
-assertBlacklistedAddressException ex
-  | "user error (ProgTokensError (TransferBlacklistedCredential (PubKeyCredential" `isPrefixOf` show ex = pure ()
-  | otherwise = throw ex
-
-nodeParamsFor :: ScriptTarget -> NodeParams C.ConwayEra
-nodeParamsFor = \case
-  -- Run the 'Mockchain' action with modified node parameters to allow larger-than-usual
-  -- transactions. This is useful for showing debug output from the scripts and fail if there is an error
-  Debug ->
-    let tenX ExUnits{exUnitsSteps=steps, exUnitsMem=mem} =
-          ExUnits{exUnitsSteps = 10 * steps, exUnitsMem = 10 * mem}
-    in Defaults.nodeParams
-        & ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxSizeL %~ (*10)
-        & ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxExUnitsL %~ tenX
-  Production -> Defaults.nodeParams
-
-mockchainSucceedsWithTarget :: ScriptTarget -> ReaderT ScriptTarget (MockchainT C.ConwayEra IO) a -> Assertion
-mockchainSucceedsWithTarget target =
-  mockchainSucceedsWith (nodeParamsFor target) . flip runReaderT target
-
-{-| Assert that the transaction exists on the mockchain and that its script validity flag
-is set to 'C.ScriptInvalid'
--}
-assertFailingTx :: (MonadMockchain era m, C.IsAlonzoBasedEra era, MonadFail m, MonadIO m) => Either (ValidationError era) C.TxId -> m ()
-assertFailingTx = \case
-  Left err  -> fail $ "Expected TxId, got: " <> show err
-  Right txId -> do
-    C.TxBody C.TxBodyContent{C.txScriptValidity} <- getTxById txId >>= maybe (fail $ "Tx not found: " <> show txId) (pure . C.getTxBody)
-    liftIO (assertEqual "Tx validity" (C.TxScriptValidity C.alonzoBasedEra C.ScriptInvalid) txScriptValidity)
