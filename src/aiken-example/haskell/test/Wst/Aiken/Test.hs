@@ -9,6 +9,7 @@ import Data.Functor (void)
 import Data.Map qualified as Map
 import Paths_aiken_example qualified as Pkg
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
+import SmartTokens.Test qualified as Test
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertEqual, testCase)
 import Wst.Aiken.Blueprint (Blueprint (..))
@@ -19,7 +20,7 @@ tests = testGroup "unit tests"
   [ testCase "load blueprint" loadBlueprint
   , testCase "deserialise script" deserialiseScript
   , testGroup "emulator" [
-      testCase "register" (mockchainSucceedsWithTarget _ action)
+      testCase "register" (Test.mockchainSucceedsWithTarget _ action)
   ]
   ]
 

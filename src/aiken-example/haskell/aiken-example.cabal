@@ -87,3 +87,4 @@ test-suite wst-aiken-test
     , programmable-tokens
     , tasty
     , tasty-hunit
+    , wst-poc:test-lib
