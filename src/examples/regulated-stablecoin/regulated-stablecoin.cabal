@@ -1,5 +1,5 @@
 cabal-version: 3.4
-name:          wst-poc
+name:          regulated-stablecoin
 version:       0.3.0.0
 synopsis:      Regulated stablecoin proof-of-concept
 license:       Apache-2.0
@@ -9,7 +9,7 @@ author:        Djed team @ IOG
 homepage:      https://github.com/input-output-hk/wsc-poc
 bug-reports:   https://github.com/input-output-hk/wsc-poc
 description:
-  Please see the README on GitHub at <https://github.com/input-output-hk/wst-poc>
+  Please see the README on GitHub at <https://github.com/input-output-hk/regulated-stablecoin>
 
 common lang
   default-language:   Haskell2010
@@ -97,7 +97,7 @@ library
     , plutarch
     , plutus-ledger-api
     , plutus-tx
-    , programmable-tokens
+    , programmable-tokens-onchain
     , servant
     , servant-client
     , servant-client-core
@@ -108,14 +108,14 @@ library
 
   hs-source-dirs:  lib
 
-executable wst-poc-cli
+executable regulated-stablecoin-cli
   import:         lang
   main-is:        Main.hs
-  hs-source-dirs: exe/wst-poc-cli
+  hs-source-dirs: exe/regulated-stablecoin-cli
   ghc-options:    -threaded -rtsopts -O2 -with-rtsopts=-N
   build-depends:
     , base
-    , wst-poc
+    , regulated-stablecoin
 
 executable convert-key
   import:         lang
@@ -139,8 +139,8 @@ executable calculate-hashes
     , bytestring
     , cardano-api
     , cardano-ledger-core
+    , regulated-stablecoin
     , text
-    , wst-poc
 
 executable export-smart-tokens
   import:         lang
@@ -160,9 +160,9 @@ executable export-smart-tokens
     , plutarch
     , plutus-ledger-api
     , plutus-tx
-    , programmable-tokens
+    , programmable-tokens-onchain
+    , regulated-stablecoin
     , text
-    , wst-poc
 
   hs-source-dirs: exe/export-smart-tokens
 
@@ -185,12 +185,12 @@ library test-lib
     , lens
     , mtl
     , plutus-ledger-api
-    , programmable-tokens
+    , programmable-tokens-onchain
     , QuickCheck
+    , regulated-stablecoin
     , tasty-hunit
-    , wst-poc
 
-test-suite wst-poc-test
+test-suite regulated-stablecoin-test
   import:         lang
   type:           exitcode-stdio-1.0
   hs-source-dirs: test/unit
@@ -200,7 +200,7 @@ test-suite wst-poc-test
     Wst.Test.UnitTest
 
   build-depends:
-    , base                   >=4.14.0
+    , base                           >=4.14.0
     , cardano-api
     , convex-base
     , convex-coin-selection
@@ -209,11 +209,11 @@ test-suite wst-poc-test
     , mtl
     , plutus-ledger-api
     , plutus-tx
-    , programmable-tokens
+    , programmable-tokens-onchain
+    , regulated-stablecoin
+    , regulated-stablecoin:test-lib
     , tasty
     , tasty-hunit
-    , wst-poc
-    , wst-poc:test-lib
 
 executable write-openapi-schema
   import:         lang
@@ -223,5 +223,5 @@ executable write-openapi-schema
     , aeson-pretty
     , base
     , bytestring
+    , regulated-stablecoin
     , servant-openapi3
-    , wst-poc

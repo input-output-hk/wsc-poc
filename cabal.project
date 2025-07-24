@@ -31,13 +31,14 @@ allow-older:
   -- TODO: Delete when plutarch is moving to 1.37
   plutarch:plutus-core
 
-
 with-compiler: ghc-9.6.6
 
 packages:
-    src/programmable-tokens
-    src/regulated-stablecoin
-    src/aiken-example/haskell
+    src/programmable-tokens-onchain
+    src/programmable-tokens-offchain
+    src/programmable-tokens-test
+    src/examples/regulated-stablecoin
+    src/examples/aiken/haskell
 
 source-repository-package
   type: git

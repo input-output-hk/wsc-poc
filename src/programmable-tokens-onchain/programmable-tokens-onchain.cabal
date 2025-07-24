@@ -1,7 +1,7 @@
 cabal-version:      3.4
-name:               programmable-tokens
+name:               programmable-tokens-onchain
 version:            0.3.0.0
-synopsis:           Reference implementation of CIP-0113
+synopsis:           Reference implementation of CIP-0143 (onchain code)
 license:            Apache-2.0
 license-files:      LICENSE
 maintainer:         j-mueller@users.noreply.github.com
@@ -9,7 +9,7 @@ author:             Philip DiSarro
 homepage:           https://github.com/input-output-hk/wsc-poc
 bug-reports:        https://github.com/input-output-hk/wsc-poc
 description:
-  Please see the README on GitHub at <https://github.com/input-output-hk/wst-poc>
+  Please see the README on GitHub at <https://github.com/input-output-hk/wsc-poc>
 
 -- A copyright notice.
 -- copyright:

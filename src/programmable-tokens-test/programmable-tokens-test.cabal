@@ -1,9 +1,7 @@
 cabal-version: 3.4
-name:          aiken-example
+name:          programmable-tokens-test
 version:       0.3.0.0
-synopsis:
-  Using an aiken script as the transfer policy of a CIP-0143 programmable token
-
+synopsis:      Utilities for testing programmable tokens (CIP 143)
 license:       Apache-2.0
 license-files: LICENSE
 maintainer:    j-mueller@users.noreply.github.com
@@ -12,8 +10,6 @@ homepage:      https://github.com/input-output-hk/wsc-poc
 bug-reports:   https://github.com/input-output-hk/wsc-poc
 description:
   Please see the README on GitHub at <https://github.com/input-output-hk/wst-poc>
-
-data-files:    data/aiken-scripts.json
 
 common lang
   default-language:   Haskell2010
@@ -49,42 +45,42 @@ common lang
     -Wincomplete-uni-patterns -Wincomplete-record-updates
     -Wredundant-constraints -Widentities
 
-  other-modules:      Paths_aiken_example
-  autogen-modules:    Paths_aiken_example
-
 library
   import:          lang
   exposed-modules:
-    Wst.Aiken.Blueprint
-    Wst.Aiken.Offchain
-
   hs-source-dirs:  lib
   build-depends:
     , aeson
     , base
+    , base16-bytestring
+    , Blammo
+    , blockfrost-api
+    , blockfrost-client
+    , blockfrost-client-core
     , bytestring
     , cardano-api
+    , cardano-ledger-core
+    , cardano-ledger-shelley
     , containers
     , convex-base
+    , convex-blockfrost
     , convex-coin-selection
+    , convex-optics
+    , convex-wallet
+    , lens
     , mtl
+    , openapi3
+    , optparse-applicative
+    , plutarch
     , plutus-ledger-api
+    , plutus-tx
+    , programmable-tokens-onchain
+    , servant
+    , servant-client
+    , servant-client-core
+    , servant-server
     , text
-    , transformers
-    , wst-poc
+    , wai-cors
+    , warp
 
-test-suite wst-aiken-test
-  import:         lang
-  type:           exitcode-stdio-1.0
-  hs-source-dirs: test
-  main-is:        Spec.hs
-  other-modules:  Wst.Aiken.Test
-  build-depends:
-    , aiken-example
-    , base                 >=4.14.0
-    , cardano-api
-    , containers
-    , programmable-tokens
-    , tasty
-    , tasty-hunit
-    , wst-poc:test-lib
+  hs-source-dirs:  lib
