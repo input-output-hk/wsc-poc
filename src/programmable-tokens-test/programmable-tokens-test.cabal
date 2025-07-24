@@ -48,39 +48,25 @@ common lang
 library
   import:          lang
   exposed-modules:
+    ProgrammableTokens.Gen
+    ProgrammableTokens.Test
+
   hs-source-dirs:  lib
   build-depends:
-    , aeson
     , base
-    , base16-bytestring
-    , Blammo
-    , blockfrost-api
-    , blockfrost-client
-    , blockfrost-client-core
-    , bytestring
     , cardano-api
+    , cardano-api:gen
+    , cardano-ledger-api
     , cardano-ledger-core
-    , cardano-ledger-shelley
-    , containers
     , convex-base
-    , convex-blockfrost
-    , convex-coin-selection
-    , convex-optics
-    , convex-wallet
+    , convex-mockchain
+    , hedgehog-quickcheck
     , lens
     , mtl
-    , openapi3
-    , optparse-applicative
-    , plutarch
     , plutus-ledger-api
-    , plutus-tx
+    , programmable-tokens-offchain
     , programmable-tokens-onchain
-    , servant
-    , servant-client
-    , servant-client-core
-    , servant-server
-    , text
-    , wai-cors
-    , warp
+    , QuickCheck
+    , tasty-hunit
 
   hs-source-dirs:  lib

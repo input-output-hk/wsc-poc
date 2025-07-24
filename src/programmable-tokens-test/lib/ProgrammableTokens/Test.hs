@@ -1,6 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 -- | Utilities for writing emulator tests for smart tokens
-module SmartTokens.Test(
+module ProgrammableTokens.Test(
   ScriptTarget(..),
   nodeParamsFor,
   mockchainSucceedsWithTarget,

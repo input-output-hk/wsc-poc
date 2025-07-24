@@ -1,6 +1,6 @@
 {-| JSON utility functions
 -}
-module Wst.JSON.Utils(
+module ProgrammableTokens.JSON.Utils(
   customJsonOptions
 ) where
 

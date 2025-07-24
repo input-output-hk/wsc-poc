@@ -1,6 +1,6 @@
-{-| Generators for testing the POC
+{-| Generators for testing programmable tokens
 -}
-module Wst.Test.Gen(
+module ProgrammableTokens.Gen(
   genGlobalParams,
   genUTxODat,
   genUTxO,
@@ -18,11 +18,11 @@ import Cardano.Api qualified as C
 import Convex.PlutusLedger.V1 qualified as PL
 import PlutusLedgerApi.V1.Credential (Credential)
 import PlutusLedgerApi.V1.Value (CurrencySymbol)
+import ProgrammableTokens.OffChain.UTxODat (UTxODat (..))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 import Test.Gen.Cardano.Api.Typed qualified as Gen
 import Test.QuickCheck.Gen (Gen)
 import Test.QuickCheck.Hedgehog (hedgehog)
-import Wst.Offchain.Query (UTxODat (..))
 
 genGlobalParams :: Gen ProgrammableLogicGlobalParams
 genGlobalParams =

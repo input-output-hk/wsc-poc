@@ -29,10 +29,10 @@ import Data.Proxy (Proxy (..))
 import Data.String (IsString (..))
 import Data.Text (Text)
 import GHC.Generics (Generic)
+import ProgrammableTokens.JSON.Utils qualified as JSON
 import Servant.API (Get, JSON, (:>))
 import Servant.Server (ServerT)
 import SmartTokens.Core.Scripts (ScriptTarget (..))
-import Wst.JSON.Utils qualified as JSON
 import Wst.Offchain.Env qualified as Env
 import Wst.Server.Types (SerialiseAddress (..))
 

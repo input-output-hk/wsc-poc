@@ -44,11 +44,11 @@ import Data.OpenApi.Schema qualified as Schema
 import Data.OpenApi.SchemaOptions qualified as SchemaOptions
 import Data.Proxy (Proxy (..))
 import GHC.Generics (Generic)
+import ProgrammableTokens.JSON.Utils qualified as JSON
 import Servant (FromHttpApiData (..), ToHttpApiData (toUrlPiece))
 import Servant.API (Capture, Description, Get, JSON, NoContent, Post, ReqBody,
                     type (:>), (:<|>) (..))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
-import Wst.JSON.Utils qualified as JSON
 import Wst.Offchain.BuildTx.TransferLogic (BlacklistReason, SeizeReason)
 import Wst.Offchain.Query (UTxODat (..))
 

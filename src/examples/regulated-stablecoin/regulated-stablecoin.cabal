@@ -53,7 +53,6 @@ library
     Wst.Cli
     Wst.Cli.Command
     Wst.Client
-    Wst.JSON.Utils
     Wst.Offchain.BuildTx.DirectorySet
     Wst.Offchain.BuildTx.Failing
     Wst.Offchain.BuildTx.IssuanceCborHexRef
@@ -66,7 +65,6 @@ library
     Wst.Offchain.Env
     Wst.Offchain.Query
     Wst.Offchain.Scripts
-    Wst.Orphans
     Wst.Server
     Wst.Server.DemoEnvironment
     Wst.Server.Types
@@ -97,6 +95,7 @@ library
     , plutarch
     , plutus-ledger-api
     , plutus-tx
+    , programmable-tokens-offchain
     , programmable-tokens-onchain
     , servant
     , servant-client
@@ -166,30 +165,6 @@ executable export-smart-tokens
 
   hs-source-dirs: exe/export-smart-tokens
 
-library test-lib
-  import:          lang
-  hs-source-dirs:  test/lib
-  exposed-modules:
-    SmartTokens.Test
-    Wst.Test.Gen
-
-  build-depends:
-    , base
-    , cardano-api
-    , cardano-api:gen
-    , cardano-ledger-api
-    , cardano-ledger-core
-    , convex-base
-    , convex-mockchain
-    , hedgehog-quickcheck
-    , lens
-    , mtl
-    , plutus-ledger-api
-    , programmable-tokens-onchain
-    , QuickCheck
-    , regulated-stablecoin
-    , tasty-hunit
-
 test-suite regulated-stablecoin-test
   import:         lang
   type:           exitcode-stdio-1.0
@@ -200,7 +175,7 @@ test-suite regulated-stablecoin-test
     Wst.Test.UnitTest
 
   build-depends:
-    , base                           >=4.14.0
+    , base                         >=4.14.0
     , cardano-api
     , convex-base
     , convex-coin-selection
@@ -210,8 +185,8 @@ test-suite regulated-stablecoin-test
     , plutus-ledger-api
     , plutus-tx
     , programmable-tokens-onchain
+    , programmable-tokens-test
     , regulated-stablecoin
-    , regulated-stablecoin:test-lib
     , tasty
     , tasty-hunit
 

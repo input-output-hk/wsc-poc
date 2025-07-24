@@ -4,7 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-| Orphan instances
 -}
-module Wst.Orphans() where
+module ProgrammableTokens.OffChain.Orphans() where
 
 import Cardano.Api qualified as C
 import Control.Lens ((&), (.~), (?~))

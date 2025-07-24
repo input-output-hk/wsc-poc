@@ -21,8 +21,8 @@ import Convex.Wallet.Operator qualified as Operator
 import Data.String (IsString (..))
 import PlutusLedgerApi.V3 (CurrencySymbol (..), ScriptHash (..))
 import PlutusTx.Builtins.HasOpaque (stringToBuiltinByteStringHex)
+import ProgrammableTokens.Test qualified as Test
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
-import SmartTokens.Test qualified as Test
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase)
 import Wst.AppError (AppError)

@@ -53,18 +53,18 @@ common lang
 library
   import:          lang
   exposed-modules:
+    ProgrammableTokens.JSON.Utils
+    ProgrammableTokens.OffChain.Orphans
+    ProgrammableTokens.OffChain.UTxODat
+
   hs-source-dirs:  lib
   build-depends:
     , aeson
     , base
     , cardano-api
-    , generics-sop
+    , containers
+    , convex-base
+    , convex-optics
     , lens
     , openapi3
-    , plutarch
-    , plutarch-ledger-api
-    , plutarch-onchain-lib
-    , plutus-core
-    , plutus-ledger-api
     , plutus-tx
-    , text
