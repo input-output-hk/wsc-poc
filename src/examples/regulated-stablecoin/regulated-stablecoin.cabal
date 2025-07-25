@@ -175,7 +175,7 @@ test-suite regulated-stablecoin-test
     Wst.Test.UnitTest
 
   build-depends:
-    , base                         >=4.14.0
+    , base                          >=4.14.0
     , cardano-api
     , convex-base
     , convex-coin-selection
@@ -184,6 +184,7 @@ test-suite regulated-stablecoin-test
     , mtl
     , plutus-ledger-api
     , plutus-tx
+    , programmable-tokens-offchain
     , programmable-tokens-onchain
     , programmable-tokens-test
     , regulated-stablecoin

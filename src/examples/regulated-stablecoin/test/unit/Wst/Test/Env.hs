@@ -15,6 +15,7 @@ import Convex.Wallet.MockWallet (w1)
 import Convex.Wallet.Operator (Operator (..), PaymentExtendedKey (..), Signing)
 import Convex.Wallet.Operator qualified as Operator
 import Data.Functor.Identity (Identity)
+import ProgrammableTokens.OffChain.Env.Operator qualified as Env
 import Wst.Offchain.Env qualified as Env
 
 {-| Key used for actions of the stableoin issuer / operator.

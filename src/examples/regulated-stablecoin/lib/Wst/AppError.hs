@@ -4,9 +4,9 @@
 {-| Error type for endpoints and queries
 -}
 module Wst.AppError(
-  -- * Programmable token errors
-  ProgrammableTokensError(..),
-  AsProgrammableTokensError(..),
+  -- * Stablecoin errors
+  RegulatedStablecoinError(..),
+  AsRegulatedStablecoinError(..),
 
   -- * WST App error
   AppError(..),
@@ -19,26 +19,23 @@ import Convex.Class (AsValidationError (..), ValidationError)
 import Convex.CoinSelection (AsBalanceTxError (..), AsCoinSelectionError (..))
 import Convex.CoinSelection qualified as CoinSelection
 import PlutusLedgerApi.V3 (Credential)
+import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError (..),
+                                          ProgrammableTokensError)
 
-data ProgrammableTokensError =
-  OperatorNoUTxOs -- ^ The operator does not have any UTxOs
-  | GlobalParamsNodeNotFound -- ^ The node with the global parameters was not found
-  | IssuanceCborHexUTxONotFound -- ^ The UTxO with the issuance minting cbor hex was not found
-  | DirectorySetNodeNotFound -- ^ The UTxO with the directory entry for the policy was not found. (Policy not registered properly?)
-  -- TODO: The following errors are specific to the regulated stablecoin
-  -- They should be separated out
-  | NoTokensToSeize -- ^ No tokens to seize
+data RegulatedStablecoinError =
+  NoTokensToSeize -- ^ No tokens to seize
   | DuplicateBlacklistNode -- ^ Attempting to add a duplicate blacklist node
   | BlacklistNodeNotFound -- ^ Attempting to remove a blacklist node that does not exist
   | TransferBlacklistedCredential Credential -- ^ Attempting to transfer funds from a blacklisted address
   deriving stock (Show)
 
-makeClassyPrisms ''ProgrammableTokensError
+makeClassyPrisms ''RegulatedStablecoinError
 
 data AppError era =
   BalancingError (CoinSelection.BalanceTxError era)
   | SubmitError (ValidationError era)
   | ProgTokensError ProgrammableTokensError
+  | RegStablecoinError RegulatedStablecoinError
   | BlockfrostErr BlockfrostError
   deriving stock (Show)
 
@@ -52,6 +49,9 @@ instance AsValidationError (AppError era) era where
 
 instance AsProgrammableTokensError (AppError era) where
   _ProgrammableTokensError = _ProgTokensError
+
+instance AsRegulatedStablecoinError (AppError era) where
+  _RegulatedStablecoinError = _RegStablecoinError
 
 instance AsCoinSelectionError (AppError era) where
   _CoinSelectionError = _BalancingError . _CoinSelectionError

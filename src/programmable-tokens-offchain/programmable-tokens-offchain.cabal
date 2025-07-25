@@ -54,7 +54,11 @@ library
   import:          lang
   exposed-modules:
     ProgrammableTokens.JSON.Utils
+    ProgrammableTokens.OffChain.Env
+    ProgrammableTokens.OffChain.Env.Operator
+    ProgrammableTokens.OffChain.Error
     ProgrammableTokens.OffChain.Orphans
+    ProgrammableTokens.OffChain.Query
     ProgrammableTokens.OffChain.UTxODat
 
   hs-source-dirs:  lib
@@ -64,7 +68,10 @@ library
     , cardano-api
     , containers
     , convex-base
+    , convex-coin-selection
     , convex-optics
+    , convex-wallet
     , lens
+    , mtl
     , openapi3
     , plutus-tx

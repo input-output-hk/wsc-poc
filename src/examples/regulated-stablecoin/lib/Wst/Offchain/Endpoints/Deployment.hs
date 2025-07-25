@@ -29,9 +29,12 @@ import Convex.CoinSelection qualified
 import Data.Foldable (maximumBy)
 import Data.Function (on)
 import GHC.IsList (IsList (..))
+import ProgrammableTokens.OffChain.Env.Operator (OperatorEnv (..))
+import ProgrammableTokens.OffChain.Env.Operator qualified as Env
+import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError (..))
 import SmartTokens.Core.Scripts (ScriptTarget (..))
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
-import Wst.AppError (AsProgrammableTokensError (..))
+import Wst.AppError (AsRegulatedStablecoinError (..))
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (inaNewKey))
 import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
 import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy,
@@ -41,7 +44,7 @@ import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
 import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
 import Wst.Offchain.BuildTx.TransferLogic (BlacklistReason)
 import Wst.Offchain.BuildTx.TransferLogic qualified as BuildTx
-import Wst.Offchain.Env (DirectoryScriptRoot (..), OperatorEnv (..))
+import Wst.Offchain.Env (DirectoryScriptRoot (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Query qualified as Query
@@ -164,13 +167,13 @@ deployBlacklistTx = do
               $ Env.balanceTxEnv_ BuildTx.initBlacklist
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
-insertBlacklistNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsCoinSelectionError err, AsBalancingError err era, AsProgrammableTokensError err) => BlacklistReason -> C.PaymentCredential -> m (C.Tx era)
+insertBlacklistNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsCoinSelectionError err, AsBalancingError err era, AsRegulatedStablecoinError err) => BlacklistReason -> C.PaymentCredential -> m (C.Tx era)
 insertBlacklistNodeTx reason cred = do
   blacklist <- Query.blacklistNodes @era
   (tx, _)  <- Env.balanceTxEnv_ (BuildTx.insertBlacklistNode reason cred blacklist)
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
-removeBlacklistNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsCoinSelectionError err, AsBalancingError err era, AsProgrammableTokensError err) => C.PaymentCredential -> m (C.Tx era)
+removeBlacklistNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsCoinSelectionError err, AsBalancingError err era, AsRegulatedStablecoinError err) => C.PaymentCredential -> m (C.Tx era)
 removeBlacklistNodeTx cred = do
   blacklist <- Query.blacklistNodes @era
   (tx, _)  <- Env.balanceTxEnv_ (BuildTx.removeBlacklistNode cred blacklist)
@@ -220,6 +223,7 @@ transferSmartTokensTx :: forall era env err m.
   , AsProgrammableTokensError err
   , AsCoinSelectionError err
   , AsBalancingError err era
+  , AsRegulatedStablecoinError err
   )
   => BlacklistedTransferPolicy
   -> C.AssetId -- ^ AssetId to transfer
@@ -249,6 +253,7 @@ seizeCredentialAssetsTx :: forall era env err m.
   , AsProgrammableTokensError err
   , AsBalancingError err era
   , AsCoinSelectionError err
+  , AsRegulatedStablecoinError err
   )
   => BuildTx.SeizeReason
   -> C.PaymentCredential -- ^ Source/User credential

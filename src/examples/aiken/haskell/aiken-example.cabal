@@ -69,6 +69,7 @@ library
     , convex-coin-selection
     , mtl
     , plutus-ledger-api
+    , programmable-tokens-offchain
     , regulated-stablecoin
     , text
     , transformers

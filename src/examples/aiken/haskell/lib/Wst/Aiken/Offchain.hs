@@ -24,8 +24,9 @@ import Data.Functor.Constant (Constant (..))
 import Data.Functor.Identity (Identity (..))
 import Data.Map qualified as Map
 import PlutusLedgerApi.V3 (CurrencySymbol)
+import ProgrammableTokens.OffChain.Env.Operator qualified as Env
+import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError)
 import Wst.Aiken.Blueprint (Blueprint (..), BlueprintKey)
-import Wst.AppError (AsProgrammableTokensError)
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..))
 import Wst.Offchain.BuildTx.DirectorySet qualified as Directory
 import Wst.Offchain.Env (HasDirectoryEnv)
@@ -62,7 +63,7 @@ mkArgs Cip143Blueprint {cbSymbol, cbTransfer, cbIssuance, cbGlobalStateCS} =
         }
 
 -- | Create a transaction (fully balanced, not signed) that registers the policies
-registerTx :: forall era env err m. (C.IsBabbageBasedEra era, MonadReader env m, HasDirectoryEnv env, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m, MonadError err m, AsProgrammableTokensError err, MonadUtxoQuery m, Env.HasTransferLogicEnv env, AsBalancingError err era, AsCoinSelectionError err, Env.HasOperatorEnv era env) => Cip143Blueprint Identity -> m (C.Tx era)
+registerTx :: forall era env err m. (C.IsBabbageBasedEra era, MonadReader env m, HasDirectoryEnv env, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m, MonadError err m, MonadUtxoQuery m, Env.HasTransferLogicEnv env, AsBalancingError err era, AsCoinSelectionError err, Env.HasOperatorEnv era env, AsProgrammableTokensError err) => Cip143Blueprint Identity -> m (C.Tx era)
 registerTx blueprint = do
   let args = mkArgs blueprint
   paramsNode <- Query.globalParamsNode @era

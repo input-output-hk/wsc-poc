@@ -30,13 +30,13 @@ import Data.List (sortOn)
 import Data.Maybe (listToMaybe)
 import Data.Ord (Down (..))
 import GHC.Exts (IsList (..))
+import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError (..))
 import ProgrammableTokens.OffChain.Orphans ()
 import ProgrammableTokens.OffChain.UTxODat (UTxODat (..), extractUTxO,
                                             extractUtxoNoDatum, fromOutput)
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (..))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import SmartTokens.Types.PTokenDirectory (BlacklistNode, DirectorySetNode (..))
-import Wst.AppError (AsProgrammableTokensError (..))
 import Wst.Offchain.Env (DirectoryEnv (..), HasDirectoryEnv (directoryEnv),
                          HasTransferLogicEnv (transferLogicEnv),
                          TransferLogicEnv (tleBlacklistSpendingScript),

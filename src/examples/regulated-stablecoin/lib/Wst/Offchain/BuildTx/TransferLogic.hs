@@ -53,12 +53,13 @@ import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (Credential (..), PubKeyHash (PubKeyHash),
                            ScriptHash (..))
 import PlutusLedgerApi.V3 qualified as PlutusTx
+import ProgrammableTokens.OffChain.Env.Operator qualified as Env
 import SmartTokens.Contracts.ExampleTransferLogic (BlacklistProof (..))
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (..))
 import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (BlacklistNode (..),
                                           DirectorySetNode (..))
-import Wst.AppError (AsProgrammableTokensError (..))
+import Wst.AppError (AsRegulatedStablecoinError (..))
 import Wst.Offchain.BuildTx.ProgrammableLogic (issueProgrammableToken,
                                                seizeProgrammableToken,
                                                transferProgrammableToken)
@@ -123,7 +124,7 @@ addBlacklistReason :: (C.IsShelleyBasedEra era, MonadBuildTx era m) => Blacklist
 addBlacklistReason (BlacklistReason reason) =
   addBtx (set (L.txMetadata . L._TxMetadata . at 1) (Just (C.TxMetaMap [(C.TxMetaText "reason", C.metaTextChunks reason)])))
 
-insertBlacklistNode :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError err m, AsProgrammableTokensError err) => BlacklistReason -> C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
+insertBlacklistNode :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError err m, AsRegulatedStablecoinError err) => BlacklistReason -> C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
 insertBlacklistNode reason cred blacklistNodes = Utils.inBabbage @era $ do
   -- mint new blacklist token
   mintingScript <- asks (Env.tleBlacklistMintingScript . Env.transferLogicEnv)
@@ -167,7 +168,7 @@ insertBlacklistNode reason cred blacklistNodes = Utils.inBabbage @era $ do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   addRequiredSignature opPkh
 
-removeBlacklistNode :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError err m, AsProgrammableTokensError err) => C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
+removeBlacklistNode :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError err m, AsRegulatedStablecoinError err) => C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
 removeBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   blacklistSpendingScript <- asks (Env.tleBlacklistSpendingScript . Env.transferLogicEnv)

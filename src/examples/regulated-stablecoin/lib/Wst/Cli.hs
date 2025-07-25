@@ -22,6 +22,7 @@ import Data.Proxy (Proxy (..))
 import Data.String (IsString (..))
 import Options.Applicative (customExecParser, disambiguate, helper, idm, info,
                             prefs, showHelpOnEmpty, showHelpOnError)
+import ProgrammableTokens.OffChain.Env.Operator qualified as Env
 import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import Wst.App (runWstApp)
 import Wst.AppError (AppError)

@@ -28,9 +28,10 @@ import Convex.Utxos qualified as Utxos
 import Convex.Wallet.Operator (returnOutputFor)
 import Data.Aeson (FromJSON, ToJSON)
 import GHC.Generics (Generic)
-import Wst.AppError (AsProgrammableTokensError (..))
+import ProgrammableTokens.OffChain.Env.Operator (HasOperatorEnv (..),
+                                                 OperatorEnv (..))
+import Wst.AppError (AsRegulatedStablecoinError (..))
 import Wst.Offchain.BuildTx.TransferLogic (FindProofResult (..))
-import Wst.Offchain.Env (HasOperatorEnv (..), OperatorEnv (..))
 import Wst.Offchain.Query (UTxODat (..))
 
 {-| What to do if a transfer cannot proceed because of blacklisting
@@ -43,7 +44,7 @@ data BlacklistedTransferPolicy
 
 {-| Balance a transaction using the operator's funds and return output
 -}
-balanceTxEnvFailing :: forall era env err m. (MonadBlockchain era m, MonadReader env m, HasOperatorEnv era env, MonadError err m, C.IsBabbageBasedEra era, AsProgrammableTokensError err, CoinSelection.AsCoinSelectionError err, CoinSelection.AsBalancingError err era) => BlacklistedTransferPolicy -> BuildTxT era m (FindProofResult era) -> m (C.BalancedTxBody era, BalanceChanges)
+balanceTxEnvFailing :: forall era env err m. (MonadBlockchain era m, MonadReader env m, HasOperatorEnv era env, MonadError err m, C.IsBabbageBasedEra era, CoinSelection.AsCoinSelectionError err, CoinSelection.AsBalancingError err era, AsRegulatedStablecoinError err) => BlacklistedTransferPolicy -> BuildTxT era m (FindProofResult era) -> m (C.BalancedTxBody era, BalanceChanges)
 balanceTxEnvFailing policy btx = do
   OperatorEnv{bteOperatorUtxos, bteOperator} <- asks operatorEnv
   params <- queryProtocolParameters
