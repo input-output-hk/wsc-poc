@@ -37,9 +37,9 @@ import ProgrammableTokens.OffChain.UTxODat (UTxODat (..), extractUTxO,
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (..))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import SmartTokens.Types.PTokenDirectory (BlacklistNode, DirectorySetNode (..))
-import Wst.Offchain.Env (DirectoryEnv (..), HasDirectoryEnv (directoryEnv),
+import Wst.Offchain.Env (BlacklistEnv (bleSpendingScript), DirectoryEnv (..),
+                         HasBlacklistEnv (..), HasDirectoryEnv (directoryEnv),
                          HasTransferLogicEnv (transferLogicEnv),
-                         TransferLogicEnv (tleBlacklistSpendingScript),
                          blacklistNodePolicyId, directoryNodePolicyId,
                          issuanceCborHexPolicyId,
                          programmableTokenMintingScript, protocolParamsPolicyId)
@@ -74,10 +74,10 @@ registryNode = do
 
 {-| Find all UTxOs that make up the blacklist
 -}
-blacklistNodes :: forall era env m. (MonadReader env m, HasTransferLogicEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era) => m [UTxODat era BlacklistNode]
+blacklistNodes :: forall era env m. (MonadReader env m, HasBlacklistEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era) => m [UTxODat era BlacklistNode]
 blacklistNodes = do
-  utxosAtBlacklistScript <- asks (C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . tleBlacklistSpendingScript . transferLogicEnv) >>= fmap (extractUTxO @era) . utxosByPaymentCredential
-  blacklistPolicy <- asks (blacklistNodePolicyId . transferLogicEnv)
+  utxosAtBlacklistScript <- asks (C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . bleSpendingScript . blacklistEnv) >>= fmap (extractUTxO @era) . utxosByPaymentCredential
+  blacklistPolicy <- asks (blacklistNodePolicyId . blacklistEnv)
   pure $ filter (utxoHasPolicyId blacklistPolicy) utxosAtBlacklistScript
 
 userProgrammableOutputs :: forall era env m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadBlockchain era m) => C.PaymentCredential -> m [UTxODat era ()]

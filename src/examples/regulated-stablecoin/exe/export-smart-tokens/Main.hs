@@ -52,13 +52,15 @@ import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 import Text.Read (readMaybe)
 import Wst.Cli.Command qualified as Cli.Command
-import Wst.Offchain.Env (BlacklistTransferLogicScriptRoot (..),
+import Wst.Offchain.Env (BlacklistEnv (..),
+                         BlacklistTransferLogicScriptRoot (..),
                          DirectoryEnv (..),
                          DirectoryScriptRoot (DirectoryScriptRoot),
-                         HasDirectoryEnv (directoryEnv), TransferLogicEnv (..),
-                         globalParams, mkDirectoryEnv,
+                         HasBlacklistEnv (..), HasDirectoryEnv (directoryEnv),
+                         TransferLogicEnv (..), globalParams, mkDirectoryEnv,
                          programmableTokenMintingScript, transferLogicEnv,
-                         withDirectoryFor, withEnv, withTransferFor)
+                         withBlacklistFor, withDirectoryFor, withEnv,
+                         withTransferFor)
 import Wst.Server.Types (SerialiseAddress (..))
 
 
@@ -157,39 +159,42 @@ writeAppliedScripts baseFolder AppliedScriptArgs{asaTxIn, asaIssuerCborHexTxIn, 
   createDirectoryIfMissing True baseFolder
   withEnv $
     withDirectoryFor dirRoot $ do
-      withTransferFor blacklistTransferRoot $ do
-        transferEnv@TransferLogicEnv
-          { tleBlacklistMintingScript
-          , tleBlacklistSpendingScript
-          , tleMintingScript
-          , tleTransferScript
-          , tleIssuerScript
-          } <- asks transferLogicEnv
-        dirEnv@DirectoryEnv
-          { dsDirectoryMintingScript
-          , dsDirectorySpendingScript
-          , dsProtocolParamsMintingScript
-          , dsProtocolParamsSpendingScript
-          , dsProgrammableLogicBaseScript
-          , dsProgrammableLogicGlobalScript
-          } <- asks directoryEnv
-        let ProgrammableLogicGlobalParams {progLogicCred} = globalParams dirEnv
-            (prefixIssuerCborHex, postfixIssuerCborHex) = issuerPrefixPostfixBytes progLogicCred
-        liftIO $ TIO.writeFile (baseFolder </> "prefixIssuerCborHex.txt") prefixIssuerCborHex
-        liftIO $ TIO.writeFile (baseFolder </> "postfixIssuerCborHex.txt") postfixIssuerCborHex
-        let programmableMinting = programmableTokenMintingScript dirEnv transferEnv
-        writeAppliedScript (baseFolder </> "protocolParametersNFTMinting") "Protocol Parameters NFT" dsProtocolParamsMintingScript
-        writeAppliedScript (baseFolder </> "protocolParametersSpending") "Protocol Parameters Spending" dsProtocolParamsSpendingScript
-        writeAppliedScript (baseFolder </> "programmableLogicBaseSpending") "Programmable Logic Base" dsProgrammableLogicBaseScript
-        writeAppliedScript (baseFolder </> "programmableLogicGlobalStake") "Programmable Logic Global" dsProgrammableLogicGlobalScript
-        writeAppliedScript (baseFolder </> "directoryNodeMinting") "Directory Node Minting Policy" dsDirectoryMintingScript
-        writeAppliedScript (baseFolder </> "directoryNodeSpending") "Directory Spending" dsDirectorySpendingScript
-        writeAppliedScript (baseFolder </> "blacklistSpending") "Blacklist Spending" tleBlacklistSpendingScript
-        writeAppliedScript (baseFolder </> "blacklistMinting") "Blacklist Minting" tleBlacklistMintingScript
-        writeAppliedScript (baseFolder </> "transferLogicMinting") "Transfer Logic Minting" tleMintingScript
-        writeAppliedScript (baseFolder </> "transferLogicSpending") "Transfer Logic Spending" tleTransferScript
-        writeAppliedScript (baseFolder </> "transferLogicIssuerSpending") "Transfer Logic Issuer Spending" tleIssuerScript
-        writeAppliedScript (baseFolder </> "programmableTokenMinting") "Programmable Token Minting" programmableMinting
+      withBlacklistFor blacklistTransferRoot $
+        withTransferFor blacklistTransferRoot $ do
+          BlacklistEnv
+            { bleMintingScript
+            , bleSpendingScript
+            } <- asks blacklistEnv
+          transferEnv@TransferLogicEnv
+            { tleMintingScript
+            , tleTransferScript
+            , tleIssuerScript
+            } <- asks transferLogicEnv
+          dirEnv@DirectoryEnv
+            { dsDirectoryMintingScript
+            , dsDirectorySpendingScript
+            , dsProtocolParamsMintingScript
+            , dsProtocolParamsSpendingScript
+            , dsProgrammableLogicBaseScript
+            , dsProgrammableLogicGlobalScript
+            } <- asks directoryEnv
+          let ProgrammableLogicGlobalParams {progLogicCred} = globalParams dirEnv
+              (prefixIssuerCborHex, postfixIssuerCborHex) = issuerPrefixPostfixBytes progLogicCred
+          liftIO $ TIO.writeFile (baseFolder </> "prefixIssuerCborHex.txt") prefixIssuerCborHex
+          liftIO $ TIO.writeFile (baseFolder </> "postfixIssuerCborHex.txt") postfixIssuerCborHex
+          let programmableMinting = programmableTokenMintingScript dirEnv transferEnv
+          writeAppliedScript (baseFolder </> "protocolParametersNFTMinting") "Protocol Parameters NFT" dsProtocolParamsMintingScript
+          writeAppliedScript (baseFolder </> "protocolParametersSpending") "Protocol Parameters Spending" dsProtocolParamsSpendingScript
+          writeAppliedScript (baseFolder </> "programmableLogicBaseSpending") "Programmable Logic Base" dsProgrammableLogicBaseScript
+          writeAppliedScript (baseFolder </> "programmableLogicGlobalStake") "Programmable Logic Global" dsProgrammableLogicGlobalScript
+          writeAppliedScript (baseFolder </> "directoryNodeMinting") "Directory Node Minting Policy" dsDirectoryMintingScript
+          writeAppliedScript (baseFolder </> "directoryNodeSpending") "Directory Spending" dsDirectorySpendingScript
+          writeAppliedScript (baseFolder </> "blacklistSpending") "Blacklist Spending" bleSpendingScript
+          writeAppliedScript (baseFolder </> "blacklistMinting") "Blacklist Minting" bleMintingScript
+          writeAppliedScript (baseFolder </> "transferLogicMinting") "Transfer Logic Minting" tleMintingScript
+          writeAppliedScript (baseFolder </> "transferLogicSpending") "Transfer Logic Spending" tleTransferScript
+          writeAppliedScript (baseFolder </> "transferLogicIssuerSpending") "Transfer Logic Issuer Spending" tleIssuerScript
+          writeAppliedScript (baseFolder </> "programmableTokenMinting") "Programmable Token Minting" programmableMinting
 
 
 runExportCommand :: ExportCommand -> IO ()

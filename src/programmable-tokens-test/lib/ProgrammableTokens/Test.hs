@@ -9,8 +9,7 @@ module ProgrammableTokens.Test(
   expectSingleton,
   expectN,
   expectLeft,
-  assertFailingTx,
-  assertBlacklistedAddressException
+  assertFailingTx
 ) where
 
 import Cardano.Api.Shelley qualified as C
@@ -25,8 +24,6 @@ import Convex.MockChain.Defaults qualified as Defaults
 import Convex.MockChain.Utils (mockchainSucceedsWith)
 import Convex.NodeParams (NodeParams, ledgerProtocolParameters,
                           protocolParameters)
-import Data.List (isPrefixOf)
-import GHC.Exception (SomeException, throw)
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import Test.Tasty.HUnit (Assertion, assertEqual)
 
@@ -54,14 +51,6 @@ assertFailingTx = \case
   Right txId -> do
     C.TxBody C.TxBodyContent{C.txScriptValidity} <- getTxById txId >>= maybe (fail $ "Tx not found: " <> show txId) (pure . C.getTxBody)
     liftIO (assertEqual "Tx validity" (C.TxScriptValidity C.alonzoBasedEra C.ScriptInvalid) txScriptValidity)
-
--- TODO: Need to make this nicer
-{-| Make sure that the exception is a failure due to blacklisted address
--}
-assertBlacklistedAddressException :: SomeException -> Assertion
-assertBlacklistedAddressException ex
-  | "user error (ProgTokensError (TransferBlacklistedCredential (PubKeyCredential" `isPrefixOf` show ex = pure ()
-  | otherwise = throw ex
 
 nodeParamsFor :: ScriptTarget -> NodeParams C.ConwayEra
 nodeParamsFor = \case

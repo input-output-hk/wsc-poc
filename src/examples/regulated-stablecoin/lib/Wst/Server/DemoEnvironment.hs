@@ -125,7 +125,9 @@ mkDemoEnv :: C.TxIn -> C.TxIn -> C.Address C.ShelleyAddr -> Either String DemoEn
 mkDemoEnv txIn issuanceCborHexTxIn (C.ShelleyAddress network (C.fromShelleyPaymentCredential -> C.PaymentCredentialByKey pkh) _) = do
   let target           = Production
       dirEnv           = Env.mkDirectoryEnv (Env.DirectoryScriptRoot txIn issuanceCborHexTxIn target)
-      transferLogicEnv = Env.mkTransferLogicEnv $ Env.BlacklistTransferLogicScriptRoot target dirEnv pkh
+      rt               = Env.BlacklistTransferLogicScriptRoot target dirEnv pkh
+      transferLogicEnv = Env.mkTransferLogicEnv rt
+      blacklistEnv     = Env.mkBlacklistEnv rt
       dummyText        = "REPLACE ME"
       assetName        = "WST"
       dummyBlockfrostUrl = "https://cardano-preview.blockfrost.io/api/v0"
@@ -136,7 +138,7 @@ mkDemoEnv txIn issuanceCborHexTxIn (C.ShelleyAddress network (C.fromShelleyPayme
         C.makeShelleyAddressInEra
           C.ShelleyBasedEraConway
           (fromLedgerNetwork network)
-          (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 $ Env.tleBlacklistSpendingScript transferLogicEnv)
+          (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 $ Env.bleSpendingScript blacklistEnv)
           C.NoStakeAddress
        of
           C.AddressInEra (C.ShelleyAddressInEra C.ShelleyBasedEraConway) (SerialiseAddress -> daTransferLogicAddress') -> daTransferLogicAddress'

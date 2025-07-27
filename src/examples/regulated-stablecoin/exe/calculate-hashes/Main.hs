@@ -21,14 +21,16 @@ main = System.Environment.getArgs >>= \case
     operator <- decodeAddress addr
     (nid, pkh) <- paymentHashAndNetworkId operator
     dirEnv <- Env.mkDirectoryEnv <$> loadFromFile fp
-    let transferLogicEnv = Env.mkTransferLogicEnv
-          $ Env.BlacklistTransferLogicScriptRoot
-              (srTarget $ Env.dsScriptRoot dirEnv)
-              dirEnv
-              pkh
+    let scriptRoot =
+          Env.BlacklistTransferLogicScriptRoot
+            (srTarget $ Env.dsScriptRoot dirEnv)
+            dirEnv
+            pkh
+    let transferLogicEnv = Env.mkTransferLogicEnv scriptRoot
+        blacklistEnv     = Env.mkBlacklistEnv scriptRoot
 
     printAssetId dirEnv transferLogicEnv "WST"
-    printTransferLogicAddress nid transferLogicEnv
+    printTransferLogicAddress nid blacklistEnv
     printBaseCredential dirEnv
   _ -> do
     putStrLn "Usage: calculate-hashes DEPLOYMENT_ROOT_FILE_PATH ISSUER_ADDRESS"
@@ -54,9 +56,9 @@ printAssetId :: Env.DirectoryEnv -> Env.TransferLogicEnv -> C.AssetName -> IO ()
 printAssetId dirEnv transferLogicEnv =
   print . Env.programmableTokenAssetId dirEnv transferLogicEnv
 
-printTransferLogicAddress :: C.NetworkId -> Env.TransferLogicEnv -> IO ()
+printTransferLogicAddress :: C.NetworkId -> Env.BlacklistEnv -> IO ()
 printTransferLogicAddress nid env = do
-  let spendingScript = Env.tleBlacklistSpendingScript env
+  let spendingScript = Env.bleSpendingScript env
       spendingHash = C.hashScript $ C.PlutusScript C.PlutusScriptV3 spendingScript
       addr = C.makeShelleyAddressInEra C.ShelleyBasedEraConway nid (C.PaymentCredentialByScript spendingHash) C.NoStakeAddress
   print $ C.serialiseAddress addr

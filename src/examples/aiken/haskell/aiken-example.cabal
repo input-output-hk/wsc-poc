@@ -67,6 +67,7 @@ library
     , containers
     , convex-base
     , convex-coin-selection
+    , lens
     , mtl
     , plutus-ledger-api
     , programmable-tokens-offchain
@@ -85,6 +86,7 @@ test-suite aiken-example-test
     , base                         >=4.14.0
     , cardano-api
     , containers
+    , convex-base
     , programmable-tokens-onchain
     , programmable-tokens-test
     , tasty

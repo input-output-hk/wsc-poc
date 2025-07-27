@@ -78,7 +78,7 @@ blacklistInitialNode =
     { blnNext= "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
     , blnKey= ""}
 
-initBlacklist :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => m ()
+initBlacklist :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasBlacklistEnv env) => m ()
 initBlacklist = Utils.inBabbage @era $ do
   nid <- queryNetworkId
 
@@ -86,14 +86,14 @@ initBlacklist = Utils.inBabbage @era $ do
   let blacklistInitialNodeDatum = C.TxOutDatumInline C.babbageBasedEra $ C.toHashableScriptData blacklistInitialNode
 
   -- mint blacklist policy token
-  mintingScript <- asks (Env.tleBlacklistMintingScript . Env.transferLogicEnv)
+  mintingScript <- asks (Env.bleMintingScript . Env.blacklistEnv)
   let assetName = C.AssetName ""
       quantity = 1
 
   mintPlutus mintingScript () assetName quantity
 
   -- send blacklist output to blacklist spending script
-  spendingScript <- asks (Env.tleBlacklistSpendingScript . Env.transferLogicEnv)
+  spendingScript <- asks (Env.bleSpendingScript . Env.blacklistEnv)
   let policyId = scriptPolicyIdV3 mintingScript
       spendingHash = C.hashScript $ C.PlutusScript C.PlutusScriptV3 spendingScript
       addr = C.makeShelleyAddressInEra C.shelleyBasedEra nid (C.PaymentCredentialByScript spendingHash) C.NoStakeAddress
@@ -124,10 +124,10 @@ addBlacklistReason :: (C.IsShelleyBasedEra era, MonadBuildTx era m) => Blacklist
 addBlacklistReason (BlacklistReason reason) =
   addBtx (set (L.txMetadata . L._TxMetadata . at 1) (Just (C.TxMetaMap [(C.TxMetaText "reason", C.metaTextChunks reason)])))
 
-insertBlacklistNode :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError err m, AsRegulatedStablecoinError err) => BlacklistReason -> C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
+insertBlacklistNode :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError err m, AsRegulatedStablecoinError err, Env.HasBlacklistEnv env) => BlacklistReason -> C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
 insertBlacklistNode reason cred blacklistNodes = Utils.inBabbage @era $ do
   -- mint new blacklist token
-  mintingScript <- asks (Env.tleBlacklistMintingScript . Env.transferLogicEnv)
+  mintingScript <- asks (Env.bleMintingScript . Env.blacklistEnv)
   let newAssetName = C.AssetName $  case transCredential cred of
                         PubKeyCredential (PubKeyHash s) -> PlutusTx.fromBuiltin s
                         ScriptCredential (ScriptHash s) -> PlutusTx.fromBuiltin s
@@ -155,7 +155,7 @@ insertBlacklistNode reason cred blacklistNodes = Utils.inBabbage @era $ do
     $ throwing_ _DuplicateBlacklistNode
 
   -- spend previous node
-  spendingScript <- asks (Env.tleBlacklistSpendingScript . Env.transferLogicEnv)
+  spendingScript <- asks (Env.bleSpendingScript . Env.blacklistEnv)
   spendPlutusInlineDatum prevNodeRef spendingScript ()
   -- set previous node output
   prependTxOut newPrevNodeOutput
@@ -168,12 +168,12 @@ insertBlacklistNode reason cred blacklistNodes = Utils.inBabbage @era $ do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   addRequiredSignature opPkh
 
-removeBlacklistNode :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError err m, AsRegulatedStablecoinError err) => C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
+removeBlacklistNode :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasBlacklistEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError err m, AsRegulatedStablecoinError err) => C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
 removeBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
-  blacklistSpendingScript <- asks (Env.tleBlacklistSpendingScript . Env.transferLogicEnv)
-  blacklistMintingScript <- asks (Env.tleBlacklistMintingScript . Env.transferLogicEnv)
-  blacklistPolicyId <- asks (Env.blacklistNodePolicyId . Env.transferLogicEnv)
+  blacklistSpendingScript <- asks (Env.bleSpendingScript . Env.blacklistEnv)
+  blacklistMintingScript <- asks (Env.bleMintingScript . Env.blacklistEnv)
+  blacklistPolicyId <- asks (Env.blacklistNodePolicyId . Env.blacklistEnv)
 
   -- find node to remove
   UTxODat{uIn = delNodeRef, uOut = (C.TxOut _delAddr delOutVal _ _),  uDatum = delNodeDatum}

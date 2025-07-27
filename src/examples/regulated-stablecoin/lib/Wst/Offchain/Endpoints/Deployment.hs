@@ -167,13 +167,13 @@ deployBlacklistTx = do
               $ Env.balanceTxEnv_ BuildTx.initBlacklist
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
-insertBlacklistNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsCoinSelectionError err, AsBalancingError err era, AsRegulatedStablecoinError err) => BlacklistReason -> C.PaymentCredential -> m (C.Tx era)
+insertBlacklistNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsCoinSelectionError err, AsBalancingError err era, AsRegulatedStablecoinError err, Env.HasBlacklistEnv env) => BlacklistReason -> C.PaymentCredential -> m (C.Tx era)
 insertBlacklistNodeTx reason cred = do
   blacklist <- Query.blacklistNodes @era
   (tx, _)  <- Env.balanceTxEnv_ (BuildTx.insertBlacklistNode reason cred blacklist)
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
-removeBlacklistNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsCoinSelectionError err, AsBalancingError err era, AsRegulatedStablecoinError err) => C.PaymentCredential -> m (C.Tx era)
+removeBlacklistNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsCoinSelectionError err, AsBalancingError err era, AsRegulatedStablecoinError err, Env.HasBlacklistEnv env) => C.PaymentCredential -> m (C.Tx era)
 removeBlacklistNodeTx cred = do
   blacklist <- Query.blacklistNodes @era
   (tx, _)  <- Env.balanceTxEnv_ (BuildTx.removeBlacklistNode cred blacklist)
@@ -215,6 +215,7 @@ transferSmartTokensTx :: forall era env err m.
   , Env.HasOperatorEnv era env
   , Env.HasDirectoryEnv env
   , Env.HasTransferLogicEnv env
+  , Env.HasBlacklistEnv env
   , MonadBlockchain era m
   , MonadError err m
   , C.IsBabbageBasedEra era

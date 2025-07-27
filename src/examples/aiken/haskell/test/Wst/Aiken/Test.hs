@@ -1,10 +1,14 @@
 {-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Wst.Aiken.Test(
-  tests
-) where
+
+module Wst.Aiken.Test
+  ( tests,
+  )
+where
 
 import Cardano.Api qualified as C
+import Control.Monad.IO.Class (MonadIO (..))
+import Convex.Utils (failOnError)
 import Data.Functor (void)
 import Data.Map qualified as Map
 import Paths_aiken_example qualified as Pkg
@@ -14,15 +18,19 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertEqual, testCase)
 import Wst.Aiken.Blueprint (Blueprint (..))
 import Wst.Aiken.Blueprint qualified as Blueprint
+import Wst.Aiken.Offchain qualified as Aiken
 
 tests :: TestTree
-tests = testGroup "unit tests"
-  [ testCase "load blueprint" loadBlueprint
-  , testCase "deserialise script" deserialiseScript
-  , testGroup "emulator" [
-      testCase "register" (Test.mockchainSucceedsWithTarget Production registerAikenPolicy)
-  ]
-  ]
+tests =
+  testGroup
+    "unit tests"
+    [ testCase "load blueprint" loadBlueprint,
+      testCase "deserialise script" deserialiseScript,
+      testGroup
+        "emulator"
+        [ testCase "register" (Test.mockchainSucceedsWithTarget Production registerAikenPolicy)
+        ]
+    ]
 
 loadBlueprint :: Assertion
 loadBlueprint = do
@@ -30,7 +38,7 @@ loadBlueprint = do
 
 deserialiseScript :: Assertion
 deserialiseScript = do
-  Blueprint{validators} <- loadExample
+  Blueprint {validators} <- loadExample
   maybe (fail "Expected script named 'placeholder.placeholder.mint'") pure (Map.lookup "placeholder.placeholder.mint" validators)
     >>= \case
       (C.ScriptInAnyLang (C.PlutusScriptLanguage C.PlutusScriptV3) script) -> do
@@ -44,5 +52,9 @@ loadExample = do
     >>= Blueprint.loadFromFile
     >>= either fail pure
 
-registerAikenPolicy :: Monad m => m ()
-registerAikenPolicy = pure ()
+registerAikenPolicy :: (MonadIO m, MonadFail m) => m ()
+registerAikenPolicy = do
+  bp <- liftIO loadExample
+  -- failOnError $ do
+    -- tx <- Aiken.registerTx (_ bp)
+  pure ()

@@ -18,14 +18,16 @@ import Convex.Utils (failOnError)
 import Convex.Wallet.MockWallet qualified as Wallet
 import Convex.Wallet.Operator (signTxOperator)
 import Convex.Wallet.Operator qualified as Operator
+import Data.List (isPrefixOf)
 import Data.String (IsString (..))
+import GHC.Exception (SomeException, throw)
 import PlutusLedgerApi.V3 (CurrencySymbol (..), ScriptHash (..))
 import PlutusTx.Builtins.HasOpaque (stringToBuiltinByteStringHex)
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
 import ProgrammableTokens.Test qualified as Test
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase)
+import Test.Tasty.HUnit (Assertion, testCase)
 import Wst.AppError (AppError)
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..))
 import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy (..))
@@ -53,7 +55,7 @@ scriptTargetTests target =
         , testCase "smart token transfer" (Test.mockchainSucceedsWithTarget target $ deployDirectorySet >>= transferSmartTokens)
         , testCase "blacklist credential" (Test.mockchainSucceedsWithTarget target $ void $ deployDirectorySet >>= blacklistCredential)
         , testCase "unblacklist credential" (Test.mockchainSucceedsWithTarget target $ void $ deployDirectorySet >>= unblacklistCredential)
-        , testCase "blacklisted transfer" (mockchainFails (blacklistTransfer DontSubmitFailingTx) Test.assertBlacklistedAddressException)
+        , testCase "blacklisted transfer" (mockchainFails (blacklistTransfer DontSubmitFailingTx) assertBlacklistedAddressException)
         , testCase "blacklisted transfer (failing tx)" (Test.mockchainSucceedsWithTarget target (blacklistTransfer SubmitFailingTx >>= Test.assertFailingTx))
         , testCase "seize user output" (Test.mockchainSucceedsWithTarget target $ deployDirectorySet >>= seizeUserOutput)
         , testCase "deploy all" (Test.mockchainSucceedsWithTarget target deployAll)
@@ -236,12 +238,12 @@ blacklistTransfer policy = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv 
       >>= void . sendTx . signTxOperator admin
     pure opPkh
 
-  transferLogic <- Env.withDirectoryFor scriptRoot $ Env.transferLogicForDirectory (C.verificationKeyHash . Operator.verificationKey . Operator.oPaymentKey $ admin)
+  (transferLogic, ble) <- Env.withDirectoryFor scriptRoot $ Env.transferLogicForDirectory (C.verificationKeyHash . Operator.verificationKey . Operator.oPaymentKey $ admin)
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator $ Endpoints.insertBlacklistNodeTx "" userPaymentCred
     >>= void . sendTx . signTxOperator admin
 
-  asWallet Wallet.w2 $ Env.withDirectoryFor scriptRoot $ Env.withTransfer transferLogic $ Endpoints.transferSmartTokensTx policy aid 30 (C.PaymentCredentialByKey opPkh)
+  asWallet Wallet.w2 $ Env.withDirectoryFor scriptRoot $ Env.withBlacklist ble $ Env.withTransfer transferLogic $ Endpoints.transferSmartTokensTx policy aid 30 (C.PaymentCredentialByKey opPkh)
     >>= sendTx . signTxOperator (user Wallet.w2)
 
 seizeUserOutput :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m ()
@@ -323,3 +325,11 @@ registerTransferScripts pkh = failOnError $ do
 
   x <- tryBalanceAndSubmit mempty Wallet.w1 txBody TrailingChange []
   pure $ C.getTxId $ C.getTxBody x
+
+-- TODO: Need to make this nicer
+{-| Make sure that the exception is a failure due to blacklisted address
+-}
+assertBlacklistedAddressException :: SomeException -> Assertion
+assertBlacklistedAddressException ex
+  | "user error (RegStablecoinError (TransferBlacklistedCredential (PubKeyCredential" `isPrefixOf` show ex = pure ()
+  | otherwise = throw ex

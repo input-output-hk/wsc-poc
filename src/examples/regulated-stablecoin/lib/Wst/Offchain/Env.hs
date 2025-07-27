@@ -26,6 +26,12 @@ module Wst.Offchain.Env(
   globalParams,
   getGlobalParams,
 
+  -- ** Blacklist environment
+  BlacklistEnv(..),
+  HasBlacklistEnv(..),
+  alwaysSucceedsBlacklistEnv,
+  mkBlacklistEnv,
+
   -- ** Transfer logic environment
   BlacklistTransferLogicScriptRoot(..),
   mkTransferLogicEnv,
@@ -60,7 +66,10 @@ module Wst.Offchain.Env(
   withRuntime,
   addOperatorEnv,
   withOperator,
-  blacklistNodePolicyId
+  blacklistNodePolicyId,
+  withBlacklist,
+  withBlacklistFor,
+  addBlacklistEnv
 ) where
 
 import Blammo.Logging (Logger)
@@ -223,14 +232,39 @@ programmableTokenReceivingAddress destinationCred = do
   progLogicBaseCred <- asks (programmableLogicBaseCredential . directoryEnv)
   return $ C.makeShelleyAddressInEra C.shelleyBasedEra nid progLogicBaseCred (C.StakeAddressByValue stakeCred)
 
+data BlacklistEnv =
+  BlacklistEnv
+    { bleMintingScript  :: PlutusScript PlutusScriptV3
+    , bleSpendingScript :: PlutusScript PlutusScriptV3
+    }
+
+alwaysSucceedsBlacklistEnv :: ScriptTarget -> BlacklistEnv
+alwaysSucceedsBlacklistEnv target =
+  BlacklistEnv
+    { bleMintingScript = alwaysSucceedsScript target
+    , bleSpendingScript = alwaysSucceedsScript target
+    }
+
+class HasBlacklistEnv e where
+  blacklistEnv :: e -> BlacklistEnv
+
+instance HasBlacklistEnv BlacklistEnv where
+  blacklistEnv = id
+
+mkBlacklistEnv :: BlacklistTransferLogicScriptRoot -> BlacklistEnv
+mkBlacklistEnv BlacklistTransferLogicScriptRoot{tlrTarget, tlrIssuer} =
+  let blacklistMinting = blacklistMintingScript tlrTarget tlrIssuer
+  in BlacklistEnv
+      { bleMintingScript = blacklistMinting
+      , bleSpendingScript = blacklistSpendingScript tlrTarget tlrIssuer
+      }
+
 {-| Scripts related to managing the specific transfer logic
 -}
 
 data TransferLogicEnv =
   TransferLogicEnv
-    { tleBlacklistMintingScript  :: PlutusScript PlutusScriptV3
-    , tleBlacklistSpendingScript :: PlutusScript PlutusScriptV3
-    , tleMintingScript           :: PlutusScript PlutusScriptV3
+    { tleMintingScript           :: PlutusScript PlutusScriptV3
     , tleTransferScript          :: PlutusScript PlutusScriptV3
     , tleIssuerScript            :: PlutusScript PlutusScriptV3
     , tleGlobalParamsNft         :: Maybe CurrencySymbol
@@ -241,9 +275,7 @@ data TransferLogicEnv =
 alwaysSucceedsTransferLogic :: ScriptTarget -> TransferLogicEnv
 alwaysSucceedsTransferLogic target =
   TransferLogicEnv
-    { tleBlacklistMintingScript = alwaysSucceedsScript target
-    , tleBlacklistSpendingScript = alwaysSucceedsScript target
-    , tleMintingScript = alwaysSucceedsScript target
+    { tleMintingScript = alwaysSucceedsScript target
     , tleTransferScript = alwaysSucceedsScript target
     , tleIssuerScript = alwaysSucceedsScript target
     , tleGlobalParamsNft = Nothing
@@ -275,16 +307,14 @@ mkTransferLogicEnv BlacklistTransferLogicScriptRoot{tlrTarget, tlrDirEnv, tlrIss
       progLogicBaseCred = programmableLogicBaseCredential tlrDirEnv
   in
   TransferLogicEnv
-    { tleBlacklistMintingScript = blacklistMinting
-    , tleBlacklistSpendingScript = blacklistSpendingScript tlrTarget tlrIssuer
-    , tleMintingScript =  permissionedMintingScript tlrTarget tlrIssuer
+    { tleMintingScript =  permissionedMintingScript tlrTarget tlrIssuer
     , tleTransferScript = freezeTransferScript tlrTarget progLogicBaseCred blacklistPolicy
     , tleIssuerScript = permissionedSpendingScript tlrTarget tlrIssuer
     , tleGlobalParamsNft = Nothing
     }
 
-blacklistNodePolicyId :: TransferLogicEnv -> C.PolicyId
-blacklistNodePolicyId = scriptPolicyIdV3 . tleBlacklistMintingScript
+blacklistNodePolicyId :: BlacklistEnv -> C.PolicyId
+blacklistNodePolicyId = scriptPolicyIdV3 . bleMintingScript
 
 data RuntimeEnv
   = RuntimeEnv
@@ -314,12 +344,13 @@ class HasRuntimeEnv e where
 instance HasRuntimeEnv RuntimeEnv where
   runtimeEnv = id
 
-data CombinedEnv operatorF directoryF transferF runtimeF era =
+data CombinedEnv operatorF directoryF transferF runtimeF blacklistF era =
   CombinedEnv
     { ceOperator  :: operatorF (OperatorEnv era)
     , ceDirectory :: directoryF DirectoryEnv
     , ceTransfer  :: transferF TransferLogicEnv
     , ceRuntime   :: runtimeF RuntimeEnv
+    , ceBlacklist :: blacklistF BlacklistEnv
     }
 
 makeLensesFor
@@ -328,81 +359,98 @@ makeLensesFor
 
 {-| 'CombinedEnv' with no values
 -}
-empty :: forall era. CombinedEnv Proxy Proxy Proxy Proxy era
+empty :: forall era. CombinedEnv Proxy Proxy Proxy Proxy Proxy era
 empty =
   CombinedEnv
     { ceOperator = Proxy
     , ceDirectory = Proxy
     , ceTransfer = Proxy
     , ceRuntime = Proxy
+    , ceBlacklist = Proxy
     }
 
-instance HasOperatorEnv era (CombinedEnv Identity d t r era) where
+instance HasOperatorEnv era (CombinedEnv Identity d t r b era) where
   operatorEnv = runIdentity . ceOperator
 
-instance HasDirectoryEnv (CombinedEnv o Identity t r era) where
+instance HasDirectoryEnv (CombinedEnv o Identity t r b era) where
   directoryEnv = runIdentity . ceDirectory
 
-instance HasTransferLogicEnv (CombinedEnv o d Identity r era) where
+instance HasTransferLogicEnv (CombinedEnv o d Identity r b era) where
   transferLogicEnv = runIdentity . ceTransfer
 
-instance HasRuntimeEnv (CombinedEnv o d t Identity era) where
+instance HasRuntimeEnv (CombinedEnv o d t Identity b era) where
   runtimeEnv = runIdentity . ceRuntime
+
+instance HasBlacklistEnv (CombinedEnv o d t r Identity era) where
+  blacklistEnv = runIdentity . ceBlacklist
 
 _Identity :: L.Iso' (Identity a) a
 _Identity = L.iso runIdentity Identity
 
-instance HasLogger (CombinedEnv o d t Identity era) where
+instance HasLogger (CombinedEnv o d t Identity b era) where
   loggerL = runtime . _Identity . loggerL
 
 {-| Add a 'DirectoryEnv' for the 'C.TxIn' in to the environment
 -}
-addDirectoryEnvFor :: DirectoryScriptRoot -> CombinedEnv o d t r era -> CombinedEnv o Identity t r era
+addDirectoryEnvFor :: DirectoryScriptRoot -> CombinedEnv o d t r b era -> CombinedEnv o Identity t r b era
 addDirectoryEnvFor = addDirectoryEnv . mkDirectoryEnv
 
 {-| Add a 'DirectoryEnv' for the 'C.TxIn' in to the environment
 -}
-addDirectoryEnv :: DirectoryEnv -> CombinedEnv o d t r era -> CombinedEnv o Identity t r era
+addDirectoryEnv :: DirectoryEnv -> CombinedEnv o d t r b era -> CombinedEnv o Identity t r b era
 addDirectoryEnv de env =
   env{ceDirectory = Identity de }
 
-withDirectory :: MonadReader (CombinedEnv o d t r era) m => DirectoryEnv -> ReaderT (CombinedEnv o Identity t r era) m a -> m a
+withDirectory :: MonadReader (CombinedEnv o d t r b era) m => DirectoryEnv -> ReaderT (CombinedEnv o Identity t r b era) m a -> m a
 withDirectory dir action = do
   asks (addDirectoryEnv dir)
     >>= runReaderT action
 
-withDirectoryFor :: MonadReader (CombinedEnv o d t r era) m => DirectoryScriptRoot -> ReaderT (CombinedEnv o Identity t r era) m a -> m a
+withDirectoryFor :: MonadReader (CombinedEnv o d t r b era) m => DirectoryScriptRoot -> ReaderT (CombinedEnv o Identity t r b era) m a -> m a
 withDirectoryFor = withDirectory . mkDirectoryEnv
 
 {-| Add a 'TransferLogicEnv' for the 'C.Hash C.PaymentKey' corresponding to the
    admin hash
  -}
-addTransferEnv :: TransferLogicEnv -> CombinedEnv o d t r era -> CombinedEnv o d Identity r era
+addTransferEnv :: TransferLogicEnv -> CombinedEnv o d t r b era -> CombinedEnv o d Identity r b era
 addTransferEnv de env =
   env{ceTransfer = Identity de }
 
-withTransfer :: MonadReader (CombinedEnv o d t r era) m => TransferLogicEnv -> ReaderT (CombinedEnv o d Identity r era) m a -> m a
+withTransfer :: MonadReader (CombinedEnv o d t r b era) m => TransferLogicEnv -> ReaderT (CombinedEnv o d Identity r b era) m a -> m a
 withTransfer dir action = do
   asks (addTransferEnv dir)
     >>= runReaderT action
 
-withTransferFor :: MonadReader (CombinedEnv o Identity t r era) m => BlacklistTransferLogicScriptRoot -> ReaderT (CombinedEnv o Identity Identity r era) m a -> m a
+withTransferFor :: MonadReader (CombinedEnv o Identity t r b era) m => BlacklistTransferLogicScriptRoot -> ReaderT (CombinedEnv o Identity Identity r b era) m a -> m a
 withTransferFor = withTransfer . mkTransferLogicEnv
 
 {-| Transfer logic scripts for the blacklist managed by the given 'C.PaymentKey' hash
 -}
-transferLogicForDirectory :: (HasDirectoryEnv env, MonadReader env m) => C.Hash C.PaymentKey -> m TransferLogicEnv
+transferLogicForDirectory :: (HasDirectoryEnv env, MonadReader env m) => C.Hash C.PaymentKey -> m (TransferLogicEnv, BlacklistEnv)
 transferLogicForDirectory pkh = do
   env <- ask
   let dirEnv = directoryEnv env
-  pure (mkTransferLogicEnv $ BlacklistTransferLogicScriptRoot (srTarget $ dsScriptRoot dirEnv) dirEnv pkh)
+      sr     = BlacklistTransferLogicScriptRoot (srTarget $ dsScriptRoot dirEnv) dirEnv pkh
+  pure (mkTransferLogicEnv sr, mkBlacklistEnv sr)
 
-withTransferFromOperator :: (MonadReader (CombinedEnv Identity Identity t r era) m) => ReaderT (CombinedEnv Identity Identity Identity r era) m a -> m a
+withTransferFromOperator :: (MonadReader (CombinedEnv Identity Identity t r b era) m) => ReaderT (CombinedEnv Identity Identity Identity r Identity era) m a -> m a
 withTransferFromOperator action = do
   env <- ask
   let opPkh = fst . bteOperator . operatorEnv $ env
-  root <- transferLogicForDirectory opPkh
-  runReaderT action (addTransferEnv root env)
+  (transferEnv,  ble) <- transferLogicForDirectory opPkh
+  runReaderT action (addTransferEnv transferEnv $ addBlacklistEnv ble env)
+
+addBlacklistEnv :: BlacklistEnv -> CombinedEnv o d t r b era -> CombinedEnv o d t r Identity era
+addBlacklistEnv be env =
+  env{ceBlacklist = Identity be}
+
+withBlacklist :: MonadReader (CombinedEnv o d t r b era) m => BlacklistEnv -> ReaderT (CombinedEnv o d t r Identity era) m a -> m a
+withBlacklist env action =
+  asks (addBlacklistEnv env)
+    >>= runReaderT action
+
+withBlacklistFor :: MonadReader (CombinedEnv o d t r b era) m => BlacklistTransferLogicScriptRoot -> ReaderT (CombinedEnv o d t r Identity era) m a -> m a
+withBlacklistFor = withBlacklist . mkBlacklistEnv
 
 {-| The minting script for a programmable token that uses the global parameters
 -}
@@ -423,25 +471,25 @@ programmableTokenAssetId dirEnv inta =
 {-| Add a 'DirectoryEnv' for the 'C.TxIn' in to the environment and run the
 action with the modified environment
 -}
-withEnv :: forall era m a. ReaderT (CombinedEnv Proxy Proxy Proxy Proxy era) m a -> m a
+withEnv :: forall era m a. ReaderT (CombinedEnv Proxy Proxy Proxy Proxy Proxy era) m a -> m a
 withEnv = flip runReaderT empty
 
 {-| Add a 'RuntimeEnv' to the environment
 -}
-addRuntimeEnv :: RuntimeEnv -> CombinedEnv o d t r era -> CombinedEnv o d t Identity era
+addRuntimeEnv :: RuntimeEnv -> CombinedEnv o d t r b era -> CombinedEnv o d t Identity b era
 addRuntimeEnv env e =
   e{ceRuntime = Identity env }
 
-withRuntime :: MonadReader (CombinedEnv o d t r era) m => RuntimeEnv -> ReaderT (CombinedEnv o d t Identity era) m a -> m a
+withRuntime :: MonadReader (CombinedEnv o d t r b era) m => RuntimeEnv -> ReaderT (CombinedEnv o d t Identity b era) m a -> m a
 withRuntime runtime_ action =
   asks (addRuntimeEnv runtime_)
     >>= runReaderT action
 
 {-| Add an 'OperatorEnv' to the environment
 -}
-addOperatorEnv :: OperatorEnv era -> CombinedEnv o d t r era2 -> CombinedEnv Identity d t r era
+addOperatorEnv :: OperatorEnv era -> CombinedEnv o d t r b era2 -> CombinedEnv Identity d t r b era
 addOperatorEnv op e =
   e{ceOperator = Identity op }
 
-withOperator :: MonadReader (CombinedEnv o d t r era1) m => OperatorEnv era -> ReaderT (CombinedEnv Identity d t r era) m a -> m a
+withOperator :: MonadReader (CombinedEnv o d t r b era1) m => OperatorEnv era -> ReaderT (CombinedEnv Identity d t r b era) m a -> m a
 withOperator op action = asks (addOperatorEnv op) >>= runReaderT action

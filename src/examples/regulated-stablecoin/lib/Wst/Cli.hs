@@ -95,7 +95,7 @@ deploy config = do
       logInfo $ "Tx submitted successfully" :# ["txid" .= show txid]
       (liftIO $ C.writeFileJSON "deployment-root.json" root) >>= either (error . show) pure
 
-startServer :: (MonadIO m, MonadLogger m) => Env.CombinedEnv Proxy Identity Proxy Identity w -> Server.ServerArgs -> m ()
+startServer :: (MonadIO m, MonadLogger m) => Env.CombinedEnv Proxy Identity Proxy Identity b w -> Server.ServerArgs -> m ()
 startServer env' serverArgs@ServerArgs{saPort, saStaticFiles} = do
   logInfo $ "starting server" :# ["port" .= saPort, "static_files" .= fromMaybe "(no static files)" saStaticFiles]
   liftIO (Server.runServer env' serverArgs)
