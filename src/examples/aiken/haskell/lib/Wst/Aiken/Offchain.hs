@@ -40,7 +40,6 @@ import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..))
 import Wst.Offchain.BuildTx.DirectorySet qualified as Directory
 import Wst.Offchain.Env (HasDirectoryEnv)
 import Wst.Offchain.Env qualified as Env
-import Wst.Offchain.Query qualified as Query
 
 data Cip143Blueprint v
   = Cip143Blueprint

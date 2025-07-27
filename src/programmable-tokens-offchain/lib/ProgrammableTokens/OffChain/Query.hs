@@ -1,7 +1,13 @@
+{-# LANGUAGE NamedFieldPuns #-}
 module ProgrammableTokens.OffChain.Query(
   -- * CIP-143 registry queries
   registryNodes,
-  registryNode
+  registryNode,
+
+  userProgrammableOutputs,
+  issuanceCborHexUTxO,
+  globalParamsNode,
+  programmableLogicOutputs
 
 ) where
 
@@ -11,17 +17,26 @@ import Control.Monad.Error.Lens (throwing_)
 import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.CardanoApi.Lenses qualified as L
-import Convex.Class (MonadUtxoQuery, utxosByPaymentCredential)
-import Convex.PlutusLedger.V1 (transPolicyId)
+import Convex.Class (MonadBlockchain (..), MonadUtxoQuery,
+                     utxosByPaymentCredential)
+import Convex.PlutusLedger.V1 (transCredential, transPolicyId,
+                               unTransStakeCredential)
 import Data.List (sortOn)
+import Data.Maybe (listToMaybe)
 import Data.Ord (Down (..))
 import GHC.Exts (IsList (..))
-import ProgrammableTokens.OffChain.Env (DirectoryEnv (..), HasDirectoryEnv (..),
-                                        HasTransferLogicEnv (..),
-                                        directoryNodePolicyId,
-                                        programmableTokenMintingScript)
+import ProgrammableTokens.OffChain.Env.Directory (DirectoryEnv (..),
+                                                  HasDirectoryEnv (..),
+                                                  directoryNodePolicyId,
+                                                  issuanceCborHexPolicyId,
+                                                  protocolParamsPolicyId)
+import ProgrammableTokens.OffChain.Env.TransferLogic (HasTransferLogicEnv (..),
+                                                      programmableTokenMintingScript)
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError (..))
-import ProgrammableTokens.OffChain.UTxODat (UTxODat (..), extractUTxO)
+import ProgrammableTokens.OffChain.UTxODat (UTxODat (..), extractUTxO,
+                                            extractUtxoNoDatum)
+import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (..))
+import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 
 {-| Find all UTxOs that make up the registry
@@ -49,6 +64,45 @@ registryNode = do
   case udats of
     [] -> throwing_ _DirectorySetNodeNotFound
     x : _ -> pure x
+
+-- | CIP-143 outputs addressed to the given payment credential
+userProgrammableOutputs :: forall era env m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadBlockchain era m) => C.PaymentCredential -> m [UTxODat era ()]
+userProgrammableOutputs userCred = do
+  nid <- queryNetworkId
+  baseCred <- asks (C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsProgrammableLogicBaseScript . directoryEnv)
+
+  userStakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential userCred
+  let expectedAddress = C.makeShelleyAddressInEra C.shelleyBasedEra nid baseCred (C.StakeAddressByValue userStakeCred)
+      isUserUtxo UTxODat{uOut=(C.TxOut addr _ _ _)} = addr == expectedAddress
+
+  filter isUserUtxo <$> programmableLogicOutputs
+
+{-| Find the UTxO with the issuance script cbor hex
+-}
+issuanceCborHexUTxO :: forall era env err m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadError err m, AsProgrammableTokensError err) => m (UTxODat era IssuanceCborHex)
+issuanceCborHexUTxO = do
+  env@DirectoryEnv{dsIssuanceCborHexSpendingScript} <- asks directoryEnv
+  let cred   = C.PaymentCredentialByScript . C.hashScript $ C.PlutusScript C.PlutusScriptV3 dsIssuanceCborHexSpendingScript
+      hasNft = utxoHasPolicyId (issuanceCborHexPolicyId env)
+  utxosByPaymentCredential cred
+    >>= maybe (throwing_ _IssuanceCborHexUTxONotFound) pure . listToMaybe . filter hasNft . extractUTxO @era
+
+{-| Find the UTxO with the global params
+-}
+globalParamsNode :: forall era env err m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadError err m, AsProgrammableTokensError err) => m (UTxODat era ProgrammableLogicGlobalParams)
+globalParamsNode = do
+  env@DirectoryEnv{dsProtocolParamsSpendingScript} <- asks directoryEnv
+  let cred   = C.PaymentCredentialByScript . C.hashScript $ C.PlutusScript C.PlutusScriptV3 dsProtocolParamsSpendingScript
+      hasNft = utxoHasPolicyId (protocolParamsPolicyId env)
+  utxosByPaymentCredential cred
+    >>= maybe (throwing_ _GlobalParamsNodeNotFound) pure . listToMaybe . filter hasNft . extractUTxO @era
+
+{-| Outputs that are locked by the programmable logic base script.
+-}
+programmableLogicOutputs :: forall era env m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era) => m [UTxODat era ()]
+programmableLogicOutputs = do
+  asks (C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsProgrammableLogicBaseScript . directoryEnv)
+    >>= fmap (extractUtxoNoDatum @era) . utxosByPaymentCredential
 
 utxoHasPolicyId :: C.IsBabbageBasedEra era => C.PolicyId -> UTxODat era a -> Bool
 utxoHasPolicyId policyId txoD = hasPolicyId policyId $ extractValue (uOut txoD)

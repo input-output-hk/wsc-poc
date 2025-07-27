@@ -1,19 +1,13 @@
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE OverloadedLists       #-}
 {-# LANGUAGE OverloadedStrings     #-}
-
-
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE PolyKinds             #-}
 {-# LANGUAGE QualifiedDo           #-}
 {-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE RecordWildCards       #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
-
-{-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE UndecidableInstances  #-}
 
 {-# OPTIONS_GHC -Wno-deferred-type-errors #-}
@@ -39,7 +33,6 @@ import GHC.Generics (Generic)
 import Plutarch.Internal.Lift
 import Plutarch.LedgerApi.V3 (PCredential, PCurrencySymbol)
 import Plutarch.Prelude
-import Plutarch.Repr.Data
 import PlutusLedgerApi.V3 (Credential, CurrencySymbol)
 import PlutusTx qualified
 import PlutusTx.Builtins.Internal qualified as BI

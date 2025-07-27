@@ -34,6 +34,7 @@ import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors
 import PlutusTx.Prelude qualified as P
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
+import ProgrammableTokens.OffChain.Query qualified as Query
 import Servant (Server, ServerT)
 import Servant.API (NoContent (..), Raw, (:<|>) (..))
 import Servant.Server (hoistServer, serve)
