@@ -55,10 +55,13 @@ library
   exposed-modules:
     ProgrammableTokens.JSON.Utils
     ProgrammableTokens.OffChain.Env
+    ProgrammableTokens.OffChain.Env.Directory
     ProgrammableTokens.OffChain.Env.Operator
+    ProgrammableTokens.OffChain.Env.TransferLogic
     ProgrammableTokens.OffChain.Error
     ProgrammableTokens.OffChain.Orphans
     ProgrammableTokens.OffChain.Query
+    ProgrammableTokens.OffChain.Scripts
     ProgrammableTokens.OffChain.UTxODat
 
   hs-source-dirs:  lib
@@ -74,4 +77,7 @@ library
     , lens
     , mtl
     , openapi3
+    , plutarch
+    , plutus-ledger-api
     , plutus-tx
+    , programmable-tokens-onchain

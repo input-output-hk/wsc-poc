@@ -32,6 +32,7 @@ import GHC.IsList (IsList (..))
 import ProgrammableTokens.OffChain.Env.Operator (OperatorEnv (..))
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError (..))
+import ProgrammableTokens.OffChain.Query qualified as Query
 import SmartTokens.Core.Scripts (ScriptTarget (..))
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.AppError (AsRegulatedStablecoinError (..))

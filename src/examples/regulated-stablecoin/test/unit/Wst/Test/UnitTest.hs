@@ -1,4 +1,3 @@
-{-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Wst.Test.UnitTest(
   tests
@@ -24,6 +23,8 @@ import GHC.Exception (SomeException, throw)
 import PlutusLedgerApi.V3 (CurrencySymbol (..), ScriptHash (..))
 import PlutusTx.Builtins.HasOpaque (stringToBuiltinByteStringHex)
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
+import ProgrammableTokens.OffChain.Query qualified as Query
+import ProgrammableTokens.OffChain.Scripts qualified as Scripts
 import ProgrammableTokens.Test qualified as Test
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import Test.Tasty (TestTree, testGroup)
@@ -36,7 +37,6 @@ import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Env (DirectoryScriptRoot)
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query qualified as Query
-import Wst.Offchain.Scripts qualified as Scripts
 import Wst.Test.Env (admin, asAdmin, asWallet, user)
 
 tests :: TestTree

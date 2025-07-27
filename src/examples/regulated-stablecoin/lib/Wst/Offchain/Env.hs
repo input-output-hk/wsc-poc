@@ -79,158 +79,34 @@ import Blockfrost.Auth (mkProject)
 import Blockfrost.Client.Auth qualified as Blockfrost
 import Cardano.Api (PlutusScript, PlutusScriptV3)
 import Cardano.Api qualified as C
-import Cardano.Api.Shelley qualified as C
 import Control.Lens (makeLensesFor)
 import Control.Lens qualified as L
-import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader, ReaderT, ask, asks, runReaderT)
-import Convex.BuildTx (BuildTxT)
-import Convex.BuildTx qualified as BuildTx
-import Convex.Class (MonadBlockchain (queryNetworkId), queryProtocolParameters)
-import Convex.CoinSelection (AsBalancingError (..), AsCoinSelectionError (..))
-import Convex.CoinSelection qualified as CoinSelection
-import Convex.PlutusLedger.V1 (transCredential, transPolicyId,
-                               unTransCredential, unTransStakeCredential)
-import Convex.Utxos (BalanceChanges)
-import Convex.Utxos qualified as Utxos
-import Convex.Wallet.Operator (returnOutputFor)
-import Data.Aeson (FromJSON, ToJSON)
-import Data.Either (fromRight)
 import Data.Functor.Identity (Identity (..))
-import Data.Map qualified as Map
 import Data.Proxy (Proxy (..))
-import Data.Set qualified as Set
 import Data.Text qualified as Text
-import GHC.Generics (Generic)
-import PlutusLedgerApi.V3 (CurrencySymbol)
-import ProgrammableTokens.OffChain.Env (HasOperatorEnv (..), OperatorEnv (..))
+import ProgrammableTokens.OffChain.Env (DirectoryEnv (..),
+                                        DirectoryScriptRoot (..),
+                                        HasDirectoryEnv (..),
+                                        HasOperatorEnv (..),
+                                        HasTransferLogicEnv (..),
+                                        OperatorEnv (..), TransferLogicEnv (..),
+                                        alwaysSucceedsTransferLogic,
+                                        balanceDeployTxEnv_,
+                                        directoryNodePolicyId, getGlobalParams,
+                                        globalParams, issuanceCborHexPolicyId,
+                                        mkDirectoryEnv,
+                                        programmableLogicBaseCredential,
+                                        programmableLogicStakeCredential,
+                                        programmableTokenMintingScript,
+                                        programmableTokenReceivingAddress,
+                                        protocolParamsPolicyId)
+import ProgrammableTokens.OffChain.Scripts (alwaysSucceedsScript)
 import SmartTokens.Core.Scripts (ScriptTarget)
-import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 import System.Environment qualified
-import Wst.Offchain.Scripts (alwaysSucceedsScript, blacklistMintingScript,
-                             blacklistSpendingScript,
-                             directoryNodeMintingScript,
-                             directoryNodeSpendingScript, freezeTransferScript,
-                             issuanceCborHexMintingScript,
-                             issuanceCborHexSpendingScript,
-                             permissionedMintingScript,
-                             permissionedSpendingScript,
-                             programmableLogicBaseScript,
-                             programmableLogicGlobalScript,
-                             programmableLogicMintingScript,
-                             protocolParamsMintingScript,
-                             protocolParamsSpendingScript, scriptPolicyIdV3)
-
-{-| Balance a transaction using the operator's funds and return output ensuring that the issuanceCborHex TxIn is not spent.
--}
-balanceDeployTxEnv_ :: forall era env err a m. (MonadBlockchain era m, MonadReader env m, HasDirectoryEnv env, HasOperatorEnv era env, MonadError err m, C.IsBabbageBasedEra era, AsBalancingError err era, AsCoinSelectionError err) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
-balanceDeployTxEnv_ btx = do
-  issuanceCborHexTxIn <- asks (issuanceCborHexTxIn . dsScriptRoot . directoryEnv)
-  OperatorEnv{bteOperatorUtxos, bteOperator} <- asks operatorEnv
-  params <- queryProtocolParameters
-  txBuilder <- BuildTx.execBuildTxT $ btx >> BuildTx.setMinAdaDepositAll params
-
-  let operatorEligibleUTxOs = L.over Utxos._UtxoSet (`Map.withoutKeys` Set.fromList [issuanceCborHexTxIn]) (Utxos.fromApiUtxo bteOperatorUtxos)
-  -- TODO: change returnOutputFor to consider the stake address reference
-  -- (needs to be done in sc-tools)
-  output <- returnOutputFor (C.PaymentCredentialByKey $ fst bteOperator)
-  CoinSelection.balanceTx mempty output operatorEligibleUTxOs txBuilder CoinSelection.TrailingChange
-
-{-| Data that completely determines the on-chain scripts of the programmable
-token directory, and their hashes. Any information that results in different
-script hashes should go in here. We should be able to write a function
-'DirectoryScriptRoot -> script' for all of the directory scripts.
--}
-data DirectoryScriptRoot =
-  DirectoryScriptRoot
-    { srTxIn :: C.TxIn
-    , issuanceCborHexTxIn :: C.TxIn
-    , srTarget :: ScriptTarget
-    }
-    deriving (Show, Generic)
-    deriving anyclass (ToJSON, FromJSON)
-
-class HasDirectoryEnv e where
-  directoryEnv :: e -> DirectoryEnv
-
-instance HasDirectoryEnv DirectoryEnv where
-  directoryEnv = id
-
-{-| Scripts related to managing the token policy directory.
-All of the scripts and their hashes are determined by the 'TxIn'.
--}
-data DirectoryEnv =
-  DirectoryEnv
-    { dsScriptRoot                     :: DirectoryScriptRoot
-    , dsDirectoryMintingScript         :: PlutusScript PlutusScriptV3
-    , dsDirectorySpendingScript        :: PlutusScript PlutusScriptV3
-    , dsProtocolParamsMintingScript    :: PlutusScript PlutusScriptV3
-    , dsProtocolParamsSpendingScript   :: PlutusScript PlutusScriptV3
-    , dsIssuanceCborHexMintingScript   :: PlutusScript PlutusScriptV3
-    , dsIssuanceCborHexSpendingScript  :: PlutusScript PlutusScriptV3
-    , dsProgrammableLogicBaseScript    :: PlutusScript PlutusScriptV3
-    , dsProgrammableLogicGlobalScript  :: PlutusScript PlutusScriptV3
-    }
-
-mkDirectoryEnv :: DirectoryScriptRoot -> DirectoryEnv
-mkDirectoryEnv dsScriptRoot@DirectoryScriptRoot{srTxIn, issuanceCborHexTxIn, srTarget} =
-  let dsDirectoryMintingScript        = directoryNodeMintingScript srTarget srTxIn issuanceCborHexTxIn
-      dsProtocolParamsMintingScript   = protocolParamsMintingScript srTarget srTxIn
-      dsProtocolParamsSpendingScript  = protocolParamsSpendingScript srTarget
-      dsIssuanceCborHexMintingScript  = issuanceCborHexMintingScript srTarget issuanceCborHexTxIn
-      dsIssuanceCborHexSpendingScript = issuanceCborHexSpendingScript srTarget
-      dsDirectorySpendingScript       = directoryNodeSpendingScript srTarget (protocolParamsPolicyId result)
-      dsProgrammableLogicBaseScript   = programmableLogicBaseScript srTarget (programmableLogicStakeCredential result) -- Parameterized by the stake cred of the global script
-      dsProgrammableLogicGlobalScript = programmableLogicGlobalScript srTarget (protocolParamsPolicyId result) -- Parameterized by the CS holding protocol params datum
-      result = DirectoryEnv
-                { dsScriptRoot
-                , dsDirectoryMintingScript
-                , dsProtocolParamsMintingScript
-                , dsProtocolParamsSpendingScript
-                , dsIssuanceCborHexMintingScript
-                , dsIssuanceCborHexSpendingScript
-                , dsProgrammableLogicBaseScript
-                , dsProgrammableLogicGlobalScript
-                , dsDirectorySpendingScript
-                }
-  in result
-
-programmableLogicStakeCredential :: DirectoryEnv -> C.StakeCredential
-programmableLogicStakeCredential =
-  C.StakeCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsProgrammableLogicGlobalScript
-
-programmableLogicBaseCredential :: DirectoryEnv -> C.PaymentCredential
-programmableLogicBaseCredential =
-  C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsProgrammableLogicBaseScript
-
-directoryNodePolicyId :: DirectoryEnv -> C.PolicyId
-directoryNodePolicyId = scriptPolicyIdV3 . dsDirectoryMintingScript
-
-protocolParamsPolicyId :: DirectoryEnv -> C.PolicyId
-protocolParamsPolicyId = scriptPolicyIdV3 . dsProtocolParamsMintingScript
-
-issuanceCborHexPolicyId :: DirectoryEnv -> C.PolicyId
-issuanceCborHexPolicyId = scriptPolicyIdV3 . dsIssuanceCborHexMintingScript
-
-globalParams :: DirectoryEnv -> ProgrammableLogicGlobalParams
-globalParams scripts =
-  ProgrammableLogicGlobalParams
-    { directoryNodeCS = transPolicyId (directoryNodePolicyId scripts)
-    , progLogicCred   = transCredential (programmableLogicBaseCredential scripts) -- its the script hash of the programmable base spending script
-    }
-
-getGlobalParams :: (MonadReader e m, HasDirectoryEnv e) => m ProgrammableLogicGlobalParams
-getGlobalParams = asks (globalParams . directoryEnv)
-
-{-| Compute the receiving address for a payment credential and network ID
--}
-programmableTokenReceivingAddress :: forall era env m. (MonadReader env m, HasDirectoryEnv env, C.IsShelleyBasedEra era, MonadBlockchain era m) => C.PaymentCredential -> m (C.AddressInEra era)
-programmableTokenReceivingAddress destinationCred = do
-  nid <- queryNetworkId
-  -- TODO: check if there is a better way to achieve: C.PaymentCredential -> C.StakeCredential
-  stakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential destinationCred
-  progLogicBaseCred <- asks (programmableLogicBaseCredential . directoryEnv)
-  return $ C.makeShelleyAddressInEra C.shelleyBasedEra nid progLogicBaseCred (C.StakeAddressByValue stakeCred)
+import Wst.Offchain.Scripts (blacklistMintingScript, blacklistSpendingScript,
+                             freezeTransferScript, permissionedMintingScript,
+                             permissionedSpendingScript, scriptPolicyIdV3)
 
 data BlacklistEnv =
   BlacklistEnv
@@ -258,34 +134,6 @@ mkBlacklistEnv BlacklistTransferLogicScriptRoot{tlrTarget, tlrIssuer} =
       { bleMintingScript = blacklistMinting
       , bleSpendingScript = blacklistSpendingScript tlrTarget tlrIssuer
       }
-
-{-| Scripts related to managing the specific transfer logic
--}
-
-data TransferLogicEnv =
-  TransferLogicEnv
-    { tleMintingScript           :: PlutusScript PlutusScriptV3
-    , tleTransferScript          :: PlutusScript PlutusScriptV3
-    , tleIssuerScript            :: PlutusScript PlutusScriptV3
-    , tleGlobalParamsNft         :: Maybe CurrencySymbol
-    }
-
-{-| 'IssueNewTokenArgs' for the policy that always succeeds (no checks)
--}
-alwaysSucceedsTransferLogic :: ScriptTarget -> TransferLogicEnv
-alwaysSucceedsTransferLogic target =
-  TransferLogicEnv
-    { tleMintingScript = alwaysSucceedsScript target
-    , tleTransferScript = alwaysSucceedsScript target
-    , tleIssuerScript = alwaysSucceedsScript target
-    , tleGlobalParamsNft = Nothing
-    }
-
-class HasTransferLogicEnv e where
-  transferLogicEnv :: e -> TransferLogicEnv
-
-instance HasTransferLogicEnv TransferLogicEnv where
-  transferLogicEnv = id
 
 {-| Data that completely determines the on-chain scripts of the blacklist
 transfer logic, and their hashes. Any information that results in different
@@ -451,15 +299,6 @@ withBlacklist env action =
 
 withBlacklistFor :: MonadReader (CombinedEnv o d t r b era) m => BlacklistTransferLogicScriptRoot -> ReaderT (CombinedEnv o d t r Identity era) m a -> m a
 withBlacklistFor = withBlacklist . mkBlacklistEnv
-
-{-| The minting script for a programmable token that uses the global parameters
--}
-programmableTokenMintingScript :: DirectoryEnv -> TransferLogicEnv -> C.PlutusScript C.PlutusScriptV3
-programmableTokenMintingScript dirEnv@DirectoryEnv{dsScriptRoot} TransferLogicEnv{tleMintingScript} =
-  let ProgrammableLogicGlobalParams {progLogicCred} = globalParams dirEnv
-      DirectoryScriptRoot{srTarget} = dsScriptRoot
-      progLogicScriptCredential = fromRight (error "could not parse protocol params") $ unTransCredential progLogicCred
-  in programmableLogicMintingScript srTarget progLogicScriptCredential (C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleMintingScript)
 
 {-| 'C.AssetId' of the programmable tokens
 -}

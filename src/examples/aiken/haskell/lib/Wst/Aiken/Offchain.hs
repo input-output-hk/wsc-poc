@@ -34,6 +34,7 @@ import Data.Map qualified as Map
 import PlutusLedgerApi.V3 (CurrencySymbol)
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError)
+import ProgrammableTokens.OffChain.Query qualified as Query
 import Wst.Aiken.Blueprint (Blueprint (..), BlueprintKey)
 import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..))
 import Wst.Offchain.BuildTx.DirectorySet qualified as Directory
