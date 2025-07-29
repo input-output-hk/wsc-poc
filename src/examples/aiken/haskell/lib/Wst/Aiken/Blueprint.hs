@@ -10,7 +10,6 @@ module Wst.Aiken.Blueprint
     Blueprint (..),
     BlueprintValidator (..),
     Preamble (..),
-    BlueprintKey (..),
     loadFromFile,
     deserialise,
     getPlutusV3,
@@ -29,11 +28,11 @@ import Data.ByteString.Lazy qualified as BSL
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Proxy (Proxy (..))
-import Data.String (IsString (..))
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import GHC.Generics (Generic)
+import Wst.Aiken.BlueprintKey (BlueprintKey)
 import Wst.Aiken.Error (AsBlueprintError (..))
 
 -- | Plutus script version with a blueprint-specific JSON encoding
@@ -87,9 +86,6 @@ instance FromJSON Preamble where
     Preamble
       <$> obj .: "description"
       <*> obj .: "plutusVersion"
-
-newtype BlueprintKey = BlueprintKey {unBlueprintKey :: Text}
-  deriving newtype (Eq, Ord, Show, ToJSON, FromJSON, IsString)
 
 loadFromFile :: FilePath -> IO (Either String Blueprint)
 loadFromFile fp = Aeson.eitherDecode . BSL.fromStrict <$> BS.readFile fp

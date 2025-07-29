@@ -2,48 +2,48 @@
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell     #-}
 
 -- | Off-chain code for the aiken example
 module Wst.Aiken.Offchain
-  ( registerTx,
+  ( registerBlueprintTx,
     Cip143Blueprint (..),
     blueprintKeys,
     lookupScripts,
     lookupScripts_,
+    extractV3Scripts_,
     -- * Error types
     AsLookupScriptFailure(..),
-    LookupScriptFailure(..)
+    LookupScriptFailure(..),
   )
 where
 
 import Cardano.Api (ScriptInAnyLang)
 import Cardano.Api qualified as C
-import Control.Lens (makeClassyPrisms, review)
+import Control.Lens (review)
 import Control.Monad.Except (MonadError (..))
 import Control.Monad.Reader (MonadReader, asks, runReaderT)
-import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Convex.CoinSelection (AsBalancingError, AsCoinSelectionError)
-import Convex.CoinSelection qualified
 import Data.Map qualified as Map
 import PlutusLedgerApi.V3 (CurrencySymbol)
-import ProgrammableTokens.OffChain.BuildTx.Directory qualified as BuildTx
+import ProgrammableTokens.OffChain.Endpoints qualified as Endpoints
 import ProgrammableTokens.OffChain.Env (CombinedEnv (CombinedEnv),
                                         HasDirectoryEnv (..))
 import ProgrammableTokens.OffChain.Env.Operator (HasOperatorEnv (..))
-import ProgrammableTokens.OffChain.Env.Operator qualified as Env
 import ProgrammableTokens.OffChain.Env.TransferLogic (TransferLogicEnv (..))
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError)
-import ProgrammableTokens.OffChain.Query qualified as Query
-import Wst.Aiken.Blueprint (Blueprint (..), BlueprintKey)
+import Wst.Aiken.Blueprint (Blueprint (..))
+import Wst.Aiken.Blueprint qualified as Blueprint
+import Wst.Aiken.BlueprintKey (BlueprintKey)
+import Wst.Aiken.Error (AsBlueprintError (..), AsLookupScriptFailure (..),
+                        LookupScriptFailure (..))
 
 data Cip143Blueprint v
   = Cip143Blueprint
   { cbTransfer :: v,
     cbIssuance :: v,
     cbGlobalStateCS :: Maybe CurrencySymbol
-  }
+  } deriving stock (Eq, Show, Functor, Foldable, Traversable)
 
 blueprintKeys :: Cip143Blueprint BlueprintKey
 blueprintKeys =
@@ -52,13 +52,6 @@ blueprintKeys =
     , cbIssuance = "issuance"
     , cbGlobalStateCS = Nothing
     }
-
-data LookupScriptFailure =
-  FailedToFindTransferScript BlueprintKey
-  | FailedToFindIssuanceScript BlueprintKey
-  deriving stock (Eq, Show)
-
-makeClassyPrisms ''LookupScriptFailure
 
 -- | Lookup the scripts that are referenced in the CIP 143 blueprint
 lookupScripts :: Blueprint -> Cip143Blueprint BlueprintKey -> Either LookupScriptFailure (Cip143Blueprint ScriptInAnyLang)
@@ -73,6 +66,13 @@ lookupScripts_ bp =
   either (throwError . review _LookupScriptFailure) pure
   .  lookupScripts bp
 
+getPlutus :: C.Script C.PlutusScriptV3 -> C.PlutusScript C.PlutusScriptV3
+getPlutus = \case
+  C.PlutusScript C.PlutusScriptV3 script -> script
+
+extractV3Scripts_ :: (MonadError err m, AsBlueprintError err) => Cip143Blueprint ScriptInAnyLang -> m (Cip143Blueprint (C.PlutusScript C.PlutusScriptV3))
+extractV3Scripts_ = traverse (fmap getPlutus . Blueprint.getPlutusV3)
+
 scriptHash :: ScriptInAnyLang -> C.ScriptHash
 scriptHash (C.ScriptInAnyLang _ s) = C.hashScript s
 
@@ -85,8 +85,8 @@ transferLogic Cip143Blueprint{cbTransfer, cbIssuance, cbGlobalStateCS} =
     , tleGlobalParamsNft = cbGlobalStateCS
     }
 
--- | Create a transaction (fully balanced, not signed) that registers the policies
-registerTx :: forall era env err m.
+-- | Create a transaction (fully balanced, not signed) that registers the policies from the blueprint
+registerBlueprintTx :: forall era env err m.
   ( C.IsBabbageBasedEra era
   , MonadReader env m
   , HasDirectoryEnv env
@@ -101,16 +101,11 @@ registerTx :: forall era env err m.
   )
   => Cip143Blueprint (C.PlutusScript C.PlutusScriptV3)
   -> m (C.Tx era)
-registerTx blueprint = do
+registerBlueprintTx blueprint = do
   let logic = transferLogic blueprint
-  env <- CombinedEnv <$> asks directoryEnv <*> asks operatorEnv <*> pure logic
-  flip runReaderT env $ do
-    paramsNode <- Query.globalParamsNode @era
-    cborHex <- Query.issuanceCborHexUTxO @era
-    udat <- Query.registryNodeForInsertion @era
+  CombinedEnv <$> asks directoryEnv <*> asks operatorEnv <*> pure logic
+    >>= runReaderT Endpoints.registerCip143PolicyTx
 
-    (tx, _) <- Env.balanceTxEnv_ (BuildTx.runBuildTxT @era (BuildTx.insertDirectoryNode @era paramsNode cborHex udat))
-    pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 -- other endpoints
 -- mint

@@ -5,7 +5,6 @@ module Wst.Offchain.Endpoints.Deployment(
   deployTx,
   deployFullTx,
   deployBlacklistTx,
-  insertNodeTx,
   issueProgrammableTokenTx,
   issueSmartTokensTx,
   transferSmartTokensTx,
@@ -29,7 +28,6 @@ import Convex.CoinSelection qualified
 import Data.Foldable (maximumBy)
 import Data.Function (on)
 import GHC.IsList (IsList (..))
-import ProgrammableTokens.OffChain.BuildTx qualified as BuildTx
 import ProgrammableTokens.OffChain.Env.Operator (OperatorEnv (..))
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError (..))
@@ -98,26 +96,6 @@ deployIssuanceCborHex = do
   dirEnv <- asks Env.directoryEnv
   (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectory dirEnv $ Env.withTransferFromOperator
               $ Env.balanceTxEnv_ BuildTx.mintIssuanceCborHexNFT
-  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
-  -- let root = DirectoryScriptRoot txi issuanceCborHexTxIn target
-  -- (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectoryFor root
-  --             $ Env.balanceDeployTxEnv_
-  --             $ BuildTx.mintProtocolParams
-  --               >> BuildTx.initDirectorySet
-  --               >> BuildTx.registerProgrammableGlobalScript
-  --               >> BuildTx.mintIssuanceCborHexNFT
-  -- pure (Convex.CoinSelection.signBalancedTxBody [] tx, root)
-
-{-| Build a transaction that inserts a node into the directory
--}
-insertNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasDirectoryEnv env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsProgrammableTokensError err, AsBalancingError err era, AsCoinSelectionError err, Env.HasTransferLogicEnv env) => m (C.Tx era)
-insertNodeTx = do
-  -- 1. Find the head node
-  headNode <- Query.registryNodeForInsertion @era
-  -- 2. Find the global parameter node
-  paramsNode <- Query.globalParamsNode @era
-  cborHexTxIn <- Query.issuanceCborHexUTxO @era
-  (tx, _) <- Env.balanceTxEnv_ (BuildTx.insertDirectoryNode paramsNode cborHexTxIn headNode)
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 {-| Build a transaction that issues a progammable token

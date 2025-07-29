@@ -8,6 +8,7 @@ where
 
 import Cardano.Api qualified as C
 import Control.Monad.IO.Class (MonadIO (..))
+import Convex.Class (MonadBlockchain)
 import Convex.Utils (failOnError)
 import Data.Functor (void)
 import Data.Map qualified as Map
@@ -18,7 +19,8 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertEqual, testCase)
 import Wst.Aiken.Blueprint (Blueprint (..))
 import Wst.Aiken.Blueprint qualified as Blueprint
-import Wst.Aiken.Offchain qualified as Aiken
+import Wst.Aiken.Error (AikenError)
+import Wst.Aiken.Offchain qualified as Offchain
 
 tests :: TestTree
 tests =
@@ -52,9 +54,8 @@ loadExample = do
     >>= Blueprint.loadFromFile
     >>= either fail pure
 
-registerAikenPolicy :: (MonadIO m, MonadFail m) => m ()
-registerAikenPolicy = do
-  bp <- liftIO loadExample
-  failOnError $ do
-    tx <- Aiken.registerTx (_ bp)
+registerAikenPolicy :: forall era m. (MonadIO m, MonadFail m, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => m ()
+registerAikenPolicy = failOnError @_ @AikenError $ do
+  bp <- liftIO loadExample >>= flip Offchain.lookupScripts_ Offchain.blueprintKeys >>= Offchain.extractV3Scripts_
+  tx <- Offchain.registerBlueprintTx bp
   pure ()

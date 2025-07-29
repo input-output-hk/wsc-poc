@@ -56,6 +56,7 @@ library
   import:          lang
   exposed-modules:
     Wst.Aiken.Blueprint
+    Wst.Aiken.BlueprintKey
     Wst.Aiken.Error
     Wst.Aiken.Offchain
 
