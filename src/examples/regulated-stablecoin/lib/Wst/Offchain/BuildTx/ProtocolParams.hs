@@ -14,11 +14,11 @@ import Convex.PlutusLedger.V1 (unTransAssetName)
 import Convex.Scripts (fromHashableScriptData, toHashableScriptData)
 import Convex.Utils qualified as Utils
 import GHC.Exts (IsList (..))
+import ProgrammableTokens.OffChain.Scripts (scriptPolicyIdV3)
 import SmartTokens.Types.Constants (protocolParamsToken)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import Wst.Offchain.Env (DirectoryEnv (..))
 import Wst.Offchain.Env qualified as Env
-import Wst.Offchain.Scripts (scriptPolicyIdV3)
 
 protocolParamsTokenC :: C.AssetName
 protocolParamsTokenC = unTransAssetName protocolParamsToken

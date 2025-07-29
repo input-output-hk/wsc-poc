@@ -24,9 +24,9 @@ import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 -}
 data TransferLogicEnv =
   TransferLogicEnv
-    { tleMintingScript           :: PlutusScript PlutusScriptV3
-    , tleTransferScript          :: PlutusScript PlutusScriptV3
-    , tleIssuerScript            :: PlutusScript PlutusScriptV3
+    { tleMintingScript           :: PlutusScript PlutusScriptV3 -- ^ stake validator for minting
+    , tleTransferScript          :: PlutusScript PlutusScriptV3 -- ^ stake validator for transfers
+    , tleIssuerScript            :: PlutusScript PlutusScriptV3 -- ^ stake validator for force spending
     , tleGlobalParamsNft         :: Maybe CurrencySymbol
     }
 

@@ -54,6 +54,8 @@ library
   import:          lang
   exposed-modules:
     ProgrammableTokens.JSON.Utils
+    ProgrammableTokens.OffChain.BuildTx
+    ProgrammableTokens.OffChain.BuildTx.Directory
     ProgrammableTokens.OffChain.Env
     ProgrammableTokens.OffChain.Env.Directory
     ProgrammableTokens.OffChain.Env.Operator

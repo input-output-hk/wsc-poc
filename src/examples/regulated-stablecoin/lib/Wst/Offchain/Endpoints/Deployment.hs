@@ -29,14 +29,13 @@ import Convex.CoinSelection qualified
 import Data.Foldable (maximumBy)
 import Data.Function (on)
 import GHC.IsList (IsList (..))
+import ProgrammableTokens.OffChain.BuildTx qualified as BuildTx
 import ProgrammableTokens.OffChain.Env.Operator (OperatorEnv (..))
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError (..))
 import ProgrammableTokens.OffChain.Query qualified as Query
 import SmartTokens.Core.Scripts (ScriptTarget (..))
-import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.AppError (AsRegulatedStablecoinError (..))
-import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (inaNewKey))
 import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
 import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy,
                                      balanceTxEnvFailing)
@@ -111,20 +110,14 @@ deployIssuanceCborHex = do
 
 {-| Build a transaction that inserts a node into the directory
 -}
-insertNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasDirectoryEnv env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsProgrammableTokensError err, AsBalancingError err era, AsCoinSelectionError err) => InsertNodeArgs -> m (C.Tx era)
-insertNodeTx args = do
+insertNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasDirectoryEnv env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsProgrammableTokensError err, AsBalancingError err era, AsCoinSelectionError err, Env.HasTransferLogicEnv env) => m (C.Tx era)
+insertNodeTx = do
   -- 1. Find the head node
-  directoryList <- Query.registryNodes @era
-  -- FIXME: Error handling. And how can we actually identify the head node if the query returns more than one?
-  let headNode@UTxODat{uDatum = dirNodeDat} =
-        maximumBy (compare `on` (key . uDatum)) $
-          filter ((<= inaNewKey args) . key . uDatum) directoryList
-  when (key dirNodeDat == inaNewKey args) $ error "Node already exists"
-
+  headNode <- Query.registryNodeForInsertion @era
   -- 2. Find the global parameter node
   paramsNode <- Query.globalParamsNode @era
   cborHexTxIn <- Query.issuanceCborHexUTxO @era
-  (tx, _) <- Env.balanceTxEnv_ (BuildTx.insertDirectoryNode paramsNode cborHexTxIn headNode args)
+  (tx, _) <- Env.balanceTxEnv_ (BuildTx.insertDirectoryNode paramsNode cborHexTxIn headNode)
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 {-| Build a transaction that issues a progammable token
@@ -147,7 +140,7 @@ issueProgrammableTokenTx :: forall era env err m.
   -> Quantity -- ^ Amount of tokens to be minted
   -> m (C.Tx era)
 issueProgrammableTokenTx assetName quantity = do
-  directoryNode <- Query.registryNode @era
+  directoryNode <- Query.registryNodeForReference @era
   paramsNode <- Query.globalParamsNode @era
   cborHexTxIn <- Query.issuanceCborHexUTxO @era
 
@@ -202,7 +195,7 @@ issueSmartTokensTx :: forall era env err m.
   -> C.PaymentCredential -- ^ Destination credential
   -> m (C.Tx era, C.AssetId)
 issueSmartTokensTx assetName quantity destinationCred = do
-  directory <- Query.registryNode @era
+  directory <- Query.registryNodeForReference @era
   paramsNode <- Query.globalParamsNode @era
   cborHexTxIn <- Query.issuanceCborHexUTxO @era
   ((tx, _), aid) <- Env.balanceTxEnv $ do
@@ -233,7 +226,7 @@ transferSmartTokensTx :: forall era env err m.
   -> C.PaymentCredential -- ^ Destination credential
   -> m (C.Tx era)
 transferSmartTokensTx policy assetId quantity destCred = do
-  directory <- Query.registryNode @era
+  directory <- Query.registryNodeForReference @era
   blacklist <- Query.blacklistNodes @era
   userOutputsAtProgrammable <- Env.operatorPaymentCredential >>= Query.userProgrammableOutputs
   paramsTxIn <- Query.globalParamsNode @era

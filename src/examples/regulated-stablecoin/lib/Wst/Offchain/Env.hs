@@ -101,12 +101,13 @@ import ProgrammableTokens.OffChain.Env (DirectoryEnv (..),
                                         programmableTokenMintingScript,
                                         programmableTokenReceivingAddress,
                                         protocolParamsPolicyId)
-import ProgrammableTokens.OffChain.Scripts (alwaysSucceedsScript)
+import ProgrammableTokens.OffChain.Scripts (alwaysSucceedsScript,
+                                            scriptPolicyIdV3)
 import SmartTokens.Core.Scripts (ScriptTarget)
 import System.Environment qualified
 import Wst.Offchain.Scripts (blacklistMintingScript, blacklistSpendingScript,
                              freezeTransferScript, permissionedMintingScript,
-                             permissionedSpendingScript, scriptPolicyIdV3)
+                             permissionedSpendingScript)
 
 data BlacklistEnv =
   BlacklistEnv

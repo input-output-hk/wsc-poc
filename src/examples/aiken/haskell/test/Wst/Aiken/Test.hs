@@ -55,6 +55,6 @@ loadExample = do
 registerAikenPolicy :: (MonadIO m, MonadFail m) => m ()
 registerAikenPolicy = do
   bp <- liftIO loadExample
-  -- failOnError $ do
-    -- tx <- Aiken.registerTx (_ bp)
+  failOnError $ do
+    tx <- Aiken.registerTx (_ bp)
   pure ()

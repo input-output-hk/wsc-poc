@@ -28,13 +28,13 @@ import PlutusLedgerApi.V3 qualified as V3
 import PlutusTx qualified
 import PlutusTx.Builtins qualified as BI
 import PlutusTx.Builtins.HasOpaque (stringToBuiltinByteStringHex)
+import ProgrammableTokens.OffChain.Scripts (scriptPolicyIdV3)
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (IssuanceCborHex))
 import SmartTokens.Types.Constants (issuanceCborHexToken)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 import Wst.Offchain.Env (DirectoryEnv (..), globalParams)
 import Wst.Offchain.Env qualified as Env
-import Wst.Offchain.Scripts (scriptPolicyIdV3)
 
 issuerPrefixPostfixBytes :: V3.Credential -> (BS.ByteString, BS.ByteString)
 issuerPrefixPostfixBytes progLogicCred =

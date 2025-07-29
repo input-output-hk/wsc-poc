@@ -12,8 +12,6 @@ module Wst.Offchain.Scripts (
   blacklistMintingScript,
   blacklistSpendingScript,
 
-  -- Utils
-  scriptPolicyIdV3
   )
   where
 
@@ -78,7 +76,3 @@ blacklistSpendingScript :: ScriptTarget -> C.Hash C.PaymentKey -> C.PlutusScript
 blacklistSpendingScript target cred =
   let script = Scripts.tryCompile target $ mkPermissionedTransfer # pforgetData (pdata (pconstant "blacklist spending" :: ClosedTerm PByteString)) # pdata (pconstant $ transPubKeyHash cred)
   in C.PlutusScriptSerialised $ serialiseScript script
-
--- Utilities
-scriptPolicyIdV3 :: C.PlutusScript C.PlutusScriptV3 -> C.PolicyId
-scriptPolicyIdV3 = C.scriptPolicyId . C.PlutusScript C.PlutusScriptV3

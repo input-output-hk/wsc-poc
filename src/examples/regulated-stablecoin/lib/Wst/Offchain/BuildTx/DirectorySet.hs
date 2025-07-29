@@ -6,8 +6,6 @@
 
 module Wst.Offchain.BuildTx.DirectorySet (
   initDirectorySet,
-  InsertNodeArgs(..),
-  insertDirectoryNode,
   -- * Values
   initialNode
 ) where
@@ -31,6 +29,7 @@ import PlutusLedgerApi.V1 qualified as PlutusTx
 import PlutusLedgerApi.V3 (Credential (..), CurrencySymbol (..),
                            ScriptHash (..))
 import PlutusTx.Prelude (toBuiltin)
+import ProgrammableTokens.OffChain.Scripts (scriptPolicyIdV3)
 import SmartTokens.CodeLens (_printTerm)
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (..))
 import SmartTokens.LinkedList.MintDirectory (DirectoryNodeAction (..))
@@ -40,7 +39,6 @@ import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..),
                                           PDirectorySetNode)
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
-import Wst.Offchain.Scripts (scriptPolicyIdV3)
 
 _unused :: String
 _unused = _printTerm $ unsafeEvalTerm NoTracing (pconstant @PDirectorySetNode initialNode)
@@ -84,58 +82,3 @@ initDirectorySet = Utils.inBabbage @era $ do
       output = C.TxOut addr val dat C.ReferenceScriptNone
 
   prependTxOut output
-
-{-| Data for a new node to be inserted into the directory
--}
-data InsertNodeArgs =
-  InsertNodeArgs
-    { inaNewKey        :: CurrencySymbol -- ^ currency symbol of the CIP-0143 token
-    , inaHashedParam   :: ScriptHash
-    , inaTransferLogic :: C.StakeCredential -- ^ Stake validator for transfers
-    , inaIssuerLogic   :: C.StakeCredential -- ^ Stake validator for minting and burning
-    , inaGlobalStateCS :: Maybe CurrencySymbol -- ^ Currency symbol of an NFT that identifies a UTxO with global parameters specific to the new token
-    }
-
-insertDirectoryNode :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era IssuanceCborHex -> UTxODat era DirectorySetNode -> InsertNodeArgs -> m ()
-insertDirectoryNode UTxODat{uIn=paramsRef} UTxODat{uIn=issuanceCborHexRef} UTxODat{uIn, uOut=firstTxOut, uDatum=firstTxData} InsertNodeArgs{inaNewKey, inaHashedParam, inaTransferLogic, inaIssuerLogic, inaGlobalStateCS} = Utils.inBabbage @era $ do
-  netId <- queryNetworkId
-  directorySpendingScript <- asks (Env.dsDirectorySpendingScript . Env.directoryEnv)
-  directoryMintingScript <- asks (Env.dsDirectoryMintingScript . Env.directoryEnv)
-  let
-
-      firstTxVal :: C.TxOutValue era
-      firstTxVal = case firstTxOut of
-        (C.TxOut _ v _ _) -> v
-
-      newTokenName =
-        let CurrencySymbol s = inaNewKey
-        in C.AssetName $ PlutusTx.fromBuiltin s
-
-      newVal = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
-          $ fromList [(C.AssetId (scriptPolicyIdV3 directoryMintingScript) newTokenName, 1)]
-
-      addr =
-        C.makeShelleyAddressInEra
-          C.shelleyBasedEra
-          netId
-          (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 directorySpendingScript)
-          C.NoStakeAddress
-
-      dsn = DirectorySetNode
-            { key = inaNewKey
-            , next = next firstTxData
-            , transferLogicScript = transStakeCredential inaTransferLogic
-            , issuerLogicScript = transStakeCredential inaIssuerLogic
-            , globalStateCS = fromMaybe (CurrencySymbol "") inaGlobalStateCS
-            }
-      newDat = C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData dsn
-      insertedNode = C.TxOut addr newVal newDat C.ReferenceScriptNone
-
-      firstDat = firstTxData { next = inaNewKey }
-      firstOutput = C.TxOut addr firstTxVal (C.TxOutDatumInline C.babbageBasedEra $ toHashableScriptData firstDat) C.ReferenceScriptNone
-  addReference paramsRef
-  addReference issuanceCborHexRef
-  spendPlutusInlineDatum uIn directorySpendingScript ()
-  mintPlutus directoryMintingScript (InsertDirectoryNode inaNewKey inaHashedParam) newTokenName 1
-  prependTxOut insertedNode
-  prependTxOut firstOutput

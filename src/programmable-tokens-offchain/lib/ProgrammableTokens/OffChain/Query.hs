@@ -2,7 +2,11 @@
 module ProgrammableTokens.OffChain.Query(
   -- * CIP-143 registry queries
   registryNodes,
+
+  NodeMatch(..),
   registryNode,
+  registryNodeForInsertion,
+  registryNodeForReference,
 
   userProgrammableOutputs,
   issuanceCborHexUTxO,
@@ -47,9 +51,28 @@ registryNodes = do
   registryPolicy <- asks (directoryNodePolicyId . directoryEnv)
   pure $ filter (utxoHasPolicyId registryPolicy) utxosAtDirectoryScript
 
+-- |
+data NodeMatch
+  = MustBeEqual -- ^ The node's key must equal the issued symbol of the TransferLogicEnv
+  | MustNotBeEqual -- ^ The node's key must not equal the issued symbol of the TransferLogicEnv. If
+  deriving stock (Eq, Ord, Show)
+
+operator :: Ord a => NodeMatch -> a -> a -> Bool
+operator = \case
+  MustBeEqual -> (==)
+  MustNotBeEqual -> (<)
+
+-- | Find the directory set node that we need to spend in order to insert a new node with our policy into the list
+registryNodeForInsertion :: forall era env err m. (MonadUtxoQuery m, C.IsBabbageBasedEra era, HasDirectoryEnv env, MonadReader env m, HasTransferLogicEnv env, MonadError err m, AsProgrammableTokensError err) => m (UTxODat era DirectorySetNode)
+registryNodeForInsertion = registryNode MustNotBeEqual
+
+-- | Find the directory set node that has our policy
+registryNodeForReference :: forall era env err m. (MonadUtxoQuery m, C.IsBabbageBasedEra era, HasDirectoryEnv env, MonadReader env m, HasTransferLogicEnv env, MonadError err m, AsProgrammableTokensError err) => m (UTxODat era DirectorySetNode)
+registryNodeForReference = registryNode MustNotBeEqual
+
 -- | Find the specific directory set node for the policy what we're working with.
-registryNode :: forall era env err m. (MonadUtxoQuery m, C.IsBabbageBasedEra era, HasDirectoryEnv env, MonadReader env m, HasTransferLogicEnv env, MonadError err m, AsProgrammableTokensError err) => m (UTxODat era DirectorySetNode)
-registryNode = do
+registryNode :: forall era env err m. (MonadUtxoQuery m, C.IsBabbageBasedEra era, HasDirectoryEnv env, MonadReader env m, HasTransferLogicEnv env, MonadError err m, AsProgrammableTokensError err) => NodeMatch -> m (UTxODat era DirectorySetNode)
+registryNode (operator -> op) = do
   directoryList <- registryNodes @era
   dir <- asks directoryEnv
   inta <- asks transferLogicEnv
@@ -60,7 +83,7 @@ registryNode = do
   let udats =
         sortOn (Down . key . uDatum)
         $
-          filter ((<= issuedSymbol) . key . uDatum) directoryList -- TODO: Should this be equality instead of LEQ?
+          filter ((issuedSymbol `op`) . key . uDatum) directoryList
   case udats of
     [] -> throwing_ _DirectorySetNodeNotFound
     x : _ -> pure x

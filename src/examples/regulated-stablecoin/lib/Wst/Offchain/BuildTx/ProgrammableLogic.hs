@@ -33,14 +33,13 @@ import Data.Maybe (fromJust)
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (CurrencySymbol (..))
 import PlutusLedgerApi.V3 qualified as PV3
+import ProgrammableTokens.OffChain.BuildTx.Directory (insertDirectoryNode)
 import SmartTokens.Contracts.Issuance (SmartTokenMintingAction (..))
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (..))
 import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedeemer (..),
                                                     TokenProof (..))
 import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
-import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..),
-                                          insertDirectoryNode)
 import Wst.Offchain.BuildTx.Utils (addConwayStakeCredentialCertificate)
 import Wst.Offchain.Env (TransferLogicEnv (..))
 import Wst.Offchain.Env qualified as Env
@@ -53,7 +52,7 @@ import Wst.Offchain.Query (UTxODat (..))
 -}
 issueProgrammableToken :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era IssuanceCborHex -> (C.AssetName, C.Quantity) -> UTxODat era DirectorySetNode -> m C.PolicyId
 issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) udat@UTxODat{uDatum = dirNodeData} = Utils.inBabbage @era $ do
-  inta@TransferLogicEnv{tleTransferScript, tleIssuerScript, tleMintingScript, tleGlobalParamsNft} <- asks Env.transferLogicEnv
+  inta@TransferLogicEnv{tleMintingScript} <- asks Env.transferLogicEnv
   glParams <- asks (Env.globalParams . Env.directoryEnv)
   dir <- asks Env.directoryEnv
 
@@ -81,17 +80,8 @@ issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) udat@UTxODat{uDa
     then
       mintPlutus mintingScript mintingLogicCred an q
     else do
-      let nodeArgs =
-            InsertNodeArgs
-              { inaNewKey = issuedSymbol
-              , inaHashedParam = transScriptHash mintingLogicHash
-              , inaTransferLogic = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleTransferScript
-              , inaIssuerLogic   = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleIssuerScript
-              , inaGlobalStateCS = tleGlobalParamsNft
-              }
-
       mintPlutus mintingScript mintingLogicCred an q
-      insertDirectoryNode paramsTxOut issuanceCborHexTxOut udat nodeArgs
+      insertDirectoryNode paramsTxOut issuanceCborHexTxOut udat
 
   pure issuedPolicyId
     where

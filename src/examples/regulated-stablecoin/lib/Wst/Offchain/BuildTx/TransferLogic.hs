@@ -54,6 +54,7 @@ import PlutusLedgerApi.V3 (Credential (..), PubKeyHash (PubKeyHash),
                            ScriptHash (..))
 import PlutusLedgerApi.V3 qualified as PlutusTx
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
+import ProgrammableTokens.OffChain.Scripts (scriptPolicyIdV3)
 import SmartTokens.Contracts.ExampleTransferLogic (BlacklistProof (..))
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (..))
 import SmartTokens.Types.ProtocolParams
@@ -66,7 +67,6 @@ import Wst.Offchain.BuildTx.ProgrammableLogic (issueProgrammableToken,
 import Wst.Offchain.BuildTx.Utils (addConwayStakeCredentialCertificate)
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
-import Wst.Offchain.Scripts (scriptPolicyIdV3)
 
 {-
 >>> _printTerm $ unsafeEvalTerm NoTracing (pconstant blacklistInitialNode)
