@@ -1,6 +1,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE NamedFieldPuns    #-}
-
+-- TODO: Registry or directory?
 -- | Information related to the CIP-143 registry of minting policies
 module ProgrammableTokens.OffChain.Env.Directory(
   DirectoryScriptRoot(..),

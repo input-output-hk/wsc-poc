@@ -59,7 +59,9 @@ library
     , cardano-ledger-api
     , cardano-ledger-core
     , convex-base
+    , convex-coin-selection
     , convex-mockchain
+    , convex-wallet
     , hedgehog-quickcheck
     , lens
     , mtl

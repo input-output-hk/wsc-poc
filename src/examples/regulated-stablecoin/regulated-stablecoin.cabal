@@ -53,12 +53,9 @@ library
     Wst.Cli
     Wst.Cli.Command
     Wst.Client
-    Wst.Offchain.BuildTx.DirectorySet
     Wst.Offchain.BuildTx.Failing
-    Wst.Offchain.BuildTx.IssuanceCborHexRef
     Wst.Offchain.BuildTx.LinkedList
     Wst.Offchain.BuildTx.ProgrammableLogic
-    Wst.Offchain.BuildTx.ProtocolParams
     Wst.Offchain.BuildTx.TransferLogic
     Wst.Offchain.BuildTx.Utils
     Wst.Offchain.Endpoints.Deployment

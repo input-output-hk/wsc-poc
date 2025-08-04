@@ -1,5 +1,5 @@
 {-# LANGUAGE NamedFieldPuns #-}
-module Wst.Offchain.BuildTx.IssuanceCborHexRef (
+module ProgrammableTokens.OffChain.BuildTx.IssuanceCborHexRef (
   mintIssuanceCborHexNFT,
   frackUTxOs,
   getCborHexInline,
@@ -28,13 +28,13 @@ import PlutusLedgerApi.V3 qualified as V3
 import PlutusTx qualified
 import PlutusTx.Builtins qualified as BI
 import PlutusTx.Builtins.HasOpaque (stringToBuiltinByteStringHex)
+import ProgrammableTokens.OffChain.Env (DirectoryEnv (..), globalParams)
+import ProgrammableTokens.OffChain.Env qualified as Env
 import ProgrammableTokens.OffChain.Scripts (scriptPolicyIdV3)
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (IssuanceCborHex))
 import SmartTokens.Types.Constants (issuanceCborHexToken)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
-import Wst.Offchain.Env (DirectoryEnv (..), globalParams)
-import Wst.Offchain.Env qualified as Env
 
 issuerPrefixPostfixBytes :: V3.Credential -> (BS.ByteString, BS.ByteString)
 issuerPrefixPostfixBytes progLogicCred =
@@ -93,8 +93,9 @@ mintIssuanceCborHexNFT = Utils.inBabbage @era $ do
   mintPlutus dsIssuanceCborHexMintingScript () issuanceCborHexTokenC 1
   prependTxOut output
 
-frackUTxOs :: forall era m. (C.IsBabbageBasedEra era, MonadBuildTx era m, MonadBlockchain era m) => (C.Hash C.PaymentKey, C.StakeAddressReference) -> m ()
-frackUTxOs bteOperator = Utils.inBabbage @era $ do
+frackUTxOs :: forall era env m. (C.IsBabbageBasedEra era, MonadBuildTx era m, MonadBlockchain era m, MonadReader env m, Env.HasOperatorEnv era env) => m ()
+frackUTxOs = Utils.inBabbage @era $ do
+  Env.OperatorEnv{Env.bteOperator} <- asks Env.operatorEnv
   netId <- queryNetworkId
   let val = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
             $ C.lovelaceToValue 150_000_000

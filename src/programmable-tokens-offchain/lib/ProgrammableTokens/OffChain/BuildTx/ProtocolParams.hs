@@ -1,5 +1,5 @@
 {-# LANGUAGE NamedFieldPuns #-}
-module Wst.Offchain.BuildTx.ProtocolParams (
+module ProgrammableTokens.OffChain.BuildTx.ProtocolParams(
   mintProtocolParams,
   getProtocolParamsGlobalInline
 ) where
@@ -14,11 +14,11 @@ import Convex.PlutusLedger.V1 (unTransAssetName)
 import Convex.Scripts (fromHashableScriptData, toHashableScriptData)
 import Convex.Utils qualified as Utils
 import GHC.Exts (IsList (..))
+import ProgrammableTokens.OffChain.Env (DirectoryEnv (..))
+import ProgrammableTokens.OffChain.Env qualified as Env
 import ProgrammableTokens.OffChain.Scripts (scriptPolicyIdV3)
 import SmartTokens.Types.Constants (protocolParamsToken)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
-import Wst.Offchain.Env (DirectoryEnv (..))
-import Wst.Offchain.Env qualified as Env
 
 protocolParamsTokenC :: C.AssetName
 protocolParamsTokenC = unTransAssetName protocolParamsToken

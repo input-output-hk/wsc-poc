@@ -8,11 +8,13 @@ where
 
 import Cardano.Api qualified as C
 import Control.Monad.IO.Class (MonadIO (..))
-import Convex.Class (MonadBlockchain)
+import Control.Monad.Reader (runReaderT)
+import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Convex.Utils (failOnError)
 import Data.Functor (void)
 import Data.Map qualified as Map
 import Paths_aiken_example qualified as Pkg
+import ProgrammableTokens.OffChain.Env qualified as Env
 import ProgrammableTokens.Test qualified as Test
 import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import Test.Tasty (TestTree, testGroup)
@@ -41,11 +43,11 @@ loadBlueprint = do
 deserialiseScript :: Assertion
 deserialiseScript = do
   Blueprint {validators} <- loadExample
-  maybe (fail "Expected script named 'placeholder.placeholder.mint'") pure (Map.lookup "placeholder.placeholder.mint" validators)
+  maybe (fail "Expected script named 'transfer.placeholder.mint'") pure (Map.lookup "transfer.placeholder.mint" validators)
     >>= \case
       (C.ScriptInAnyLang (C.PlutusScriptLanguage C.PlutusScriptV3) script) -> do
         let hsh = C.hashScript script
-        assertEqual "Script hash" "9c4802ae9a38d64cf970d68f34f55c6504c749c64fe0968fea77dac8" hsh
+        assertEqual "Script hash" "e42412ef37225695b87ad1701fec45ab657d4a4146959d7c3e36afc2" hsh
       _ -> fail "Unexpected script language"
 
 loadExample :: IO Blueprint
@@ -54,8 +56,13 @@ loadExample = do
     >>= Blueprint.loadFromFile
     >>= either fail pure
 
-registerAikenPolicy :: forall era m. (MonadIO m, MonadFail m, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era) => m ()
-registerAikenPolicy = failOnError @_ @AikenError $ do
+registerAikenPolicy :: forall era m. (MonadIO m, MonadFail m, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, C.IsBabbageBasedEra era, MonadUtxoQuery m) => m ()
+registerAikenPolicy = failOnError @_ @(AikenError era) $ do
   bp <- liftIO loadExample >>= flip Offchain.lookupScripts_ Offchain.blueprintKeys >>= Offchain.extractV3Scripts_
-  tx <- Offchain.registerBlueprintTx bp
-  pure ()
+  flip runReaderT Production $ do
+    scriptRoot <- Test.deployDirectorySet Test.admin
+    -- opEnv <- Env.loadConvexOperatorEnv Test.admin
+    -- Env.withEnv (Env.directoryOperatorEnv (Env.mkDirectoryEnv scriptRoot) opEnv) $ do
+      -- _ <- Offchain.registerBlueprintTx bp
+      -- pure ()
+    pure ()

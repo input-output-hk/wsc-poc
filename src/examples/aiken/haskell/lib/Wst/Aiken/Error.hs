@@ -1,4 +1,6 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE TemplateHaskell        #-}
 module Wst.Aiken.Error(
   AsBlueprintError(..),
   BlueprintError(..),
@@ -10,6 +12,10 @@ module Wst.Aiken.Error(
 
 import Cardano.Api (AnyPlutusScriptVersion, AnyScriptLanguage)
 import Control.Lens (makeClassyPrisms)
+import Convex.CoinSelection (AsBalancingError (..), AsCoinSelectionError (..),
+                             BalancingError, CoinSelectionError)
+import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError (..),
+                                          ProgrammableTokensError)
 import Wst.Aiken.BlueprintKey (BlueprintKey)
 
 data BlueprintError =
@@ -30,15 +36,27 @@ data LookupScriptFailure =
 
 makeClassyPrisms ''LookupScriptFailure
 
-data AikenError =
+data AikenError era =
   ABlueprintError BlueprintError
   | ALookupScriptFailure LookupScriptFailure
+  | ABalancingError (BalancingError era)
+  | ACoinSelectionError CoinSelectionError
+  | AProgrammableTokensError ProgrammableTokensError
   deriving stock (Show)
 
 makeClassyPrisms ''AikenError
 
-instance AsLookupScriptFailure AikenError where
+instance AsLookupScriptFailure (AikenError era) where
   _LookupScriptFailure = _ALookupScriptFailure
 
-instance AsBlueprintError AikenError where
+instance AsBlueprintError (AikenError era) where
   _BlueprintError = _ABlueprintError
+
+instance AsBalancingError (AikenError era) era where
+  __BalancingError = _ABalancingError
+
+instance AsCoinSelectionError (AikenError era) where
+  _CoinSelectionError = _ACoinSelectionError
+
+instance AsProgrammableTokensError (AikenError era) where
+  _ProgrammableTokensError = _AProgrammableTokensError

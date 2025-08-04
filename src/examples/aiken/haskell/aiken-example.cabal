@@ -83,10 +83,12 @@ test-suite aiken-example-test
   other-modules:  Wst.Aiken.Test
   build-depends:
     , aiken-example
-    , base                         >=4.14.0
+    , base                          >=4.14.0
     , cardano-api
     , containers
     , convex-base
+    , mtl
+    , programmable-tokens-offchain
     , programmable-tokens-onchain
     , programmable-tokens-test
     , tasty

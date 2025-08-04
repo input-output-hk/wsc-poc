@@ -9,6 +9,7 @@ module ProgrammableTokens.OffChain.Env.Operator(
   operatorPaymentCredential,
   loadOperatorEnv,
   loadOperatorEnvFromAddress,
+  loadConvexOperatorEnv,
   selectOperatorOutput,
   selectTwoOperatorOutputs,
 
@@ -30,6 +31,7 @@ import Convex.CoinSelection qualified as CoinSelection
 import Convex.Utxos (BalanceChanges)
 import Convex.Utxos qualified as Utxos
 import Convex.Wallet.Operator (returnOutputFor)
+import Convex.Wallet.Operator qualified as Op
 import Data.Map qualified as Map
 import Data.Maybe (listToMaybe)
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError (..))
@@ -62,6 +64,15 @@ loadOperatorEnv paymentCredential stakeCredential = do
   let bteOperator = (paymentCredential, stakeCredential)
   bteOperatorUtxos <- Utxos.toApiUtxo <$> utxosByPaymentCredential (C.PaymentCredentialByKey paymentCredential)
   pure OperatorEnv{bteOperator, bteOperatorUtxos}
+
+{-| Glue code for creating an 'OperatorEnv' from the convex type
+-}
+-- TODO: This entire module should be merged with the one from convex!
+loadConvexOperatorEnv :: (MonadUtxoQuery m, C.IsBabbageBasedEra era) => Op.Operator k -> m (OperatorEnv era)
+loadConvexOperatorEnv op =
+  loadOperatorEnv
+    (C.verificationKeyHash $ Op.verificationKey $ Op.oPaymentKey op)
+    (maybe C.NoStakeAddress (C.StakeAddressByValue . C.StakeCredentialByKey . C.verificationKeyHash) $ Op.oStakeKey op)
 
 loadOperatorEnvFromAddress :: (MonadUtxoQuery m, C.IsBabbageBasedEra era) => C.Address C.ShelleyAddr -> m (OperatorEnv era)
 loadOperatorEnvFromAddress = \case

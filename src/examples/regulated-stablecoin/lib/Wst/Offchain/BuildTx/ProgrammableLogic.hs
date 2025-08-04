@@ -10,7 +10,6 @@ module Wst.Offchain.BuildTx.ProgrammableLogic
   ( issueProgrammableToken,
     transferProgrammableToken,
     seizeProgrammableToken,
-    registerProgrammableGlobalScript,
   )
 where
 
@@ -34,15 +33,14 @@ import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (CurrencySymbol (..))
 import PlutusLedgerApi.V3 qualified as PV3
 import ProgrammableTokens.OffChain.BuildTx.Directory (insertDirectoryNode)
+import ProgrammableTokens.OffChain.Env (TransferLogicEnv (..))
+import ProgrammableTokens.OffChain.Env qualified as Env
 import SmartTokens.Contracts.Issuance (SmartTokenMintingAction (..))
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (..))
 import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedeemer (..),
                                                     TokenProof (..))
 import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
-import Wst.Offchain.BuildTx.Utils (addConwayStakeCredentialCertificate)
-import Wst.Offchain.Env (TransferLogicEnv (..))
-import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 
 {- Issue a programmable token and register it in the directory set if necessary. The caller should ensure that the specific
@@ -211,15 +209,6 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} UTxODat{uIn = seizingTxIn, uOut
     (C.makeStakeAddress nid globalStakeCred)
     (C.Quantity 0)
     $ C.ScriptWitness C.ScriptWitnessForStakeAddr . programmableGlobalWitness
-
-registerProgrammableGlobalScript :: forall env era m. (MonadReader env m, C.IsBabbageBasedEra era, MonadBuildTx era m, Env.HasDirectoryEnv env) => m ()
-registerProgrammableGlobalScript = case C.babbageBasedEra @era of
-  C.BabbageEraOnwardsBabbage -> error "babbage era registration not implemented"
-  C.BabbageEraOnwardsConway  -> Utils.inConway @era $ do
-    programmableGlobalScript <- asks (Env.dsProgrammableLogicGlobalScript . Env.directoryEnv)
-    let hshGlobal = C.hashScript $ C.PlutusScript C.plutusScriptVersion programmableGlobalScript
-        credGlobal = C.StakeCredentialByScript hshGlobal
-    addConwayStakeCredentialCertificate credGlobal
 
   -- TODO: check that the issuerTxOut is at a programmable logic payment credential
 _checkIssuerAddressIsProgLogicCred :: forall era ctx m. ( MonadBuildTx era m) => C.PaymentCredential -> C.TxOut ctx era -> m ()

@@ -27,8 +27,7 @@ import Convex.CoinSelection (AsBalancingError, AsCoinSelectionError)
 import Data.Map qualified as Map
 import PlutusLedgerApi.V3 (CurrencySymbol)
 import ProgrammableTokens.OffChain.Endpoints qualified as Endpoints
-import ProgrammableTokens.OffChain.Env (CombinedEnv (CombinedEnv),
-                                        HasDirectoryEnv (..))
+import ProgrammableTokens.OffChain.Env (HasDirectoryEnv (..), combinedEnv)
 import ProgrammableTokens.OffChain.Env.Operator (HasOperatorEnv (..))
 import ProgrammableTokens.OffChain.Env.TransferLogic (TransferLogicEnv (..))
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError)
@@ -48,8 +47,8 @@ data Cip143Blueprint v
 blueprintKeys :: Cip143Blueprint BlueprintKey
 blueprintKeys =
   Cip143Blueprint
-    { cbTransfer = "transfer"
-    , cbIssuance = "issuance"
+    { cbTransfer = "transfer.placeholder.withdraw"
+    , cbIssuance = "transfer.placeholder.mint"
     , cbGlobalStateCS = Nothing
     }
 
@@ -72,9 +71,6 @@ getPlutus = \case
 
 extractV3Scripts_ :: (MonadError err m, AsBlueprintError err) => Cip143Blueprint ScriptInAnyLang -> m (Cip143Blueprint (C.PlutusScript C.PlutusScriptV3))
 extractV3Scripts_ = traverse (fmap getPlutus . Blueprint.getPlutusV3)
-
-scriptHash :: ScriptInAnyLang -> C.ScriptHash
-scriptHash (C.ScriptInAnyLang _ s) = C.hashScript s
 
 transferLogic :: Cip143Blueprint (C.PlutusScript C.PlutusScriptV3) -> TransferLogicEnv
 transferLogic Cip143Blueprint{cbTransfer, cbIssuance, cbGlobalStateCS} =
@@ -103,8 +99,8 @@ registerBlueprintTx :: forall era env err m.
   -> m (C.Tx era)
 registerBlueprintTx blueprint = do
   let logic = transferLogic blueprint
-  CombinedEnv <$> asks directoryEnv <*> asks operatorEnv <*> pure logic
-    >>= runReaderT Endpoints.registerCip143PolicyTx
+  env <- asks (combinedEnv . directoryEnv) <*> asks operatorEnv <*> pure logic
+  runReaderT Endpoints.registerCip143PolicyTx env
 
 
 -- other endpoints

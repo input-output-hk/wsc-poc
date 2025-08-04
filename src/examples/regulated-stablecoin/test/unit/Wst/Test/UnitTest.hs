@@ -30,7 +30,6 @@ import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, testCase)
 import Wst.AppError (AppError)
-import Wst.Offchain.BuildTx.DirectorySet (InsertNodeArgs (..))
 import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy (..))
 import Wst.Offchain.BuildTx.Utils (addConwayStakeCredentialCertificate)
 import Wst.Offchain.Endpoints.Deployment qualified as Endpoints

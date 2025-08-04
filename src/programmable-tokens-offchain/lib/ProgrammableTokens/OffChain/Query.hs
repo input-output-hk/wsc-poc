@@ -68,7 +68,7 @@ registryNodeForInsertion = registryNode MustNotBeEqual
 
 -- | Find the directory set node that has our policy
 registryNodeForReference :: forall era env err m. (MonadUtxoQuery m, C.IsBabbageBasedEra era, HasDirectoryEnv env, MonadReader env m, HasTransferLogicEnv env, MonadError err m, AsProgrammableTokensError err) => m (UTxODat era DirectorySetNode)
-registryNodeForReference = registryNode MustNotBeEqual
+registryNodeForReference = registryNode MustBeEqual
 
 -- | Find the specific directory set node for the policy what we're working with.
 registryNode :: forall era env err m. (MonadUtxoQuery m, C.IsBabbageBasedEra era, HasDirectoryEnv env, MonadReader env m, HasTransferLogicEnv env, MonadError err m, AsProgrammableTokensError err) => NodeMatch -> m (UTxODat era DirectorySetNode)

@@ -2,7 +2,6 @@
 {-| Deploy the directory and global params
 -}
 module Wst.Offchain.Endpoints.Deployment(
-  deployTx,
   deployFullTx,
   deployBlacklistTx,
   issueProgrammableTokenTx,
@@ -28,48 +27,22 @@ import Convex.CoinSelection qualified
 import Data.Foldable (maximumBy)
 import Data.Function (on)
 import GHC.IsList (IsList (..))
+import ProgrammableTokens.OffChain.BuildTx qualified as BuildTx
 import ProgrammableTokens.OffChain.Env.Operator (OperatorEnv (..))
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError (..))
 import ProgrammableTokens.OffChain.Query qualified as Query
 import SmartTokens.Core.Scripts (ScriptTarget (..))
 import Wst.AppError (AsRegulatedStablecoinError (..))
-import Wst.Offchain.BuildTx.DirectorySet qualified as BuildTx
 import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy,
                                      balanceTxEnvFailing)
-import Wst.Offchain.BuildTx.IssuanceCborHexRef qualified as BuildTx
 import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
-import Wst.Offchain.BuildTx.ProtocolParams qualified as BuildTx
 import Wst.Offchain.BuildTx.TransferLogic (BlacklistReason)
 import Wst.Offchain.BuildTx.TransferLogic qualified as BuildTx
 import Wst.Offchain.Env (DirectoryScriptRoot (..))
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 import Wst.Offchain.Query qualified as Query
-
-{-| Build a transaction that fractionalizes the operators UTxOs.
--}
-frackUtxosTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, AsBalancingError err era, AsCoinSelectionError err) => m (C.Tx era)
-frackUtxosTx = do
-  opEnv@OperatorEnv{bteOperator} <- asks Env.operatorEnv
-  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.balanceTxEnv_ $ BuildTx.frackUTxOs bteOperator
-  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
-
-
-{-| Build a transaction that deploys the directory and global params. Returns the
-transaction and the 'TxIn' that was selected for the one-shot NFTs.
--}
-deployTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, AsProgrammableTokensError err, AsCoinSelectionError err, AsBalancingError err era) => ScriptTarget -> m (C.Tx era, DirectoryScriptRoot)
-deployTx target = do
-  ((txi, _), (issuanceCborHexTxIn, _)) <- Env.selectTwoOperatorOutputs
-  opEnv <- asks Env.operatorEnv
-  let root = DirectoryScriptRoot txi issuanceCborHexTxIn target
-  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectoryFor root
-              $ Env.balanceDeployTxEnv_
-              $ BuildTx.mintProtocolParams
-                >> BuildTx.initDirectorySet
-                >> BuildTx.registerProgrammableGlobalScript
-  pure (Convex.CoinSelection.signBalancedTxBody [] tx, root)
 
 {-| Build a transaction that deploys the directory and global params as well as
 the relevant stablecoin transfer logic scripts and registrations. Returns the

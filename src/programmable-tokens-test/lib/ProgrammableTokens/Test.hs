@@ -9,21 +9,40 @@ module ProgrammableTokens.Test(
   expectSingleton,
   expectN,
   expectLeft,
-  assertFailingTx
+  assertFailingTx,
+
+  -- * Users
+  admin,
+  user,
+
+  -- * Mockchain actions
+  deployDirectorySet
 ) where
 
 import Cardano.Api.Shelley qualified as C
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Plutus.ExUnits (ExUnits (..))
 import Control.Lens ((%~), (&))
+import Control.Monad.Except (MonadError)
 import Control.Monad.IO.Class (MonadIO (..))
-import Control.Monad.Reader (ReaderT (runReaderT))
-import Convex.Class (MonadMockchain, ValidationError, getTxById)
+import Control.Monad.Reader (MonadReader, ReaderT (runReaderT), ask)
+import Convex.Class (MonadBlockchain, MonadMockchain, MonadUtxoQuery,
+                     ValidationError, getTxById, sendTx)
+import Convex.CoinSelection (AsBalancingError, AsCoinSelectionError)
 import Convex.MockChain (MockchainT)
 import Convex.MockChain.Defaults qualified as Defaults
 import Convex.MockChain.Utils (mockchainSucceedsWith)
 import Convex.NodeParams (NodeParams, ledgerProtocolParameters,
                           protocolParameters)
+import Convex.Wallet qualified as Wallet
+import Convex.Wallet.MockWallet (w1)
+import Convex.Wallet.Operator (Operator (..), PaymentExtendedKey (..), Signing,
+                               signTxOperator)
+import Data.Functor (void)
+import ProgrammableTokens.OffChain.Endpoints qualified as Endpoints
+import ProgrammableTokens.OffChain.Env qualified as Env
+import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError)
+import ProgrammableTokens.OffChain.Query qualified as Query
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import Test.Tasty.HUnit (Assertion, assertEqual)
 
@@ -67,3 +86,59 @@ nodeParamsFor = \case
 mockchainSucceedsWithTarget :: ScriptTarget -> ReaderT ScriptTarget (MockchainT C.ConwayEra IO) a -> Assertion
 mockchainSucceedsWithTarget target =
   mockchainSucceedsWith (nodeParamsFor target) . flip runReaderT target
+
+{-| Key used for actions of the token issuer / operator.
+-}
+admin :: Operator Signing
+admin =
+  Operator
+    { oPaymentKey = PESigning (Wallet.getWallet w1)
+    , oStakeKey   = Nothing
+    }
+
+{-| Token user
+-}
+user :: Wallet.Wallet -> Operator Signing
+user w =
+  Operator
+    { oPaymentKey = PESigning (Wallet.getWallet w)
+    , oStakeKey = Nothing
+    }
+
+{-| Deploy the CIP 143 directory. This issues a total of 3 transactions.
+-}
+deployDirectorySet :: forall era err m.
+  ( MonadReader ScriptTarget m
+  , MonadUtxoQuery m
+  , MonadBlockchain era m
+  , MonadError err m
+  , AsCoinSelectionError err
+  , AsBalancingError err era
+  , C.IsBabbageBasedEra era
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , AsProgrammableTokensError err
+  )
+  => Operator Signing
+  -> m Env.DirectoryScriptRoot
+deployDirectorySet op = do
+  target <- ask
+  operatorEnv <- Env.loadConvexOperatorEnv op
+  flip runReaderT operatorEnv $ do
+    Endpoints.frackUtxosTx
+      >>= void . sendTx . signTxOperator op
+
+  operatorEnv <- Env.loadConvexOperatorEnv op
+  dirScriptRoot <- flip runReaderT operatorEnv $ do
+    (tx, scriptRoot) <- Endpoints.deployCip143RegistryTx target
+    void $ sendTx $ signTxOperator op tx
+    pure scriptRoot
+
+  operatorEnv <- Env.loadConvexOperatorEnv op
+  flip runReaderT operatorEnv $ do
+    Env.withEnv (Env.directoryOperatorEnv (Env.mkDirectoryEnv dirScriptRoot) operatorEnv) $ do
+      void $ Query.globalParamsNode @C.ConwayEra
+
+      Endpoints.deployIssuanceCborHex
+        >>= void . sendTx . signTxOperator admin
+      void $ Query.issuanceCborHexUTxO @C.ConwayEra
+  pure dirScriptRoot

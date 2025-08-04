@@ -56,6 +56,10 @@ library
     ProgrammableTokens.JSON.Utils
     ProgrammableTokens.OffChain.BuildTx
     ProgrammableTokens.OffChain.BuildTx.Directory
+    ProgrammableTokens.OffChain.BuildTx.IssuanceCborHexRef
+    ProgrammableTokens.OffChain.BuildTx.ProgrammableLogic
+    ProgrammableTokens.OffChain.BuildTx.ProtocolParams
+    ProgrammableTokens.OffChain.BuildTx.Utils
     ProgrammableTokens.OffChain.Endpoints
     ProgrammableTokens.OffChain.Env
     ProgrammableTokens.OffChain.Env.Directory
@@ -71,7 +75,10 @@ library
   build-depends:
     , aeson
     , base
+    , base16-bytestring
+    , bytestring
     , cardano-api
+    , cardano-ledger-shelley
     , containers
     , convex-base
     , convex-coin-selection
