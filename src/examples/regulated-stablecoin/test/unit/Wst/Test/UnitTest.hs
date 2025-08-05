@@ -46,8 +46,7 @@ tests = testGroup "unit tests"
 scriptTargetTests :: ScriptTarget -> TestTree
 scriptTargetTests target =
   testGroup (fromString $ show target)
-    [ testCase "deploy directory and global params" (Test.mockchainSucceedsWithTarget target deployDirectorySet)
-    , testGroup "issue programmable tokens"
+    [ testGroup "issue programmable tokens"
         [ testCase "always succeeds validator" (Test.mockchainSucceedsWithTarget target $ deployDirectorySet >>= issueAlwaysSucceedsValidator)
         , testCase "smart token issuance" (Test.mockchainSucceedsWithTarget target issueSmartTokensScenario)
         , testCase "smart token transfer" (Test.mockchainSucceedsWithTarget target $ deployDirectorySet >>= transferSmartTokens)
@@ -110,10 +109,10 @@ issueAlwaysSucceedsValidator scriptRoot = failOnError @_ @(AppError C.ConwayEra)
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransfer (Env.alwaysSucceedsTransferLogic Production) $ do
     Endpoints.issueProgrammableTokenTx "dummy asset" 100
       >>= void . sendTx . signTxOperator admin
-    -- Query.registryNodes @C.ConwayEra
-    --   >>= void . Test.expectN 2 "registry outputs"
-    -- Query.programmableLogicOutputs @C.ConwayEra
-    --   >>= void . Test.expectN 1 "programmable logic outputs"
+    Query.registryNodes @C.ConwayEra
+      >>= void . Test.expectN 2 "registry outputs"
+    Query.programmableLogicOutputs @C.ConwayEra
+      >>= void . Test.expectN 1 "programmable logic outputs"
 
 issueSmartTokensScenario :: (MonadReader ScriptTarget m, MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => m C.AssetId
 issueSmartTokensScenario = deployDirectorySet >>= issueTransferLogicProgrammableToken

@@ -93,27 +93,6 @@ issueProgrammableTokenTx assetName quantity = do
     BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness tleMintingScript C.NoScriptDatumForStake ()
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
-deployBlacklistTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, Env.HasDirectoryEnv env, AsCoinSelectionError err, AsBalancingError err era) => m (C.Tx era)
-deployBlacklistTx = do
-  opEnv <- asks Env.operatorEnv
-  dirEnv <- asks Env.directoryEnv
-  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectory dirEnv $ Env.withTransferFromOperator
-              $ Env.balanceTxEnv_ BuildTx.initBlacklist
-  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
-
-insertBlacklistNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsCoinSelectionError err, AsBalancingError err era, AsRegulatedStablecoinError err, Env.HasBlacklistEnv env) => BlacklistReason -> C.PaymentCredential -> m (C.Tx era)
-insertBlacklistNodeTx reason cred = do
-  blacklist <- Query.blacklistNodes @era
-  (tx, _)  <- Env.balanceTxEnv_ (BuildTx.insertBlacklistNode reason cred blacklist)
-  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
-
-removeBlacklistNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsCoinSelectionError err, AsBalancingError err era, AsRegulatedStablecoinError err, Env.HasBlacklistEnv env) => C.PaymentCredential -> m (C.Tx era)
-removeBlacklistNodeTx cred = do
-  blacklist <- Query.blacklistNodes @era
-  (tx, _)  <- Env.balanceTxEnv_ (BuildTx.removeBlacklistNode cred blacklist)
-  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
-
-
 {-| Build a transaction that issues a progammable token
 -}
 issueSmartTokensTx :: forall era env err m.
@@ -141,6 +120,27 @@ issueSmartTokensTx assetName quantity destinationCred = do
   ((tx, _), aid) <- Env.balanceTxEnv $ do
     BuildTx.issueSmartTokens paramsNode cborHexTxIn (assetName, quantity) directory destinationCred
   pure (Convex.CoinSelection.signBalancedTxBody [] tx, aid)
+
+deployBlacklistTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, Env.HasDirectoryEnv env, AsCoinSelectionError err, AsBalancingError err era) => m (C.Tx era)
+deployBlacklistTx = do
+  opEnv <- asks Env.operatorEnv
+  dirEnv <- asks Env.directoryEnv
+  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectory dirEnv $ Env.withTransferFromOperator
+              $ Env.balanceTxEnv_ BuildTx.initBlacklist
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
+insertBlacklistNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsCoinSelectionError err, AsBalancingError err era, AsRegulatedStablecoinError err, Env.HasBlacklistEnv env) => BlacklistReason -> C.PaymentCredential -> m (C.Tx era)
+insertBlacklistNodeTx reason cred = do
+  blacklist <- Query.blacklistNodes @era
+  (tx, _)  <- Env.balanceTxEnv_ (BuildTx.insertBlacklistNode reason cred blacklist)
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
+removeBlacklistNodeTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsCoinSelectionError err, AsBalancingError err era, AsRegulatedStablecoinError err, Env.HasBlacklistEnv env) => C.PaymentCredential -> m (C.Tx era)
+removeBlacklistNodeTx cred = do
+  blacklist <- Query.blacklistNodes @era
+  (tx, _)  <- Env.balanceTxEnv_ (BuildTx.removeBlacklistNode cred blacklist)
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
 
 {-| Build a transaction that issues a progammable token
 -}
