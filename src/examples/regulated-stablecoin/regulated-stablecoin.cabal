@@ -183,7 +183,7 @@ test-suite regulated-stablecoin-test
     , plutus-tx
     , programmable-tokens-offchain
     , programmable-tokens-onchain
-    , programmable-tokens-test
+    , programmable-tokens-testlib
     , regulated-stablecoin
     , tasty
     , tasty-hunit

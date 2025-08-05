@@ -4,7 +4,6 @@ module ProgrammableTokens.Test.DirectorySet(
 ) where
 
 import Cardano.Api qualified as C
-import Convex.Utils (failOnError)
 import Data.String (IsString (..))
 import ProgrammableTokens.Test (ScriptTarget (..))
 import ProgrammableTokens.Test qualified as Test
@@ -21,7 +20,7 @@ tests = testGroup "unit tests"
 scriptTargetTests :: ScriptTarget -> TestTree
 scriptTargetTests target =
   testGroup (fromString $ show target)
-    [ testCase "deploy directory and global params" (Test.mockchainSucceedsWithTarget target (failOnError @_ @(TestError C.ConwayEra) $ Test.deployDirectorySet Test.admin))
+    [ testCase "deploy directory and global params" (Test.mockchainSucceedsWithTarget @(TestError C.ConwayEra) target $ Test.deployDirectorySet Test.admin)
     , testGroup "issue programmable tokens"
         [ -- testCase "always succeeds validator" (Test.mockchainSucceedsWithTarget target $ Test.deployDirectorySet >>= issueAlwaysSucceedsValidator)
         ]

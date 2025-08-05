@@ -7,21 +7,23 @@ module Wst.Aiken.Test
 where
 
 import Cardano.Api qualified as C
+import Control.Monad.Except (MonadError)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (runReaderT)
 import Convex.Class (MonadBlockchain, MonadUtxoQuery)
-import Convex.Utils (failOnError)
+import Convex.CoinSelection (AsBalancingError, AsCoinSelectionError)
 import Data.Functor (void)
 import Data.Map qualified as Map
 import Paths_aiken_example qualified as Pkg
 import ProgrammableTokens.OffChain.Env qualified as Env
+import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError)
 import ProgrammableTokens.Test qualified as Test
 import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertEqual, testCase)
 import Wst.Aiken.Blueprint (Blueprint (..))
 import Wst.Aiken.Blueprint qualified as Blueprint
-import Wst.Aiken.Error (AikenError)
+import Wst.Aiken.Error (AikenError, AsBlueprintError)
 import Wst.Aiken.Offchain qualified as Offchain
 
 tests :: TestTree
@@ -32,7 +34,7 @@ tests =
       testCase "deserialise script" deserialiseScript,
       testGroup
         "emulator"
-        [ testCase "register" (Test.mockchainSucceedsWithTarget Production registerAikenPolicy)
+        [ testCase "register" (Test.mockchainSucceedsWithTarget @(AikenError C.ConwayEra) Production registerAikenPolicy)
         ]
     ]
 
@@ -56,13 +58,26 @@ loadExample = do
     >>= Blueprint.loadFromFile
     >>= either fail pure
 
-registerAikenPolicy :: forall era m. (MonadIO m, MonadFail m, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, C.IsBabbageBasedEra era, MonadUtxoQuery m) => m ()
-registerAikenPolicy = failOnError @_ @(AikenError era) $ do
+registerAikenPolicy :: forall era err m.
+  ( MonadIO m
+  , MonadError err m
+  , MonadBlockchain era m
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , C.IsBabbageBasedEra era
+  , MonadUtxoQuery m
+  , Offchain.AsLookupScriptFailure err
+  , AsBlueprintError err
+  , AsCoinSelectionError err
+  , AsBalancingError err era
+  , AsProgrammableTokensError err
+  )
+  => m ()
+registerAikenPolicy = do
   bp <- liftIO loadExample >>= flip Offchain.lookupScripts_ Offchain.blueprintKeys >>= Offchain.extractV3Scripts_
   flip runReaderT Production $ do
     scriptRoot <- Test.deployDirectorySet Test.admin
-    -- opEnv <- Env.loadConvexOperatorEnv Test.admin
-    -- Env.withEnv (Env.directoryOperatorEnv (Env.mkDirectoryEnv scriptRoot) opEnv) $ do
-      -- _ <- Offchain.registerBlueprintTx bp
-      -- pure ()
+    opEnv <- Env.loadConvexOperatorEnv Test.admin
+    Env.withEnv (Env.directoryOperatorEnv (Env.mkDirectoryEnv scriptRoot) opEnv) $ do
+      _ <- Offchain.registerBlueprintTx bp
+      pure ()
     pure ()

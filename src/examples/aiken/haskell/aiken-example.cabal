@@ -87,9 +87,10 @@ test-suite aiken-example-test
     , cardano-api
     , containers
     , convex-base
+    , convex-coin-selection
     , mtl
     , programmable-tokens-offchain
     , programmable-tokens-onchain
-    , programmable-tokens-test
+    , programmable-tokens-testlib
     , tasty
     , tasty-hunit

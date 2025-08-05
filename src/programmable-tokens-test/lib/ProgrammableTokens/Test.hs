@@ -23,7 +23,7 @@ import Cardano.Api.Shelley qualified as C
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Plutus.ExUnits (ExUnits (..))
 import Control.Lens ((%~), (&))
-import Control.Monad.Except (MonadError)
+import Control.Monad.Except (ExceptT, MonadError)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader, ReaderT (runReaderT), ask)
 import Convex.Class (MonadBlockchain, MonadMockchain, MonadUtxoQuery,
@@ -34,6 +34,7 @@ import Convex.MockChain.Defaults qualified as Defaults
 import Convex.MockChain.Utils (mockchainSucceedsWith)
 import Convex.NodeParams (NodeParams, ledgerProtocolParameters,
                           protocolParameters)
+import Convex.Utils (failOnError)
 import Convex.Wallet qualified as Wallet
 import Convex.Wallet.MockWallet (w1)
 import Convex.Wallet.Operator (Operator (..), PaymentExtendedKey (..), Signing,
@@ -83,9 +84,9 @@ nodeParamsFor = \case
         & ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxExUnitsL %~ tenX
   Production -> Defaults.nodeParams
 
-mockchainSucceedsWithTarget :: ScriptTarget -> ReaderT ScriptTarget (MockchainT C.ConwayEra IO) a -> Assertion
-mockchainSucceedsWithTarget target =
-  mockchainSucceedsWith (nodeParamsFor target) . flip runReaderT target
+mockchainSucceedsWithTarget :: forall err a. Show err => ScriptTarget -> ExceptT err (ReaderT ScriptTarget (MockchainT C.ConwayEra IO)) a -> Assertion
+mockchainSucceedsWithTarget target action =
+  mockchainSucceedsWith (nodeParamsFor target) $ runReaderT (failOnError @_ @err action) target
 
 {-| Key used for actions of the token issuer / operator.
 -}
@@ -127,15 +128,15 @@ deployDirectorySet op = do
     Endpoints.frackUtxosTx
       >>= void . sendTx . signTxOperator op
 
-  operatorEnv <- Env.loadConvexOperatorEnv op
-  dirScriptRoot <- flip runReaderT operatorEnv $ do
+  operatorEnv_ <- Env.loadConvexOperatorEnv op
+  dirScriptRoot <- flip runReaderT operatorEnv_ $ do
     (tx, scriptRoot) <- Endpoints.deployCip143RegistryTx target
     void $ sendTx $ signTxOperator op tx
     pure scriptRoot
 
-  operatorEnv <- Env.loadConvexOperatorEnv op
-  flip runReaderT operatorEnv $ do
-    Env.withEnv (Env.directoryOperatorEnv (Env.mkDirectoryEnv dirScriptRoot) operatorEnv) $ do
+  operatorEnv__ <- Env.loadConvexOperatorEnv op
+  flip runReaderT operatorEnv__ $ do
+    Env.withEnv (Env.directoryOperatorEnv (Env.mkDirectoryEnv dirScriptRoot) operatorEnv__) $ do
       void $ Query.globalParamsNode @C.ConwayEra
 
       Endpoints.deployIssuanceCborHex
