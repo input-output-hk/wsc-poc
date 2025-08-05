@@ -7,6 +7,7 @@ module ProgrammableTokens.OffChain.Query(
   registryNode,
   registryNodeForInsertion,
   registryNodeForReference,
+  registryNodeForReferenceOrInsertion,
 
   userProgrammableOutputs,
   issuanceCborHexUTxO,
@@ -17,7 +18,7 @@ module ProgrammableTokens.OffChain.Query(
 
 import Cardano.Api qualified as C
 import Control.Lens qualified as L
-import Control.Monad.Error.Lens (throwing_)
+import Control.Monad.Error.Lens (throwing, throwing_)
 import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.CardanoApi.Lenses qualified as L
@@ -54,13 +55,15 @@ registryNodes = do
 -- |
 data NodeMatch
   = MustBeEqual -- ^ The node's key must equal the issued symbol of the TransferLogicEnv
-  | MustNotBeEqual -- ^ The node's key must not equal the issued symbol of the TransferLogicEnv. If
+  | MustNotBeEqual -- ^ The node's key must not equal the issued symbol of the TransferLogicEnv.
+  | GreaterThanOrEqual
   deriving stock (Eq, Ord, Show)
 
 operator :: Ord a => NodeMatch -> a -> a -> Bool
 operator = \case
   MustBeEqual -> (==)
-  MustNotBeEqual -> (<)
+  MustNotBeEqual -> (>)
+  GreaterThanOrEqual -> (>=)
 
 -- | Find the directory set node that we need to spend in order to insert a new node with our policy into the list
 registryNodeForInsertion :: forall era env err m. (MonadUtxoQuery m, C.IsBabbageBasedEra era, HasDirectoryEnv env, MonadReader env m, HasTransferLogicEnv env, MonadError err m, AsProgrammableTokensError err) => m (UTxODat era DirectorySetNode)
@@ -70,9 +73,14 @@ registryNodeForInsertion = registryNode MustNotBeEqual
 registryNodeForReference :: forall era env err m. (MonadUtxoQuery m, C.IsBabbageBasedEra era, HasDirectoryEnv env, MonadReader env m, HasTransferLogicEnv env, MonadError err m, AsProgrammableTokensError err) => m (UTxODat era DirectorySetNode)
 registryNodeForReference = registryNode MustBeEqual
 
+-- | Find the directory set node that has our policy
+registryNodeForReferenceOrInsertion :: forall era env err m. (MonadUtxoQuery m, C.IsBabbageBasedEra era, HasDirectoryEnv env, MonadReader env m, HasTransferLogicEnv env, MonadError err m, AsProgrammableTokensError err) => m (UTxODat era DirectorySetNode)
+registryNodeForReferenceOrInsertion = registryNode GreaterThanOrEqual
+
 -- | Find the specific directory set node for the policy what we're working with.
 registryNode :: forall era env err m. (MonadUtxoQuery m, C.IsBabbageBasedEra era, HasDirectoryEnv env, MonadReader env m, HasTransferLogicEnv env, MonadError err m, AsProgrammableTokensError err) => NodeMatch -> m (UTxODat era DirectorySetNode)
-registryNode (operator -> op) = do
+registryNode op' = do
+  let op = operator op'
   directoryList <- registryNodes @era
   dir <- asks directoryEnv
   inta <- asks transferLogicEnv
@@ -85,7 +93,7 @@ registryNode (operator -> op) = do
         $
           filter ((issuedSymbol `op`) . key . uDatum) directoryList
   case udats of
-    [] -> throwing_ _DirectorySetNodeNotFound
+    [] -> throwing _DirectorySetNodeNotFound (show op')
     x : _ -> pure x
 
 -- | CIP-143 outputs addressed to the given payment credential

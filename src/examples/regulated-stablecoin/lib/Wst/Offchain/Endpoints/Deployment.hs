@@ -10,8 +10,6 @@ module Wst.Offchain.Endpoints.Deployment(
   insertBlacklistNodeTx,
   removeBlacklistNodeTx,
   seizeCredentialAssetsTx,
-  deployIssuanceCborHex,
-  frackUtxosTx,
 ) where
 
 import Cardano.Api (Quantity)
@@ -28,7 +26,6 @@ import Data.Foldable (maximumBy)
 import Data.Function (on)
 import GHC.IsList (IsList (..))
 import ProgrammableTokens.OffChain.BuildTx qualified as BuildTx
-import ProgrammableTokens.OffChain.Env.Operator (OperatorEnv (..))
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError (..))
 import ProgrammableTokens.OffChain.Query qualified as Query
@@ -63,14 +60,6 @@ deployFullTx target = do
 
   pure (Convex.CoinSelection.signBalancedTxBody [] tx, root)
 
-deployIssuanceCborHex :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasDirectoryEnv env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, AsCoinSelectionError err, AsBalancingError err era) => m (C.Tx era)
-deployIssuanceCborHex = do
-  opEnv <- asks Env.operatorEnv
-  dirEnv <- asks Env.directoryEnv
-  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectory dirEnv $ Env.withTransferFromOperator
-              $ Env.balanceTxEnv_ BuildTx.mintIssuanceCborHexNFT
-  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
-
 {-| Build a transaction that issues a progammable token
 -}
 issueProgrammableTokenTx :: forall era env err m.
@@ -91,7 +80,7 @@ issueProgrammableTokenTx :: forall era env err m.
   -> Quantity -- ^ Amount of tokens to be minted
   -> m (C.Tx era)
 issueProgrammableTokenTx assetName quantity = do
-  directoryNode <- Query.registryNodeForReference @era
+  directoryNode <- Query.registryNodeForReferenceOrInsertion @era
   paramsNode <- Query.globalParamsNode @era
   cborHexTxIn <- Query.issuanceCborHexUTxO @era
 
@@ -146,7 +135,7 @@ issueSmartTokensTx :: forall era env err m.
   -> C.PaymentCredential -- ^ Destination credential
   -> m (C.Tx era, C.AssetId)
 issueSmartTokensTx assetName quantity destinationCred = do
-  directory <- Query.registryNodeForReference @era
+  directory <- Query.registryNodeForReferenceOrInsertion @era
   paramsNode <- Query.globalParamsNode @era
   cborHexTxIn <- Query.issuanceCborHexUTxO @era
   ((tx, _), aid) <- Env.balanceTxEnv $ do
