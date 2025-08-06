@@ -87,14 +87,10 @@ test-suite programmable-tokens-test
     , cardano-api
     , convex-base
     , convex-coin-selection
-    , convex-mockchain
     , convex-wallet
     , lens
     , mtl
-    , plutus-ledger-api
-    , plutus-tx
     , programmable-tokens-offchain
-    , programmable-tokens-onchain
     , programmable-tokens-testlib
     , tasty
     , tasty-hunit

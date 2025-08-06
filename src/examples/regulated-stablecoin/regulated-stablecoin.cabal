@@ -70,7 +70,6 @@ library
   build-depends:
     , aeson
     , base
-    , base16-bytestring
     , Blammo
     , blockfrost-api
     , blockfrost-client
@@ -179,8 +178,6 @@ test-suite regulated-stablecoin-test
     , convex-mockchain
     , convex-wallet
     , mtl
-    , plutus-ledger-api
-    , plutus-tx
     , programmable-tokens-offchain
     , programmable-tokens-onchain
     , programmable-tokens-testlib

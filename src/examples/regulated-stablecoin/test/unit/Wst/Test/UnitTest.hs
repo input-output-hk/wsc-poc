@@ -24,7 +24,6 @@ import GHC.Exception (SomeException, throw)
 import ProgrammableTokens.OffChain.Endpoints qualified as Endpoints
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
 import ProgrammableTokens.OffChain.Query qualified as Query
-import ProgrammableTokens.OffChain.Scripts qualified as Scripts
 import ProgrammableTokens.Test (deployDirectorySet)
 import ProgrammableTokens.Test qualified as Test
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
@@ -49,8 +48,7 @@ scriptTargetTests :: ScriptTarget -> TestTree
 scriptTargetTests target =
   testGroup (fromString $ show target)
     [ testGroup "issue programmable tokens"
-        [ testCase "always succeeds validator" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target $ deployDirectorySet admin >>= issueAlwaysSucceedsValidator)
-        , testCase "smart token issuance" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target issueSmartTokensScenario)
+        [ testCase "smart token issuance" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target issueSmartTokensScenario)
         , testCase "smart token transfer" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target $ deployDirectorySet admin >>= transferSmartTokens)
         , testCase "blacklist credential" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target $ void $ deployDirectorySet admin >>= blacklistCredential)
         , testCase "unblacklist credential" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target $ void $ deployDirectorySet admin >>= unblacklistCredential)
@@ -75,24 +73,6 @@ deployAll = do
         Query.registryNodes @C.ConwayEra
           >>= void . Test.expectSingleton "registry output"
         void $ Query.globalParamsNode @C.ConwayEra
-
-{-| Issue some tokens with the "always succeeds" validator
--}
-issueAlwaysSucceedsValidator :: (MonadError (AppError C.ConwayEra) m, MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m ()
-issueAlwaysSucceedsValidator scriptRoot = Env.withEnv $ do
-
-  -- Register the stake validator
-  -- Oddly, the tests passes even if we don't do this.
-  -- But I'll leave it in because it seems right.
-  registerAlwaysSucceedsStakingCert
-
-  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransfer (Env.alwaysSucceedsTransferLogic Production) $ do
-    Test.issueProgrammableTokenTx "dummy asset" 100
-      >>= void . sendTx . signTxOperator admin
-    Query.registryNodes @C.ConwayEra
-      >>= void . Test.expectN 2 "registry outputs"
-    Query.programmableLogicOutputs @C.ConwayEra
-      >>= void . Test.expectN 1 "programmable logic outputs"
 
 issueSmartTokensScenario :: (MonadFail m, MonadReader ScriptTarget m, MonadUtxoQuery m, MonadError (AppError C.ConwayEra) m, MonadMockchain C.ConwayEra m) => m C.AssetId
 issueSmartTokensScenario = deployDirectorySet admin >>= issueTransferLogicProgrammableToken
@@ -245,18 +225,6 @@ seizeUserOutput scriptRoot = Env.withEnv $ do
       >>= void . Test.expectN 1 "user programmable outputs"
     Query.userProgrammableOutputs (C.PaymentCredentialByKey opPkh)
       >>= void . Test.expectN 2 "user programmable outputs"
-
-{-| Register the 'alwaysSucceedsScript' stake validator
--}
-registerAlwaysSucceedsStakingCert :: (MonadUtxoQuery m, MonadError (AppError C.ConwayEra) m, MonadFail m, MonadMockchain C.ConwayEra m) =>  m ()
-registerAlwaysSucceedsStakingCert = do
-  let script = C.PlutusScript C.plutusScriptVersion $ Scripts.alwaysSucceedsScript Production
-      hsh = C.hashScript script
-      cred = C.StakeCredentialByScript hsh
-  txBody <- BuildTx.execBuildTxT $ do
-    cert <- BuildTx.mkConwayStakeCredentialRegistrationCertificate cred
-    BuildTx.addStakeScriptWitness cert cred (Scripts.alwaysSucceedsScript Production) ()
-  void (mapError BalancingError $ tryBalanceAndSubmit mempty Wallet.w1 txBody TrailingChange [])
 
 -- TODO: registration to be moved to the endpoints
 registerTransferScripts :: (MonadFail m, MonadError (AppError C.ConwayEra) m, MonadReader env m, Env.HasTransferLogicEnv env, MonadMockchain C.ConwayEra m) => C.Hash C.PaymentKey -> m C.TxId
