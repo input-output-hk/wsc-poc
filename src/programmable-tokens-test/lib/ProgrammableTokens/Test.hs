@@ -16,19 +16,24 @@ module ProgrammableTokens.Test(
   user,
 
   -- * Mockchain actions
-  deployDirectorySet
+  deployDirectorySet,
+  registerTransferScripts,
+  issueProgrammableTokenTx,
 ) where
 
+import Cardano.Api (Quantity)
 import Cardano.Api.Shelley qualified as C
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Plutus.ExUnits (ExUnits (..))
 import Control.Lens ((%~), (&))
 import Control.Monad.Except (ExceptT, MonadError)
 import Control.Monad.IO.Class (MonadIO (..))
-import Control.Monad.Reader (MonadReader, ReaderT (runReaderT), ask)
+import Control.Monad.Reader (MonadReader, ReaderT (runReaderT), ask, asks)
+import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain, MonadMockchain, MonadUtxoQuery,
                      ValidationError, getTxById, sendTx)
-import Convex.CoinSelection (AsBalancingError, AsCoinSelectionError)
+import Convex.CoinSelection (AsBalancingError (..), AsCoinSelectionError)
+import Convex.CoinSelection qualified
 import Convex.MockChain (MockchainT)
 import Convex.MockChain.Defaults qualified as Defaults
 import Convex.MockChain.Utils (mockchainSucceedsWith)
@@ -40,6 +45,8 @@ import Convex.Wallet.MockWallet (w1)
 import Convex.Wallet.Operator (Operator (..), PaymentExtendedKey (..), Signing,
                                signTxOperator)
 import Data.Functor (void)
+import ProgrammableTokens.OffChain.BuildTx qualified as BuildTx
+import ProgrammableTokens.OffChain.BuildTx.Utils (addConwayStakeCredentialCertificate)
 import ProgrammableTokens.OffChain.Endpoints qualified as Endpoints
 import ProgrammableTokens.OffChain.Env qualified as Env
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError)
@@ -143,3 +150,73 @@ deployDirectorySet op = do
         >>= void . sendTx . signTxOperator admin
       void $ Query.issuanceCborHexUTxO @C.ConwayEra
   pure dirScriptRoot
+
+{-| Build a transaction that issues a progammable token
+-}
+issueProgrammableTokenTx :: forall era env err m.
+  ( MonadReader env m
+  , Env.HasOperatorEnv era env
+  , Env.HasDirectoryEnv env
+  , Env.HasTransferLogicEnv env
+  , MonadBlockchain era m
+  , MonadError err m
+  , C.IsBabbageBasedEra era
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , MonadUtxoQuery m
+  , AsProgrammableTokensError err
+  , AsCoinSelectionError err
+  , AsBalancingError err era
+  )
+  => C.AssetName -- ^ Name of the asset
+  -> Quantity -- ^ Amount of tokens to be minted
+  -> m (C.Tx era)
+issueProgrammableTokenTx assetName quantity = do
+  directoryNode <- Query.registryNodeForReferenceOrInsertion @era
+  paramsNode <- Query.globalParamsNode @era
+  cborHexTxIn <- Query.issuanceCborHexUTxO @era
+
+  Env.TransferLogicEnv{Env.tleMintingScript} <- asks Env.transferLogicEnv
+  (tx, _) <- Env.balanceTxEnv_ $ do
+    polId <- BuildTx.issueProgrammableToken paramsNode cborHexTxIn (assetName, quantity) directoryNode
+    Env.operatorPaymentCredential
+      >>= BuildTx.paySmartTokensToDestination (assetName, quantity) polId
+    let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion tleMintingScript)
+    BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness tleMintingScript C.NoScriptDatumForStake ()
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
+-- TODO: registration to be moved to the endpoints
+registerTransferScripts ::
+  ( MonadFail m
+  , MonadError err m
+  , MonadReader env m
+  , AsCoinSelectionError err
+  , AsBalancingError err C.ConwayEra
+  , Env.HasTransferLogicEnv env
+  , Env.HasOperatorEnv C.ConwayEra env
+  , MonadMockchain C.ConwayEra m
+  )
+  => C.Hash C.PaymentKey -> m (C.Tx C.ConwayEra)
+registerTransferScripts pkh = do
+  transferMintingScript <- asks (Env.tleMintingScript . Env.transferLogicEnv)
+  transferSpendingScript <- asks (Env.tleTransferScript . Env.transferLogicEnv)
+  transferSeizeSpendingScript <- asks (Env.tleIssuerScript . Env.transferLogicEnv)
+
+  let
+      hshMinting = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferMintingScript
+      credMinting = C.StakeCredentialByScript hshMinting
+
+      hshSpending = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferSpendingScript
+      credSpending = C.StakeCredentialByScript hshSpending
+
+      hshSeizeSpending = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferSeizeSpendingScript
+      credSeizeSpending = C.StakeCredentialByScript hshSeizeSpending
+
+
+  (tx, _)  <- Env.balanceTxEnv_$ do
+
+    addConwayStakeCredentialCertificate credSpending
+    addConwayStakeCredentialCertificate credMinting
+    addConwayStakeCredentialCertificate credSeizeSpending
+
+    BuildTx.addRequiredSignature pkh
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)

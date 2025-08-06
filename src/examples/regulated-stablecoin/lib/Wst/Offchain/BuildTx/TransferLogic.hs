@@ -13,7 +13,6 @@ module Wst.Offchain.BuildTx.TransferLogic
     BlacklistReason(..),
     insertBlacklistNode,
     removeBlacklistNode,
-    paySmartTokensToDestination,
     registerTransferScripts,
     blacklistInitialNode
   )
@@ -53,6 +52,7 @@ import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (Credential (..), PubKeyHash (PubKeyHash),
                            ScriptHash (..))
 import PlutusLedgerApi.V3 qualified as PlutusTx
+import ProgrammableTokens.OffChain.BuildTx qualified as BuildTx
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
 import ProgrammableTokens.OffChain.Scripts (scriptPolicyIdV3)
 import SmartTokens.Contracts.ExampleTransferLogic (BlacklistProof (..))
@@ -61,8 +61,7 @@ import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (BlacklistNode (..),
                                           DirectorySetNode (..))
 import Wst.AppError (AsRegulatedStablecoinError (..))
-import Wst.Offchain.BuildTx.ProgrammableLogic (issueProgrammableToken,
-                                               seizeProgrammableToken,
+import Wst.Offchain.BuildTx.ProgrammableLogic (seizeProgrammableToken,
                                                transferProgrammableToken)
 import Wst.Offchain.BuildTx.Utils (addConwayStakeCredentialCertificate)
 import Wst.Offchain.Env qualified as Env
@@ -209,22 +208,12 @@ removeBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
   mintPlutus blacklistMintingScript () expectedAssetName (-1)
   addRequiredSignature opPkh
 
-
-{-| Add a smart token output that locks the given value,
-addressed to the payment credential
--}
-paySmartTokensToDestination :: forall era env m. (MonadBuildTx era m, MonadReader env m, Env.HasDirectoryEnv env, MonadBlockchain era m, C.IsBabbageBasedEra era) => (C.AssetName, C.Quantity) -> C.PolicyId -> C.PaymentCredential -> m ()
-paySmartTokensToDestination (an, q) issuedPolicyId destinationCred = Utils.inBabbage @era $ do
-  let value = fromList [(C.AssetId issuedPolicyId an, q)]
-  addr <- Env.programmableTokenReceivingAddress destinationCred
-  payToAddress addr value
-
 issueSmartTokens :: forall era env m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era IssuanceCborHex -> (C.AssetName, C.Quantity) -> UTxODat era DirectorySetNode -> C.PaymentCredential -> m C.AssetId
 issueSmartTokens paramsTxOut issuanceCborHexTxOut (an, q) directoryNode destinationCred = Utils.inBabbage @era $ do
-  issuedPolicyId <- issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) directoryNode
+  issuedPolicyId <- BuildTx.issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) directoryNode
   addIssueWitness
   --  payToAddress addr value
-  paySmartTokensToDestination (an, q) issuedPolicyId destinationCred
+  BuildTx.paySmartTokensToDestination (an, q) issuedPolicyId destinationCred
   pure $ C.AssetId issuedPolicyId an
 
 transferSmartTokens :: forall env era err a m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env, MonadError err m) => UTxODat era ProgrammableLogicGlobalParams -> [UTxODat era BlacklistNode] -> UTxODat era DirectorySetNode -> [UTxODat era a] -> (C.AssetId, C.Quantity) -> C.PaymentCredential -> m (FindProofResult era)

@@ -4,7 +4,6 @@
 module Wst.Offchain.Endpoints.Deployment(
   deployFullTx,
   deployBlacklistTx,
-  issueProgrammableTokenTx,
   issueSmartTokensTx,
   transferSmartTokensTx,
   insertBlacklistNodeTx,
@@ -59,39 +58,6 @@ deployFullTx target = do
                 >> BuildTx.registerTransferScripts
 
   pure (Convex.CoinSelection.signBalancedTxBody [] tx, root)
-
-{-| Build a transaction that issues a progammable token
--}
-issueProgrammableTokenTx :: forall era env err m.
-  ( MonadReader env m
-  , Env.HasOperatorEnv era env
-  , Env.HasDirectoryEnv env
-  , Env.HasTransferLogicEnv env
-  , MonadBlockchain era m
-  , MonadError err m
-  , C.IsBabbageBasedEra era
-  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
-  , MonadUtxoQuery m
-  , AsProgrammableTokensError err
-  , AsCoinSelectionError err
-  , AsBalancingError err era
-  )
-  => C.AssetName -- ^ Name of the asset
-  -> Quantity -- ^ Amount of tokens to be minted
-  -> m (C.Tx era)
-issueProgrammableTokenTx assetName quantity = do
-  directoryNode <- Query.registryNodeForReferenceOrInsertion @era
-  paramsNode <- Query.globalParamsNode @era
-  cborHexTxIn <- Query.issuanceCborHexUTxO @era
-
-  Env.TransferLogicEnv{Env.tleMintingScript} <- asks Env.transferLogicEnv
-  (tx, _) <- Env.balanceTxEnv_ $ do
-    polId <- BuildTx.issueProgrammableToken paramsNode cborHexTxIn (assetName, quantity) directoryNode
-    Env.operatorPaymentCredential
-      >>= BuildTx.paySmartTokensToDestination (assetName, quantity) polId
-    let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion tleMintingScript)
-    BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness tleMintingScript C.NoScriptDatumForStake ()
-  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 {-| Build a transaction that issues a progammable token
 -}

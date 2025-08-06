@@ -12,11 +12,15 @@ module ProgrammableTokens.OffChain.Env
     directoryOperatorEnv,
     addTransferLogic,
     withTransferLogic,
-    withEnv
+    withEnv,
+    runAs
   )
 where
 
+import Cardano.Api.Shelley qualified as C
 import Control.Monad.Reader (MonadReader, ReaderT (..), asks)
+import Convex.Class (MonadUtxoQuery)
+import Convex.Wallet.Operator qualified as Op
 import Data.Functor.Identity (Identity (..))
 import Data.Proxy (Proxy (..))
 import ProgrammableTokens.OffChain.Env.Directory as Directory (DirectoryEnv (..),
@@ -77,3 +81,13 @@ withTransferLogic op action = asks (addTransferLogic op) >>= runReaderT action
 
 withEnv :: CombinedEnv b era -> ReaderT (CombinedEnv b era) m a -> m a
 withEnv = flip runReaderT
+
+{-| Load the operator UTxOs and run the action
+-}
+runAs ::
+  ( MonadUtxoQuery m
+  , C.IsBabbageBasedEra era
+  ) => Op.Operator k -> DirectoryEnv -> TransferLogicEnv -> ReaderT (CombinedEnv Identity era) m a -> m a
+runAs op dir transfer action = do
+  env <- combinedEnv dir <$> loadConvexOperatorEnv op <*> pure transfer
+  withEnv env action

@@ -78,8 +78,8 @@ deployAll = do
 
 {-| Issue some tokens with the "always succeeds" validator
 -}
-issueAlwaysSucceedsValidator :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m ()
-issueAlwaysSucceedsValidator scriptRoot = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
+issueAlwaysSucceedsValidator :: (MonadError (AppError C.ConwayEra) m, MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m ()
+issueAlwaysSucceedsValidator scriptRoot = Env.withEnv $ do
 
   -- Register the stake validator
   -- Oddly, the tests passes even if we don't do this.
@@ -87,7 +87,7 @@ issueAlwaysSucceedsValidator scriptRoot = failOnError @_ @(AppError C.ConwayEra)
   registerAlwaysSucceedsStakingCert
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransfer (Env.alwaysSucceedsTransferLogic Production) $ do
-    Endpoints.issueProgrammableTokenTx "dummy asset" 100
+    Test.issueProgrammableTokenTx "dummy asset" 100
       >>= void . sendTx . signTxOperator admin
     Query.registryNodes @C.ConwayEra
       >>= void . Test.expectN 2 "registry outputs"

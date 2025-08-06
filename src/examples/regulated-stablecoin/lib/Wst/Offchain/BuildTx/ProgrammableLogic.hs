@@ -7,8 +7,7 @@
 
 {-# HLINT ignore "Use second" #-}
 module Wst.Offchain.BuildTx.ProgrammableLogic
-  ( issueProgrammableToken,
-    transferProgrammableToken,
+  ( transferProgrammableToken,
     seizeProgrammableToken,
   )
 where
@@ -42,51 +41,6 @@ import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedee
 import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.Offchain.Query (UTxODat (..))
-
-{- Issue a programmable token and register it in the directory set if necessary. The caller should ensure that the specific
-   minting logic stake script witness is included in the final transaction.
-  - If the programmable token is not in the directory, then it is registered
-  - If the programmable token is in the directory, then it is minted
--}
-issueProgrammableToken :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era IssuanceCborHex -> (C.AssetName, C.Quantity) -> UTxODat era DirectorySetNode -> m C.PolicyId
-issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) udat@UTxODat{uDatum = dirNodeData} = Utils.inBabbage @era $ do
-  inta@TransferLogicEnv{tleMintingScript} <- asks Env.transferLogicEnv
-  glParams <- asks (Env.globalParams . Env.directoryEnv)
-  dir <- asks Env.directoryEnv
-
-  let mintingLogicHash = C.hashScript $ C.PlutusScript C.plutusScriptVersion tleMintingScript
-      mintingLogicCred = SmartTokenMintingAction $ transCredential $ C.PaymentCredentialByScript mintingLogicHash
-
-  -- Debug.Trace.traceM $ "mintingLogicHash: " <> show mintingLogicHash
-
-  -- The global params in the UTxO need to match those in our 'DirectoryEnv'.
-  -- If they don't, we get a script error when trying to balance the transaction.
-  -- To avoid this we check for equality here and fail early.
-  unless (glParams == uDatum paramsTxOut) $
-    -- FIXME: Error handling
-    error "Global params do not match"
-
-  let mintingScript = Env.programmableTokenMintingScript dir inta
-      issuedPolicyId = C.scriptPolicyId $ C.PlutusScript C.PlutusScriptV3 mintingScript
-      issuedSymbol = transPolicyId issuedPolicyId
-
-
-  -- Debug.Trace.traceM $ "mintingLogicScript: " <> BSC.unpack (Base16.encode $ C.serialiseToRawBytes mintingScript)
-  -- Debug.Trace.traceM $ "issuedCurrencySymbol: " <> show issuedSymbol
-
-  if key dirNodeData == issuedSymbol
-    then
-      mintPlutus mintingScript mintingLogicCred an q
-    else do
-      mintPlutus mintingScript mintingLogicCred an q
-      insertDirectoryNode paramsTxOut issuanceCborHexTxOut udat
-
-  pure issuedPolicyId
-    where
-      transCredential :: C.PaymentCredential -> PV3.Credential
-      transCredential = \case
-        C.PaymentCredentialByKey k -> PV3.PubKeyCredential (transPubKeyHash k)
-        C.PaymentCredentialByScript k -> PV3.ScriptCredential (transScriptHash k)
 
 {- User facing transfer of programmable tokens from one address to another.
    The caller should ensure that the specific transfer logic stake script
