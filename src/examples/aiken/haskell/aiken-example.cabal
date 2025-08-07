@@ -97,3 +97,12 @@ test-suite aiken-example-test
     , programmable-tokens-testlib
     , tasty
     , tasty-hunit
+
+executable cip-143-cli
+  import:         lang
+  main-is:        Main.hs
+  build-depends:
+    , aeson
+    , base
+
+  hs-source-dirs: exe/cip-143-cli
