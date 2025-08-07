@@ -23,10 +23,7 @@ import Control.Lens (review)
 import Control.Monad.Except (MonadError (..))
 import Data.Map qualified as Map
 import PlutusLedgerApi.V3 (CurrencySymbol)
-import ProgrammableTokens.OffChain.Env (HasDirectoryEnv (..), combinedEnv)
-import ProgrammableTokens.OffChain.Env.Operator (HasOperatorEnv (..))
 import ProgrammableTokens.OffChain.Env.TransferLogic (TransferLogicEnv (..))
-import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError)
 import Wst.Aiken.Blueprint (Blueprint (..))
 import Wst.Aiken.Blueprint qualified as Blueprint
 import Wst.Aiken.BlueprintKey (BlueprintKey)
@@ -43,8 +40,8 @@ data Cip143Blueprint v
 blueprintKeys :: Cip143Blueprint BlueprintKey
 blueprintKeys =
   Cip143Blueprint
-    { cbTransfer = "transfer.placeholder.withdraw"
-    , cbIssuance = "transfer.placeholder.mint"
+    { cbTransfer = "transfer.transfer.withdraw"
+    , cbIssuance = "transfer.issue.withdraw"
     , cbGlobalStateCS = Nothing
     }
 

@@ -1,18 +1,24 @@
 use cardano/address.{Credential}
 use cardano/transaction.{Transaction}
-use cardano/assets.{PolicyId}
 
-validator placeholder {
-  withdraw(_redeemer: Data, _account: Credential, _self: Transaction) {
+validator issue {
+  withdraw(redeemer: Int, _account: Credential, _self: Transaction) {
     trace @"withdraw"
-    True
-  }
-  mint(_redeemer: Data, _policy_id: PolicyId, _self: Transaction) {
-    trace @"mint"
-    True
+    redeemer == 100
   }
   else(_) {
     trace @"fallback"
-    True
+    False
+  }
+}
+
+validator transfer {
+  withdraw(redeemer: Int, _account: Credential, _self: Transaction) {
+    trace @"withdraw"
+    redeemer == 200
+  }
+  else(_) {
+    trace @"fallback"
+    False
   }
 }

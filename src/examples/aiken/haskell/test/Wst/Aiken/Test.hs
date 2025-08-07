@@ -52,11 +52,11 @@ loadBlueprint = do
 deserialiseScript :: Assertion
 deserialiseScript = do
   Blueprint {validators} <- loadExample
-  maybe (fail "Expected script named 'transfer.placeholder.mint'") pure (Map.lookup "transfer.placeholder.mint" validators)
+  maybe (fail "Expected script named 'transfer.issue.withdraw'") pure (Map.lookup "transfer.issue.withdraw" validators)
     >>= \case
       (C.ScriptInAnyLang (C.PlutusScriptLanguage C.PlutusScriptV3) script) -> do
         let hsh = C.hashScript script
-        assertEqual "Script hash" "7ed916a50e65ceefc39ca1fbb74d4bacc1518ebe586cd6576ae682f9" hsh
+        assertEqual "Script hash" "a82718805c3541469346431c0cc023a76afce8d6d2c1c64d00bf1950" hsh
       _ -> fail "Unexpected script language"
 
 loadExample :: IO Blueprint
@@ -94,7 +94,7 @@ registerAikenPolicy step' = do
 
   step "Registering CIP 143 policy"
   runAsAdmin $ do
-    Endpoints.registerCip143PolicyTx "TEST" 1000 ()
+    Endpoints.registerCip143PolicyTx "TEST" 1000 (100 :: Integer)
       >>= void . sendTx . signTxOperator Test.admin
 
     Query.registryNodes @C.ConwayEra
@@ -127,7 +127,7 @@ transferAikenPolicy = do
             >>= void . sendTx . signTxOperator Test.admin
 
   runAsAdmin $ do
-    Endpoints.registerCip143PolicyTx "TEST" 1000 ()
+    Endpoints.registerCip143PolicyTx "TEST" 1000 (100 :: Integer)
       >>= void . sendTx . signTxOperator Test.admin
 
   let paymentCred = C.PaymentCredentialByKey (Wallet.verificationKeyHash Wallet.w2)
@@ -137,7 +137,7 @@ transferAikenPolicy = do
       >>= void . Test.expectN 0 "user programmable outputs"
 
   runAsAdmin $ do
-    Endpoints.transferTokens "TEST" 500 paymentCred ()
+    Endpoints.transferTokens "TEST" 500 paymentCred (200 :: Integer)
       >>= void . sendTx . signTxOperator Test.admin
 
   runAsAdmin $
@@ -145,7 +145,7 @@ transferAikenPolicy = do
       >>= void . Test.expectN 1 "user programmable outputs"
 
   runAsAdmin $ do
-    Endpoints.transferTokens "TEST" 500 paymentCred ()
+    Endpoints.transferTokens "TEST" 500 paymentCred (200 :: Integer)
       >>= void . sendTx . signTxOperator Test.admin
 
   runAsAdmin $

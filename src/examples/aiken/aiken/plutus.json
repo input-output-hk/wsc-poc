@@ -12,40 +12,47 @@
   },
   "validators": [
     {
-      "title": "transfer.placeholder.withdraw",
+      "title": "transfer.issue.withdraw",
       "redeemer": {
-        "title": "_redeemer",
+        "title": "redeemer",
         "schema": {
-          "$ref": "#/definitions/Data"
+          "$ref": "#/definitions/Int"
         }
       },
-      "compiledCode": "586d01010029800aba2aba1aab9eaab9dab9a48888966002646465300130053754003300700398038012444b30013370e9002001c4c928980518049baa0048acc004cdc3a40000071324a26eb8c028c024dd50024528a00e401c3006300700130060013003375400d149a26cac8009",
-      "hash": "7ed916a50e65ceefc39ca1fbb74d4bacc1518ebe586cd6576ae682f9"
+      "compiledCode": "585701010029800aba2aba1aab9eaab9dab9a4888896600264646644b30013370e900218031baa00289919b87375a6012008906400980418039baa0028a504014600c600e002600c004600c00260066ea801a29344d9590011",
+      "hash": "a82718805c3541469346431c0cc023a76afce8d6d2c1c64d00bf1950"
     },
     {
-      "title": "transfer.placeholder.mint",
-      "redeemer": {
-        "title": "_redeemer",
-        "schema": {
-          "$ref": "#/definitions/Data"
-        }
-      },
-      "compiledCode": "586d01010029800aba2aba1aab9eaab9dab9a48888966002646465300130053754003300700398038012444b30013370e9002001c4c928980518049baa0048acc004cdc3a40000071324a26eb8c028c024dd50024528a00e401c3006300700130060013003375400d149a26cac8009",
-      "hash": "7ed916a50e65ceefc39ca1fbb74d4bacc1518ebe586cd6576ae682f9"
-    },
-    {
-      "title": "transfer.placeholder.else",
+      "title": "transfer.issue.else",
       "redeemer": {
         "schema": {}
       },
-      "compiledCode": "586d01010029800aba2aba1aab9eaab9dab9a48888966002646465300130053754003300700398038012444b30013370e9002001c4c928980518049baa0048acc004cdc3a40000071324a26eb8c028c024dd50024528a00e401c3006300700130060013003375400d149a26cac8009",
-      "hash": "7ed916a50e65ceefc39ca1fbb74d4bacc1518ebe586cd6576ae682f9"
+      "compiledCode": "585701010029800aba2aba1aab9eaab9dab9a4888896600264646644b30013370e900218031baa00289919b87375a6012008906400980418039baa0028a504014600c600e002600c004600c00260066ea801a29344d9590011",
+      "hash": "a82718805c3541469346431c0cc023a76afce8d6d2c1c64d00bf1950"
+    },
+    {
+      "title": "transfer.transfer.withdraw",
+      "redeemer": {
+        "title": "redeemer",
+        "schema": {
+          "$ref": "#/definitions/Int"
+        }
+      },
+      "compiledCode": "585701010029800aba2aba1aab9eaab9dab9a4888896600264646644b30013370e900218031baa00289919b87375a6012008904801980418039baa0028a504014600c600e002600c004600c00260066ea801a29344d9590011",
+      "hash": "93fd90884c772ced27987503f9d37c857372b99cf5cc716197ebb8bd"
+    },
+    {
+      "title": "transfer.transfer.else",
+      "redeemer": {
+        "schema": {}
+      },
+      "compiledCode": "585701010029800aba2aba1aab9eaab9dab9a4888896600264646644b30013370e900218031baa00289919b87375a6012008904801980418039baa0028a504014600c600e002600c004600c00260066ea801a29344d9590011",
+      "hash": "93fd90884c772ced27987503f9d37c857372b99cf5cc716197ebb8bd"
     }
   ],
   "definitions": {
-    "Data": {
-      "title": "Data",
-      "description": "Any Plutus data."
+    "Int": {
+      "dataType": "integer"
     }
   }
 }
