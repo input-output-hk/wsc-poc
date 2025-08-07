@@ -27,8 +27,6 @@ import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 
-import Debug.Trace qualified
-
 registerProgrammableGlobalScript :: forall env era m. (MonadReader env m, C.IsBabbageBasedEra era, MonadBuildTx era m, Env.HasDirectoryEnv env) => m ()
 registerProgrammableGlobalScript = case C.babbageBasedEra @era of
   C.BabbageEraOnwardsBabbage -> error "babbage era registration not implemented"
@@ -67,14 +65,14 @@ issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) udat@UTxODat{uDa
 
 
   -- Debug.Trace.traceM $ "mintingLogicScript: " <> BSC.unpack (Base16.encode $ C.serialiseToRawBytes mintingScript)
-  Debug.Trace.traceM $ "issuedCurrencySymbol: " <> show issuedSymbol
+  -- Debug.Trace.traceM $ "issuedCurrencySymbol: " <> show issuedSymbol
 
   if key dirNodeData == issuedSymbol
     then do
       -- Debug.Trace.traceM "NO insert directory node"
       mintPlutus mintingScript mintingLogicCred an q
     else do
-      Debug.Trace.traceM "insert directory node"
+      -- Debug.Trace.traceM "insert directory node"
       mintPlutus mintingScript mintingLogicCred an q
       insertDirectoryNode paramsTxOut issuanceCborHexTxOut udat
 
@@ -118,8 +116,8 @@ registerTransferScripts :: forall era env m.
   , Env.HasTransferLogicEnv env
   , C.IsConwayBasedEra era
   )
-  => C.Hash C.PaymentKey -> m ()
-registerTransferScripts pkh = do
+  => m ()
+registerTransferScripts = do
   transferMintingScript <- asks (Env.tleMintingScript . Env.transferLogicEnv)
   transferSpendingScript <- asks (Env.tleTransferScript . Env.transferLogicEnv)
   transferSeizeSpendingScript <- asks (Env.tleIssuerScript . Env.transferLogicEnv)
@@ -138,5 +136,3 @@ registerTransferScripts pkh = do
   Utils.addConwayStakeCredentialCertificate credSpending
   Utils.addConwayStakeCredentialCertificate credMinting
   Utils.addConwayStakeCredentialCertificate credSeizeSpending
-
-  BuildTx.addRequiredSignature pkh

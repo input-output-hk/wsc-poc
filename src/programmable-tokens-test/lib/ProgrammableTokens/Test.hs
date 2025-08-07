@@ -17,7 +17,6 @@ module ProgrammableTokens.Test(
 
   -- * Mockchain actions
   deployDirectorySet,
-  registerTransferScripts,
   issueProgrammableTokenTx,
 ) where
 
@@ -28,8 +27,7 @@ import Cardano.Ledger.Plutus.ExUnits (ExUnits (..))
 import Control.Lens ((%~), (&))
 import Control.Monad.Except (ExceptT, MonadError)
 import Control.Monad.IO.Class (MonadIO (..))
-import Control.Monad.Reader (MonadReader, ReaderT (runReaderT), ask, asks)
-import Convex.BuildTx qualified as BuildTx
+import Control.Monad.Reader (MonadReader, ReaderT (runReaderT), ask)
 import Convex.Class (MonadBlockchain, MonadMockchain, MonadUtxoQuery,
                      ValidationError, getTxById, sendTx)
 import Convex.CoinSelection (AsBalancingError (..), AsCoinSelectionError)
@@ -46,7 +44,6 @@ import Convex.Wallet.Operator (Operator (..), PaymentExtendedKey (..), Signing,
                                signTxOperator)
 import Data.Functor (void)
 import ProgrammableTokens.OffChain.BuildTx qualified as BuildTx
-import ProgrammableTokens.OffChain.BuildTx.Utils (addConwayStakeCredentialCertificate)
 import ProgrammableTokens.OffChain.Endpoints qualified as Endpoints
 import ProgrammableTokens.OffChain.Env qualified as Env
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError)
@@ -180,21 +177,4 @@ issueProgrammableTokenTx assetName quantity = do
     Env.operatorPaymentCredential
       >>= BuildTx.paySmartTokensToDestination (assetName, quantity) polId
     BuildTx.invokeMintingStakeScript
-  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
-
--- TODO: registration to be moved to the endpoints
-registerTransferScripts ::
-  ( MonadFail m
-  , MonadError err m
-  , MonadReader env m
-  , AsCoinSelectionError err
-  , AsBalancingError err C.ConwayEra
-  , Env.HasTransferLogicEnv env
-  , Env.HasOperatorEnv C.ConwayEra env
-  , MonadMockchain C.ConwayEra m
-  )
-  => C.Hash C.PaymentKey -> m (C.Tx C.ConwayEra)
-registerTransferScripts pkh = do
-  (tx, _)  <- Env.balanceTxEnv_$ do
-    BuildTx.registerTransferScripts pkh
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)

@@ -17,7 +17,6 @@ import Control.Monad (when)
 import Control.Monad.Error.Lens (throwing_)
 import Control.Monad.Except (MonadError (..))
 import Control.Monad.Reader (MonadReader, asks)
-import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Convex.CoinSelection (AsBalancingError, AsCoinSelectionError)
 import Convex.CoinSelection qualified
@@ -32,7 +31,6 @@ import SmartTokens.Core.Scripts (ScriptTarget (..))
 import Wst.AppError (AsRegulatedStablecoinError (..))
 import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy,
                                      balanceTxEnvFailing)
-import Wst.Offchain.BuildTx.ProgrammableLogic qualified as BuildTx
 import Wst.Offchain.BuildTx.TransferLogic (BlacklistReason)
 import Wst.Offchain.BuildTx.TransferLogic qualified as BuildTx
 import Wst.Offchain.Env (DirectoryScriptRoot (..))
@@ -44,7 +42,7 @@ import Wst.Offchain.Query qualified as Query
 the relevant stablecoin transfer logic scripts and registrations. Returns the
 transaction and the 'TxIn' that was selected for the one-shot NFTs.
 -}
-deployFullTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, AsProgrammableTokensError err, AsCoinSelectionError err, AsBalancingError err era) => ScriptTarget -> m (C.Tx era, DirectoryScriptRoot)
+deployFullTx :: (MonadReader env m, C.IsConwayBasedEra era, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, AsProgrammableTokensError err, AsCoinSelectionError err, AsBalancingError err era) => ScriptTarget -> m (C.Tx era, DirectoryScriptRoot)
 deployFullTx target = do
   ((txi, _), (issuanceCborHexTxIn, _)) <- Env.selectTwoOperatorOutputs
   opEnv <- asks Env.operatorEnv

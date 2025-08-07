@@ -5,7 +5,6 @@ module ProgrammableTokens.Test.DirectorySet(
 
 import Cardano.Api.Shelley qualified as C
 import Control.Monad.Except (MonadError)
-import Control.Monad.Reader (asks)
 import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadMockchain, MonadUtxoQuery, sendTx)
 import Convex.CoinSelection (ChangeOutputPosition (TrailingChange))

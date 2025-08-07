@@ -82,7 +82,6 @@ registerCip143PolicyTransferScripts :: forall era env err m.
   )
   => m (C.Tx era)
 registerCip143PolicyTransferScripts = do
-  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
   (tx, _) <- Env.balanceTxEnv_ $ do
-    BuildTx.registerTransferScripts opPkh
+    BuildTx.registerTransferScripts
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)

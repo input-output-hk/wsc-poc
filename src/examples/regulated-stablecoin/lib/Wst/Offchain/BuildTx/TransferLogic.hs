@@ -13,7 +13,6 @@ module Wst.Offchain.BuildTx.TransferLogic
     BlacklistReason(..),
     insertBlacklistNode,
     removeBlacklistNode,
-    registerTransferScripts,
     blacklistInitialNode
   )
 where
@@ -63,7 +62,6 @@ import SmartTokens.Types.PTokenDirectory (BlacklistNode (..),
 import Wst.AppError (AsRegulatedStablecoinError (..))
 import Wst.Offchain.BuildTx.ProgrammableLogic (seizeProgrammableToken,
                                                transferProgrammableToken)
-import Wst.Offchain.BuildTx.Utils (addConwayStakeCredentialCertificate)
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 
@@ -404,25 +402,3 @@ unwrapCredential :: Credential -> PlutusTx.BuiltinByteString
 unwrapCredential = \case
   PubKeyCredential (PubKeyHash s) -> s
   ScriptCredential (ScriptHash s) -> s
-
-registerTransferScripts :: forall env era m. (MonadReader env m, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m) => m ()
-registerTransferScripts = case C.babbageBasedEra @era of
-  C.BabbageEraOnwardsBabbage -> error "babbage era registration not implemented"
-  C.BabbageEraOnwardsConway  -> Utils.inConway @era $ do
-    transferMintingScript <- asks (Env.tleMintingScript . Env.transferLogicEnv)
-    transferSpendingScript <- asks (Env.tleTransferScript . Env.transferLogicEnv)
-    transferSeizeSpendingScript <- asks (Env.tleIssuerScript . Env.transferLogicEnv)
-
-    let
-        hshMinting = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferMintingScript
-        credMinting = C.StakeCredentialByScript hshMinting
-
-        hshSpending = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferSpendingScript
-        credSpending = C.StakeCredentialByScript hshSpending
-
-        hshSeizeSpending = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferSeizeSpendingScript
-        credSeizeSpending = C.StakeCredentialByScript hshSeizeSpending
-
-    addConwayStakeCredentialCertificate credMinting
-    addConwayStakeCredentialCertificate credSpending
-    addConwayStakeCredentialCertificate credSeizeSpending

@@ -21,7 +21,7 @@ import ProgrammableTokens.OffChain.Env qualified as Env
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError)
 import ProgrammableTokens.OffChain.Query qualified as Query
 import ProgrammableTokens.Test qualified as Test
-import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
+import SmartTokens.Core.Scripts (ScriptTarget (Debug))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertEqual, testCase, testCaseSteps)
 import Wst.Aiken.Blueprint (Blueprint (..))
@@ -38,7 +38,7 @@ tests =
       testGroup
         "emulator"
         [ testCaseSteps "register"
-            $ Test.mockchainSucceedsWithTarget @(AikenError C.ConwayEra) Debug . registerAikenPolicy steps
+            $ Test.mockchainSucceedsWithTarget @(AikenError C.ConwayEra) Debug . registerAikenPolicy
         ]
     ]
 
@@ -53,7 +53,7 @@ deserialiseScript = do
     >>= \case
       (C.ScriptInAnyLang (C.PlutusScriptLanguage C.PlutusScriptV3) script) -> do
         let hsh = C.hashScript script
-        assertEqual "Script hash" "bcd267776758c6a8cdb78da8c070f0531b55621e9ce3f3b14524c975" hsh
+        assertEqual "Script hash" "7ed916a50e65ceefc39ca1fbb74d4bacc1518ebe586cd6576ae682f9" hsh
       _ -> fail "Unexpected script language"
 
 loadExample :: IO Blueprint
