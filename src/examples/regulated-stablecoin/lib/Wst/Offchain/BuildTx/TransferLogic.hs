@@ -52,6 +52,7 @@ import PlutusLedgerApi.V3 (Credential (..), PubKeyHash (PubKeyHash),
                            ScriptHash (..))
 import PlutusLedgerApi.V3 qualified as PlutusTx
 import ProgrammableTokens.OffChain.BuildTx qualified as BuildTx
+import ProgrammableTokens.OffChain.BuildTx.ProgrammableLogic (transferProgrammableToken)
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
 import ProgrammableTokens.OffChain.Scripts (scriptPolicyIdV3)
 import SmartTokens.Contracts.ExampleTransferLogic (BlacklistProof (..))
@@ -60,8 +61,7 @@ import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (BlacklistNode (..),
                                           DirectorySetNode (..))
 import Wst.AppError (AsRegulatedStablecoinError (..))
-import Wst.Offchain.BuildTx.ProgrammableLogic (seizeProgrammableToken,
-                                               transferProgrammableToken)
+import Wst.Offchain.BuildTx.ProgrammableLogic (seizeProgrammableToken)
 import Wst.Offchain.Env qualified as Env
 import Wst.Offchain.Query (UTxODat (..))
 

@@ -43,6 +43,7 @@ import Convex.Wallet.MockWallet (w1)
 import Convex.Wallet.Operator (Operator (..), PaymentExtendedKey (..), Signing,
                                signTxOperator)
 import Data.Functor (void)
+import PlutusLedgerApi.V3 qualified as PV3
 import ProgrammableTokens.OffChain.BuildTx qualified as BuildTx
 import ProgrammableTokens.OffChain.Endpoints qualified as Endpoints
 import ProgrammableTokens.OffChain.Env qualified as Env
@@ -150,7 +151,7 @@ deployDirectorySet op = do
 
 {-| Build a transaction that issues a progammable token
 -}
-issueProgrammableTokenTx :: forall era env err m.
+issueProgrammableTokenTx :: forall era env redeemer err m.
   ( MonadReader env m
   , Env.HasOperatorEnv era env
   , Env.HasDirectoryEnv env
@@ -163,11 +164,13 @@ issueProgrammableTokenTx :: forall era env err m.
   , AsProgrammableTokensError err
   , AsCoinSelectionError err
   , AsBalancingError err era
+  , PV3.ToData redeemer
   )
   => C.AssetName -- ^ Name of the asset
   -> Quantity -- ^ Amount of tokens to be minted
+  -> redeemer
   -> m (C.Tx era)
-issueProgrammableTokenTx assetName quantity = do
+issueProgrammableTokenTx assetName quantity redeemer = do
   directoryNode <- Query.registryNodeForReferenceOrInsertion @era
   paramsNode <- Query.globalParamsNode @era
   cborHexTxIn <- Query.issuanceCborHexUTxO @era
@@ -176,5 +179,5 @@ issueProgrammableTokenTx assetName quantity = do
     polId <- BuildTx.issueProgrammableToken paramsNode cborHexTxIn (assetName, quantity) directoryNode
     Env.operatorPaymentCredential
       >>= BuildTx.paySmartTokensToDestination (assetName, quantity) polId
-    BuildTx.invokeMintingStakeScript
+    BuildTx.invokeMintingStakeScript redeemer
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)

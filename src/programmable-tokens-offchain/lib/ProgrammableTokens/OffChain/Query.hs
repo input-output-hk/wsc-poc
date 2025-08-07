@@ -12,7 +12,8 @@ module ProgrammableTokens.OffChain.Query(
   userProgrammableOutputs,
   issuanceCborHexUTxO,
   globalParamsNode,
-  programmableLogicOutputs
+  programmableLogicOutputs,
+  selectProgammableOutputsFor
 
 ) where
 
@@ -26,6 +27,8 @@ import Convex.Class (MonadBlockchain (..), MonadUtxoQuery,
                      utxosByPaymentCredential)
 import Convex.PlutusLedger.V1 (transCredential, transPolicyId,
                                unTransStakeCredential)
+import Convex.Utxos (UtxoSet (UtxoSet))
+import Convex.Wallet (selectMixedInputsCovering)
 import Data.List (sortOn)
 import Data.Maybe (listToMaybe)
 import Data.Ord (Down (..))
@@ -36,7 +39,8 @@ import ProgrammableTokens.OffChain.Env.Directory (DirectoryEnv (..),
                                                   issuanceCborHexPolicyId,
                                                   protocolParamsPolicyId)
 import ProgrammableTokens.OffChain.Env.TransferLogic (HasTransferLogicEnv (..),
-                                                      programmableTokenMintingScript)
+                                                      programmableTokenMintingScript,
+                                                      programmableTokenPolicyId)
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError (..))
 import ProgrammableTokens.OffChain.UTxODat (UTxODat (..), extractUTxO,
                                             extractUtxoNoDatum)
@@ -107,6 +111,31 @@ userProgrammableOutputs userCred = do
       isUserUtxo UTxODat{uOut=(C.TxOut addr _ _ _)} = addr == expectedAddress
 
   filter isUserUtxo <$> programmableLogicOutputs
+
+{-| Select enough programmable outputs to cover the desired amount
+of the token. Returns the 'TxIn's and the leftover (change) quantity
+-}
+selectProgammableOutputsFor :: forall era env m.
+  ( MonadReader env m
+  , HasDirectoryEnv env
+  , MonadUtxoQuery m
+  , C.IsBabbageBasedEra era
+  , MonadBlockchain era m
+  , HasTransferLogicEnv env
+  )
+  => C.PaymentCredential
+  -> C.AssetName
+  -> C.Quantity
+  -> m ([C.TxIn], C.Quantity)
+selectProgammableOutputsFor owner assetname quantity = do
+  userOutputs <- userProgrammableOutputs owner
+  policyId <- programmableTokenPolicyId
+  -- Find sufficient inputs to cover the transfer
+  let assetId = C.AssetId policyId assetname
+  let userOutputsMap = fromList $ map (\UTxODat {uIn, uOut, uDatum} -> (uIn, (C.inAnyCardanoEra (C.cardanoEra @era) uOut, uDatum))) userOutputs
+  (totalVal, txins) <- maybe (error "insufficient funds for transfer") pure $ selectMixedInputsCovering (UtxoSet userOutputsMap) [(assetId, quantity)]
+  let quantityAvailable = C.selectAsset totalVal assetId
+  pure (txins, quantityAvailable - quantity)
 
 {-| Find the UTxO with the issuance script cbor hex
 -}

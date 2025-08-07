@@ -4,19 +4,21 @@ module ProgrammableTokens.OffChain.Env.TransferLogic(
   HasTransferLogicEnv(..),
   TransferLogicEnv(..),
   alwaysSucceedsTransferLogic,
+  programmableTokenPolicyId,
   programmableTokenMintingScript
 ) where
 
 import Cardano.Api (PlutusScript, PlutusScriptV3)
 import Cardano.Api.Shelley qualified as C
+import Control.Monad.Reader (MonadReader (..), asks)
 import Convex.PlutusLedger.V1 (unTransCredential)
 import Data.Either (fromRight)
 import PlutusLedgerApi.V3 (CurrencySymbol)
 import ProgrammableTokens.OffChain.Env.Directory (DirectoryEnv (..),
                                                   DirectoryScriptRoot (..),
+                                                  HasDirectoryEnv (..),
                                                   globalParams)
-import ProgrammableTokens.OffChain.Scripts (alwaysSucceedsScript,
-                                            programmableLogicMintingScript)
+import ProgrammableTokens.OffChain.Scripts as Scripts
 import SmartTokens.Core.Scripts (ScriptTarget)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 
@@ -55,3 +57,8 @@ programmableTokenMintingScript dirEnv@DirectoryEnv{dsScriptRoot} TransferLogicEn
       DirectoryScriptRoot{srTarget} = dsScriptRoot
       progLogicScriptCredential = fromRight (error "could not parse protocol params") $ unTransCredential progLogicCred
   in programmableLogicMintingScript srTarget progLogicScriptCredential (C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleMintingScript)
+
+-- | The minting policy ID of the programmable token
+programmableTokenPolicyId :: (MonadReader env m, HasTransferLogicEnv env, HasDirectoryEnv env) => m C.PolicyId
+programmableTokenPolicyId =
+  fmap Scripts.scriptPolicyIdV3 (programmableTokenMintingScript <$> asks directoryEnv <*> asks transferLogicEnv)

@@ -7,8 +7,7 @@
 
 {-# HLINT ignore "Use second" #-}
 module Wst.Offchain.BuildTx.ProgrammableLogic
-  ( transferProgrammableToken,
-    seizeProgrammableToken,
+  ( seizeProgrammableToken,
   )
 where
 
@@ -41,52 +40,6 @@ import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedee
 import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.Offchain.Query (UTxODat (..))
-
-{- User facing transfer of programmable tokens from one address to another.
-   The caller should ensure that the specific transfer logic stake script
-   witness is included in the final transaction.
-
-   NOTE: If the token is not in the directory, then the function will
-   use a PDoesNotExist redeemer to prove that the token is not programmable
-
-   IMPORTANT: The caller should ensure that the destination address of the
-   programmable token(s) in this transaction all correspond to the same
-   programmable logic payment credential otherwise the transaction will fail onchain validation.
--}
-transferProgrammableToken :: forall env era m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams ->  [C.TxIn] -> CurrencySymbol -> UTxODat era DirectorySetNode -> m ()
-transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol UTxODat{uIn = dirNodeRef, uDatum = dirNodeDat} = Utils.inBabbage @era $ do
-  nid <- queryNetworkId
-
-  -- TODO: Check that the directory node is an exact match for our policy
-
-  baseSpendingScript <- asks (Env.dsProgrammableLogicBaseScript . Env.directoryEnv)
-  globalStakeScript <- asks (Env.dsProgrammableLogicGlobalScript . Env.directoryEnv)
-
-
-  let globalStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 globalStakeScript
-
-      -- Finds the index of the directory node reference in the transaction ref
-      -- inputs
-      directoryNodeReferenceIndex txBody =
-        fromIntegral @Int @Integer $ findIndexReference dirNodeRef txBody
-
-      -- The redeemer for the global script based on whether a dirctory node
-      -- exists with the programmable token symbol
-      programmableLogicGlobalRedeemer txBody =
-        if key dirNodeDat == programmableTokenSymbol
-          -- TODO: extend to allow multiple proofs, onchain allows it
-          then TransferAct [TokenExists $ directoryNodeReferenceIndex txBody]
-          else TransferAct [TokenDoesNotExist $ directoryNodeReferenceIndex txBody]
-
-      programmableGlobalWitness txBody = buildScriptWitness globalStakeScript C.NoScriptDatumForStake (programmableLogicGlobalRedeemer txBody)
-
-  addReference (uIn paramsTxIn) -- Protocol Params TxIn
-  addReference dirNodeRef -- Directory Node TxIn
-  traverse_ (\tin -> spendPlutusInlineDatum tin baseSpendingScript ()) tokenTxIns
-  addWithdrawalWithTxBody -- Add the global script witness to the transaction
-    (C.makeStakeAddress nid globalStakeCred)
-    (C.Quantity 0)
-    $ C.ScriptWitness C.ScriptWitnessForStakeAddr . programmableGlobalWitness
 
 {- Seize a programmable token from a user address to an issuer address. The
    outputs address will be that of the issuer retrieved from @issuerTxOut@.

@@ -4,7 +4,9 @@ module ProgrammableTokens.OffChain.BuildTx.ProgrammableLogic(
   issueProgrammableToken,
   paySmartTokensToDestination,
   invokeMintingStakeScript,
-  registerTransferScripts
+  registerTransferScripts,
+  invokeTransferStakeScript,
+  transferProgrammableToken
 ) where
 
 import Cardano.Api.Shelley qualified as C
@@ -12,10 +14,12 @@ import Control.Monad (unless)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx, mintPlutus, payToAddress)
 import Convex.BuildTx qualified as BuildTx
-import Convex.Class (MonadBlockchain)
+import Convex.Class (MonadBlockchain, queryNetworkId)
 import Convex.PlutusLedger.V1 (transPolicyId, transPubKeyHash, transScriptHash)
 import Convex.Utils qualified as Utils
+import Data.Foldable (traverse_)
 import GHC.Exts (IsList (..))
+import PlutusLedgerApi.V3 (CurrencySymbol (..))
 import PlutusLedgerApi.V3 qualified as PV3
 import ProgrammableTokens.OffChain.BuildTx.Directory (insertDirectoryNode)
 import ProgrammableTokens.OffChain.BuildTx.Utils qualified as Utils
@@ -24,6 +28,8 @@ import ProgrammableTokens.OffChain.Env qualified as Env
 import ProgrammableTokens.OffChain.UTxODat (UTxODat (..))
 import SmartTokens.Contracts.Issuance (SmartTokenMintingAction (..))
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex)
+import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedeemer (..),
+                                                    TokenProof (..))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 
@@ -94,19 +100,38 @@ paySmartTokensToDestination (an, q) issuedPolicyId destinationCred = Utils.inBab
 
 {-| Call the stake validator that validates the minting logic
 -}
-invokeMintingStakeScript :: forall era env m.
+invokeMintingStakeScript :: forall era redeemer env m.
   ( MonadReader env m
   , Env.HasTransferLogicEnv env
   , C.IsBabbageBasedEra era
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadBuildTx era m
   , MonadBlockchain era m
+  , PV3.ToData redeemer
   )
-  => m ()
-invokeMintingStakeScript = do
+  => redeemer -> m ()
+invokeMintingStakeScript redeemer = do
   Env.TransferLogicEnv{Env.tleMintingScript} <- asks Env.transferLogicEnv
   let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion tleMintingScript)
-  BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness tleMintingScript C.NoScriptDatumForStake ()
+  BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness tleMintingScript C.NoScriptDatumForStake redeemer
+
+{-| Call the stake validator that validates the transfer logic
+-}
+invokeTransferStakeScript :: forall era redeemer env m.
+  ( MonadReader env m
+  , Env.HasTransferLogicEnv env
+  , C.IsBabbageBasedEra era
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , MonadBuildTx era m
+  , MonadBlockchain era m
+  , PV3.ToData redeemer
+  )
+  => redeemer -> m ()
+invokeTransferStakeScript redeemer = do
+  Env.TransferLogicEnv{Env.tleTransferScript} <- asks Env.transferLogicEnv
+  let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion tleTransferScript)
+  BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness tleTransferScript C.NoScriptDatumForStake redeemer
+
 
 {-| Register the stake scripts for the CIP-143 transfer logic
 -}
@@ -136,3 +161,49 @@ registerTransferScripts = do
   Utils.addConwayStakeCredentialCertificate credSpending
   Utils.addConwayStakeCredentialCertificate credMinting
   Utils.addConwayStakeCredentialCertificate credSeizeSpending
+
+{- User facing transfer of programmable tokens from one address to another.
+   The caller should ensure that the specific transfer logic stake script
+   witness is included in the final transaction.
+
+   NOTE: If the token is not in the directory, then the function will
+   use a PDoesNotExist redeemer to prove that the token is not programmable
+
+   IMPORTANT: The caller should ensure that the destination address of the
+   programmable token(s) in this transaction all correspond to the same
+   programmable logic payment credential otherwise the transaction will fail onchain validation.
+-}
+transferProgrammableToken :: forall env era m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams ->  [C.TxIn] -> CurrencySymbol -> UTxODat era DirectorySetNode -> m ()
+transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol UTxODat{uIn = dirNodeRef, uDatum = dirNodeDat} = Utils.inBabbage @era $ do
+  nid <- queryNetworkId
+
+  -- TODO: Check that the directory node is an exact match for our policy
+
+  baseSpendingScript <- asks (Env.dsProgrammableLogicBaseScript . Env.directoryEnv)
+  globalStakeScript <- asks (Env.dsProgrammableLogicGlobalScript . Env.directoryEnv)
+
+
+  let globalStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 globalStakeScript
+
+      -- Finds the index of the directory node reference in the transaction ref
+      -- inputs
+      directoryNodeReferenceIndex txBody =
+        fromIntegral @Int @Integer $ BuildTx.findIndexReference dirNodeRef txBody
+
+      -- The redeemer for the global script based on whether a dirctory node
+      -- exists with the programmable token symbol
+      programmableLogicGlobalRedeemer txBody =
+        if key dirNodeDat == programmableTokenSymbol
+          -- TODO: extend to allow multiple proofs, onchain allows it
+          then TransferAct [TokenExists $ directoryNodeReferenceIndex txBody]
+          else TransferAct [TokenDoesNotExist $ directoryNodeReferenceIndex txBody]
+
+      programmableGlobalWitness txBody = BuildTx.buildScriptWitness globalStakeScript C.NoScriptDatumForStake (programmableLogicGlobalRedeemer txBody)
+
+  BuildTx.addReference (uIn paramsTxIn) -- Protocol Params TxIn
+  BuildTx.addReference dirNodeRef -- Directory Node TxIn
+  traverse_ (\tin -> BuildTx.spendPlutusInlineDatum tin baseSpendingScript ()) tokenTxIns
+  BuildTx.addWithdrawalWithTxBody -- Add the global script witness to the transaction
+    (C.makeStakeAddress nid globalStakeCred)
+    (C.Quantity 0)
+    $ C.ScriptWitness C.ScriptWitnessForStakeAddr . programmableGlobalWitness

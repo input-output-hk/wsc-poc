@@ -9,18 +9,26 @@ module ProgrammableTokens.OffChain.Endpoints
     -- * CIP deployment
     deployCip143RegistryTx,
     deployIssuanceCborHex,
-    frackUtxosTx
+    frackUtxosTx,
+
+    -- * Transfer
+    transferTokens
   )
 where
 
 import Cardano.Api qualified as C
+import Control.Monad (when)
 import Control.Monad.Except (MonadError (..))
 import Control.Monad.Reader (MonadReader, asks)
+import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Convex.CoinSelection (AsBalancingError, AsCoinSelectionError)
 import Convex.CoinSelection qualified
+import Convex.PlutusLedger.V1 (transPolicyId)
+import PlutusLedgerApi.V3 qualified as PV3
 import ProgrammableTokens.OffChain.BuildTx qualified as BuildTx
-import ProgrammableTokens.OffChain.Env (DirectoryScriptRoot (..))
+import ProgrammableTokens.OffChain.Env (DirectoryScriptRoot (..),
+                                        programmableTokenPolicyId)
 import ProgrammableTokens.OffChain.Env qualified as Env
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError)
 import ProgrammableTokens.OffChain.Query qualified as Query
@@ -56,20 +64,37 @@ deployCip143RegistryTx target = do
   pure (Convex.CoinSelection.signBalancedTxBody [] tx, root)
 
 -- | Build a transaction that inserts a node into the directory
-registerCip143PolicyTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasDirectoryEnv env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsProgrammableTokensError err, AsBalancingError err era, AsCoinSelectionError err, Env.HasTransferLogicEnv env) => m (C.Tx era)
-registerCip143PolicyTx = do
+registerCip143PolicyTx :: forall era env redeemer err m.
+  ( MonadReader env m
+  , Env.HasOperatorEnv era env
+  , Env.HasDirectoryEnv env
+  , MonadBlockchain era m
+  , MonadError err m
+  , C.IsBabbageBasedEra era
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , MonadUtxoQuery m
+  , AsProgrammableTokensError err
+  , AsBalancingError err era
+  , AsCoinSelectionError err
+  , Env.HasTransferLogicEnv env
+  , PV3.ToData redeemer
+  )
+  => C.AssetName
+  -> C.Quantity
+  -> redeemer
+  -> m (C.Tx era)
+registerCip143PolicyTx assetName quantity redeemer = do
   headNode <- Query.registryNodeForReferenceOrInsertion @era
   paramsNode <- Query.globalParamsNode @era
   cborHexTxIn <- Query.issuanceCborHexUTxO @era
   (tx, _) <- Env.balanceTxEnv_ $ do
-    let assetName = "TEST"
-        quantity  = 1
     policyId <- BuildTx.issueProgrammableToken paramsNode cborHexTxIn (assetName, quantity) headNode
     Env.operatorPaymentCredential
       >>= BuildTx.paySmartTokensToDestination (assetName, quantity) policyId
-    BuildTx.invokeMintingStakeScript
+    BuildTx.invokeMintingStakeScript redeemer
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
+-- | Buld a transaction that registers the transfer scripts
 registerCip143PolicyTransferScripts :: forall era env err m.
   ( MonadReader env m
   , Env.HasOperatorEnv era env
@@ -84,4 +109,38 @@ registerCip143PolicyTransferScripts :: forall era env err m.
 registerCip143PolicyTransferScripts = do
   (tx, _) <- Env.balanceTxEnv_ $ do
     BuildTx.registerTransferScripts
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
+{-| Build a transaction that transfers the programmable tokens to the target address
+-}
+transferTokens :: forall era env redeemer err m.
+  ( MonadReader env m
+  , Env.HasOperatorEnv era env
+  , MonadBlockchain era m
+  , MonadError err m
+  , AsBalancingError err era
+  , AsCoinSelectionError err
+  , Env.HasTransferLogicEnv env
+  , Env.HasDirectoryEnv env
+  , MonadUtxoQuery m
+  , AsProgrammableTokensError err
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , C.IsConwayBasedEra era
+  , PV3.ToData redeemer
+  )
+  => C.AssetName -> C.Quantity -> C.PaymentCredential -> redeemer -> m (C.Tx era)
+transferTokens assetName quantity target redeemer = do
+  headNode <- Query.registryNodeForReference @era
+  paramsNode <- Query.globalParamsNode @era
+  policyId <- programmableTokenPolicyId
+  op <- Env.operatorPaymentCredential
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
+  (inputs, change) <- Query.selectProgammableOutputsFor op assetName quantity
+  (tx, _) <- Env.balanceTxEnv_ $ do
+    BuildTx.transferProgrammableToken paramsNode inputs (transPolicyId policyId) headNode
+    BuildTx.paySmartTokensToDestination (assetName, quantity) policyId target
+    BuildTx.invokeTransferStakeScript redeemer
+    when (change > 0) $ do
+      Env.operatorPaymentCredential >>= BuildTx.paySmartTokensToDestination (assetName, change) policyId
+    BuildTx.addRequiredSignature opPkh
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
