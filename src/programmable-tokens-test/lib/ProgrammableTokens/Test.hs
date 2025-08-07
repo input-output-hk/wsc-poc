@@ -175,13 +175,11 @@ issueProgrammableTokenTx assetName quantity = do
   paramsNode <- Query.globalParamsNode @era
   cborHexTxIn <- Query.issuanceCborHexUTxO @era
 
-  Env.TransferLogicEnv{Env.tleMintingScript} <- asks Env.transferLogicEnv
   (tx, _) <- Env.balanceTxEnv_ $ do
     polId <- BuildTx.issueProgrammableToken paramsNode cborHexTxIn (assetName, quantity) directoryNode
     Env.operatorPaymentCredential
       >>= BuildTx.paySmartTokensToDestination (assetName, quantity) polId
-    let hsh = C.hashScript (C.PlutusScript C.plutusScriptVersion tleMintingScript)
-    BuildTx.addScriptWithdrawal hsh 0 $ BuildTx.buildScriptWitness tleMintingScript C.NoScriptDatumForStake ()
+    BuildTx.invokeMintingStakeScript
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 -- TODO: registration to be moved to the endpoints
@@ -197,26 +195,6 @@ registerTransferScripts ::
   )
   => C.Hash C.PaymentKey -> m (C.Tx C.ConwayEra)
 registerTransferScripts pkh = do
-  transferMintingScript <- asks (Env.tleMintingScript . Env.transferLogicEnv)
-  transferSpendingScript <- asks (Env.tleTransferScript . Env.transferLogicEnv)
-  transferSeizeSpendingScript <- asks (Env.tleIssuerScript . Env.transferLogicEnv)
-
-  let
-      hshMinting = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferMintingScript
-      credMinting = C.StakeCredentialByScript hshMinting
-
-      hshSpending = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferSpendingScript
-      credSpending = C.StakeCredentialByScript hshSpending
-
-      hshSeizeSpending = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferSeizeSpendingScript
-      credSeizeSpending = C.StakeCredentialByScript hshSeizeSpending
-
-
   (tx, _)  <- Env.balanceTxEnv_$ do
-
-    addConwayStakeCredentialCertificate credSpending
-    addConwayStakeCredentialCertificate credMinting
-    addConwayStakeCredentialCertificate credSeizeSpending
-
-    BuildTx.addRequiredSignature pkh
+    BuildTx.registerTransferScripts pkh
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)

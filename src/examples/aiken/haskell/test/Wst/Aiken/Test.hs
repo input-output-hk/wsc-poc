@@ -10,17 +10,20 @@ import Cardano.Api qualified as C
 import Control.Monad.Except (MonadError)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (runReaderT)
-import Convex.Class (MonadBlockchain, MonadUtxoQuery)
+import Convex.Class (MonadBlockchain, MonadUtxoQuery, sendTx)
 import Convex.CoinSelection (AsBalancingError, AsCoinSelectionError)
+import Convex.Wallet.Operator (signTxOperator)
 import Data.Functor (void)
 import Data.Map qualified as Map
 import Paths_aiken_example qualified as Pkg
+import ProgrammableTokens.OffChain.Endpoints qualified as Endpoints
 import ProgrammableTokens.OffChain.Env qualified as Env
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError)
+import ProgrammableTokens.OffChain.Query qualified as Query
 import ProgrammableTokens.Test qualified as Test
-import SmartTokens.Core.Scripts (ScriptTarget (Production))
+import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, assertEqual, testCase)
+import Test.Tasty.HUnit (Assertion, assertEqual, testCase, testCaseSteps)
 import Wst.Aiken.Blueprint (Blueprint (..))
 import Wst.Aiken.Blueprint qualified as Blueprint
 import Wst.Aiken.Error (AikenError, AsBlueprintError)
@@ -34,7 +37,8 @@ tests =
       testCase "deserialise script" deserialiseScript,
       testGroup
         "emulator"
-        [ testCase "register" (Test.mockchainSucceedsWithTarget @(AikenError C.ConwayEra) Production registerAikenPolicy)
+        [ testCaseSteps "register"
+            $ Test.mockchainSucceedsWithTarget @(AikenError C.ConwayEra) Debug . registerAikenPolicy steps
         ]
     ]
 
@@ -49,7 +53,7 @@ deserialiseScript = do
     >>= \case
       (C.ScriptInAnyLang (C.PlutusScriptLanguage C.PlutusScriptV3) script) -> do
         let hsh = C.hashScript script
-        assertEqual "Script hash" "e42412ef37225695b87ad1701fec45ab657d4a4146959d7c3e36afc2" hsh
+        assertEqual "Script hash" "bcd267776758c6a8cdb78da8c070f0531b55621e9ce3f3b14524c975" hsh
       _ -> fail "Unexpected script language"
 
 loadExample :: IO Blueprint
@@ -63,21 +67,34 @@ registerAikenPolicy :: forall era err m.
   , MonadError err m
   , MonadBlockchain era m
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
-  , C.IsBabbageBasedEra era
   , MonadUtxoQuery m
   , Offchain.AsLookupScriptFailure err
   , AsBlueprintError err
   , AsCoinSelectionError err
   , AsBalancingError err era
   , AsProgrammableTokensError err
+  , MonadFail m
+  , C.IsConwayBasedEra era
   )
-  => m ()
-registerAikenPolicy = do
-  bp <- liftIO loadExample >>= flip Offchain.lookupScripts_ Offchain.blueprintKeys >>= Offchain.extractV3Scripts_
-  flip runReaderT Production $ do
-    scriptRoot <- Test.deployDirectorySet Test.admin
-    opEnv <- Env.loadConvexOperatorEnv Test.admin
-    Env.withEnv (Env.directoryOperatorEnv (Env.mkDirectoryEnv scriptRoot) opEnv) $ do
-      _ <- Offchain.registerBlueprintTx bp
-      pure ()
-    pure ()
+  => (String -> IO ())
+  -> m ()
+registerAikenPolicy step' = do
+  blueprint <- liftIO loadExample >>= flip Offchain.lookupScripts_ Offchain.blueprintKeys >>= Offchain.extractV3Scripts_
+  scriptRoot <- runReaderT (Test.deployDirectorySet Test.admin) Debug
+  let runAsAdmin = Env.runAs Test.admin (Env.mkDirectoryEnv scriptRoot) (Offchain.transferLogic blueprint)
+      step = liftIO . step'
+
+  step "Registering stake scripts"
+  _ <- runAsAdmin
+        $ Endpoints.registerCip143PolicyTransferScripts
+            >>= void . sendTx . signTxOperator Test.admin
+
+  step "Registering CIP 143 policy"
+  runAsAdmin $ do
+    Endpoints.registerCip143PolicyTx
+      >>= void . sendTx . signTxOperator Test.admin
+
+    Query.registryNodes @C.ConwayEra
+      >>= void . Test.expectN 2 "registry outputs"
+
+  pure ()

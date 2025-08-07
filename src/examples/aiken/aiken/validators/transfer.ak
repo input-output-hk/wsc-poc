@@ -4,9 +4,15 @@ use cardano/assets.{PolicyId}
 
 validator placeholder {
   withdraw(_redeemer: Data, _account: Credential, _self: Transaction) {
-    todo @"withdraw logic goes here"
+    trace @"withdraw"
+    True
   }
   mint(_redeemer: Data, _policy_id: PolicyId, _self: Transaction) {
-    todo @"mint logic goes here"
+    trace @"mint"
+    True
+  }
+  else(_) {
+    trace @"fallback"
+    True
   }
 }

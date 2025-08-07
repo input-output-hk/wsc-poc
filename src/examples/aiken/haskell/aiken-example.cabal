@@ -64,6 +64,7 @@ library
   build-depends:
     , aeson
     , base
+    , base16-bytestring
     , bytestring
     , cardano-api
     , containers
@@ -71,6 +72,7 @@ library
     , convex-coin-selection
     , lens
     , mtl
+    , plutus-core
     , plutus-ledger-api
     , programmable-tokens-offchain
     , text
@@ -88,6 +90,7 @@ test-suite aiken-example-test
     , containers
     , convex-base
     , convex-coin-selection
+    , convex-wallet
     , mtl
     , programmable-tokens-offchain
     , programmable-tokens-onchain

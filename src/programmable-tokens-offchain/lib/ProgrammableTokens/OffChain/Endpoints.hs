@@ -1,7 +1,10 @@
+{-# LANGUAGE NamedFieldPuns    #-}
+{-# LANGUAGE OverloadedStrings #-}
 module ProgrammableTokens.OffChain.Endpoints
   (
     -- * Policy registration
     registerCip143PolicyTx,
+    registerCip143PolicyTransferScripts,
 
     -- * CIP deployment
     deployCip143RegistryTx,
@@ -55,8 +58,31 @@ deployCip143RegistryTx target = do
 -- | Build a transaction that inserts a node into the directory
 registerCip143PolicyTx :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasDirectoryEnv env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadUtxoQuery m, AsProgrammableTokensError err, AsBalancingError err era, AsCoinSelectionError err, Env.HasTransferLogicEnv env) => m (C.Tx era)
 registerCip143PolicyTx = do
-  headNode <- Query.registryNodeForInsertion @era
+  headNode <- Query.registryNodeForReferenceOrInsertion @era
   paramsNode <- Query.globalParamsNode @era
   cborHexTxIn <- Query.issuanceCborHexUTxO @era
-  (tx, _) <- Env.balanceTxEnv_ (BuildTx.insertDirectoryNode paramsNode cborHexTxIn headNode)
+  (tx, _) <- Env.balanceTxEnv_ $ do
+    let assetName = "TEST"
+        quantity  = 1
+    policyId <- BuildTx.issueProgrammableToken paramsNode cborHexTxIn (assetName, quantity) headNode
+    Env.operatorPaymentCredential
+      >>= BuildTx.paySmartTokensToDestination (assetName, quantity) policyId
+    BuildTx.invokeMintingStakeScript
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
+registerCip143PolicyTransferScripts :: forall era env err m.
+  ( MonadReader env m
+  , Env.HasOperatorEnv era env
+  , MonadBlockchain era m
+  , MonadError err m
+  , AsBalancingError err era
+  , AsCoinSelectionError err
+  , Env.HasTransferLogicEnv env
+  , C.IsConwayBasedEra era
+  )
+  => m (C.Tx era)
+registerCip143PolicyTransferScripts = do
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
+  (tx, _) <- Env.balanceTxEnv_ $ do
+    BuildTx.registerTransferScripts opPkh
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)

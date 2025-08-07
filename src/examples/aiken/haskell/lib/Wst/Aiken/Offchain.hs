@@ -5,12 +5,12 @@
 
 -- | Off-chain code for the aiken example
 module Wst.Aiken.Offchain
-  ( registerBlueprintTx,
-    Cip143Blueprint (..),
+  ( Cip143Blueprint (..),
     blueprintKeys,
     lookupScripts,
     lookupScripts_,
     extractV3Scripts_,
+    transferLogic,
     -- * Error types
     AsLookupScriptFailure(..),
     LookupScriptFailure(..),
@@ -80,27 +80,6 @@ transferLogic Cip143Blueprint{cbTransfer, cbIssuance, cbGlobalStateCS} =
     , tleIssuerScript    = cbTransfer
     , tleGlobalParamsNft = cbGlobalStateCS
     }
-
--- | Create a transaction (fully balanced, not signed) that registers the policies from the blueprint
-registerBlueprintTx :: forall era env err m.
-  ( C.IsBabbageBasedEra era
-  , MonadReader env m
-  , HasDirectoryEnv env
-  , HasOperatorEnv era env
-  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
-  , MonadBlockchain era m
-  , MonadError err m
-  , MonadUtxoQuery m
-  , AsBalancingError err era
-  , AsCoinSelectionError err
-  , AsProgrammableTokensError err
-  )
-  => Cip143Blueprint (C.PlutusScript C.PlutusScriptV3)
-  -> m (C.Tx era)
-registerBlueprintTx blueprint = do
-  let logic = transferLogic blueprint
-  env <- asks (combinedEnv . directoryEnv) <*> asks operatorEnv <*> pure logic
-  runReaderT Endpoints.registerCip143PolicyTx env
 
 
 -- other endpoints

@@ -257,7 +257,7 @@ _pisProgrammableTokenRegistration :: Term s PByteString -> Term s PByteString ->
 _pisProgrammableTokenRegistration csToInsert prefixScriptBytes postfixScriptBytes hashedParam mintValue =
   pand'List
     [ pdebug "must mint registered token" $ phasCS # mintValue # pcon (PCurrencySymbol csToInsert)
-    , _papplyHashedParameter prefixScriptBytes postfixScriptBytes hashedParam #== csToInsert
+    , pdebug "must have hashed parameter applied" $ _papplyHashedParameter prefixScriptBytes postfixScriptBytes hashedParam #== csToInsert
     ]
 
 _papplyHashedParameter ::
