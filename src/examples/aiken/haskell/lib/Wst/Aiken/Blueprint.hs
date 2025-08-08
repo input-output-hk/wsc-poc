@@ -13,6 +13,11 @@ module Wst.Aiken.Blueprint
     loadFromFile,
     deserialise,
     getPlutusV3,
+
+    -- * Etc.
+    unsafeDeserialiseScript,
+    fromCardanoApiScriptToProgram,
+    fromProgramToCardanoApiScript
   )
 where
 
@@ -22,14 +27,12 @@ import Control.Monad.Error.Lens (throwing)
 import Control.Monad.Except (MonadError)
 import Data.Aeson (FromJSON (..), ToJSON (..), withObject, (.:))
 import Data.Aeson qualified as Aeson
-import Data.Bifunctor (Bifunctor (..))
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as Base16
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short qualified as BSS
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE

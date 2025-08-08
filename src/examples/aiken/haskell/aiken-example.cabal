@@ -59,22 +59,33 @@ library
     Wst.Aiken.BlueprintKey
     Wst.Aiken.Error
     Wst.Aiken.Offchain
+    Wst.Cli
+    Wst.Cli.App
+    Wst.Cli.Command
+    Wst.Cli.Env
 
   hs-source-dirs:  lib
   build-depends:
     , aeson
     , base
     , base16-bytestring
+    , Blammo
+    , blockfrost-api
+    , blockfrost-client-core
     , bytestring
     , cardano-api
     , containers
     , convex-base
+    , convex-blockfrost
     , convex-coin-selection
+    , convex-wallet
     , lens
     , mtl
+    , optparse-applicative
     , plutus-core
     , plutus-ledger-api
     , programmable-tokens-offchain
+    , programmable-tokens-onchain
     , text
 
 test-suite aiken-example-test
@@ -102,7 +113,7 @@ executable cip-143-cli
   import:         lang
   main-is:        Main.hs
   build-depends:
-    , aeson
+    , aiken-example
     , base
 
   hs-source-dirs: exe/cip-143-cli

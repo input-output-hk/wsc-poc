@@ -10,6 +10,7 @@ module Wst.Aiken.Error(
   AikenError(..)
 ) where
 
+import Blockfrost.Client.Core (BlockfrostError)
 import Cardano.Api (AnyPlutusScriptVersion, AnyScriptLanguage)
 import Control.Lens (makeClassyPrisms)
 import Convex.CoinSelection (AsBalancingError (..), AsCoinSelectionError (..),
@@ -42,6 +43,7 @@ data AikenError era =
   | ABalancingError (BalancingError era)
   | ACoinSelectionError CoinSelectionError
   | AProgrammableTokensError ProgrammableTokensError
+  | ABlockfrostError BlockfrostError
   deriving stock (Show)
 
 makeClassyPrisms ''AikenError

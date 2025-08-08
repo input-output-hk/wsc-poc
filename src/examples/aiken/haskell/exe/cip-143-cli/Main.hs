@@ -2,5 +2,7 @@ module Main(
   main
 ) where
 
+import Wst.Cli qualified
+
 main :: IO ()
-main = putStrLn "Hello, world"
+main = Wst.Cli.runMain
