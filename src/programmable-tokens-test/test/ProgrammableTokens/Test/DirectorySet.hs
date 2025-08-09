@@ -48,7 +48,7 @@ issueAlwaysSucceedsValidator scriptRoot = do
   runAs' registerAlwaysSucceedsStakingCert
 
   runAs' $ do
-    Test.issueProgrammableTokenTx "dummy asset" 100
+    Test.issueProgrammableTokenTx "dummy asset" 100 ()
       >>= void . sendTx . signTxOperator Test.admin
     Query.registryNodes @C.ConwayEra
       >>= void . Test.expectN 2 "registry outputs"

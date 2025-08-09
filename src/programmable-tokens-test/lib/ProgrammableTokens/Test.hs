@@ -111,7 +111,7 @@ user w =
     , oStakeKey = Nothing
     }
 
-{-| Deploy the CIP 143 directory. This issues a total of 3 transactions.
+{-| Deploy the CIP 143 directory. This issues a total of 2 transactions.
 -}
 deployDirectorySet :: forall era err m.
   ( MonadReader ScriptTarget m
@@ -139,14 +139,6 @@ deployDirectorySet op = do
     void $ sendTx $ signTxOperator op tx
     pure scriptRoot
 
-  operatorEnv__ <- Env.loadConvexOperatorEnv op
-  flip runReaderT operatorEnv__ $ do
-    Env.withEnv (Env.directoryOperatorEnv (Env.mkDirectoryEnv dirScriptRoot) operatorEnv__) $ do
-      void $ Query.globalParamsNode @C.ConwayEra
-
-      Endpoints.deployIssuanceCborHex
-        >>= void . sendTx . signTxOperator admin
-      void $ Query.issuanceCborHexUTxO @C.ConwayEra
   pure dirScriptRoot
 
 {-| Build a transaction that issues a progammable token
