@@ -54,6 +54,7 @@ source-repository-package
     src/base
     src/node-client
     src/blockfrost
+    src/tx-mod
 
 source-repository-package
     type: git

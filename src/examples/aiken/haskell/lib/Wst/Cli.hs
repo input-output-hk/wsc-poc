@@ -76,14 +76,25 @@ runCommand com = do
       case result of
         Left err -> runLoggerLoggingT runtimeEnv $ logError (fromString $ show err)
         Right a -> pure a
-    Query -> do
+    Query addr -> do
       result <- runWstApp runtimeEnv $ do
         logInfo "cip-143-cli query"
         dir <- liftIO Directory.loadFromFile >>= either (throwing Error._BlueprintJsonError) pure
-        nodes <- runReaderT (Query.registryNodes @C.ConwayEra) dir
-        logInfo $ "registry" :#
-          [ "nodes.count" .= length nodes
-          ]
+        flip runReaderT dir $ do
+          nodes <- Query.registryNodes @C.ConwayEra
+          paymentCred <- traverse getReceiverPaymentCredential addr
+          userNodes <- case paymentCred of
+            Nothing -> pure 0
+            Just addr_ -> do
+              outputs <- Query.userProgrammableOutputs  addr_
+              pure (length outputs)
+          userAddr <- traverse Directory.programmableTokenReceivingAddress paymentCred
+          logInfo $ "registry" :#
+            [ "nodes.count" .= length nodes
+            , "user_nodes.count" .= userNodes
+            , "user_wallet_address" .= addr
+            , "user_cip_143_address" .= userAddr
+            ]
         flushLogger
       case result of
         Left err -> runLoggerLoggingT runtimeEnv $ logError (fromString $ show err)

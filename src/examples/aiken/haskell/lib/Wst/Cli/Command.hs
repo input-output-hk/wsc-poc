@@ -25,7 +25,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Options.Applicative (CommandFields, Mod, Parser, argument, auto, command,
                             eitherReader, flag, fullDesc, help, info, long,
-                            metavar, progDesc, strArgument, subparser)
+                            metavar, optional, progDesc, strArgument, subparser)
 import PlutusLedgerApi.V1 qualified as PV1
 import ProgrammableTokens.OffChain.Env.TransferLogic (TransferLogicEnv)
 import Text.Read (readEither)
@@ -50,7 +50,7 @@ data TxSubmitMode =
 data Command
   = DeployRegistry OperatorConfigSigning FilePath TxSubmitMode -- ^ Deploy the CIP 143 registry, writing the 'DirectoryScriptRoot' to the file path
   | PolicyCom TransferPolicySource PolicyCommand
-  | Query -- ^ Query registry state and user outputs
+  | Query (Maybe (C.Address C.ShelleyAddr)) -- ^ Query registry state and user outputs
   | GenerateOperator -- ^ Generate an operator private key
   deriving stock (Eq, Show)
 
@@ -63,7 +63,7 @@ data PolicyCommand
 parseQuery :: Mod CommandFields Command
 parseQuery =
   command "query" $
-    info (pure Query) (fullDesc <> progDesc "Query the programmable tokens registry")
+    info (Query <$> optional parseQueryAddress) (fullDesc <> progDesc "Query the programmable tokens registry and balances")
 
 parseDeploy :: Mod CommandFields Command
 parseDeploy =
@@ -142,6 +142,12 @@ parseAddress =
   argument
     (eitherReader $ maybe (Left "Failed to deserialise Cardano address") Right . C.deserialiseAddress (C.proxyToAsType Proxy) . Text.pack)
     (help "Wallet address of the receiving user" <> metavar "RECEIVER_ADDRESS")
+
+parseQueryAddress :: Parser (C.Address C.ShelleyAddr)
+parseQueryAddress =
+  argument
+    (eitherReader $ maybe (Left "Failed to deserialise Cardano address") Right . C.deserialiseAddress (C.proxyToAsType Proxy) . Text.pack)
+    (help "Wallet address to query" <> metavar "WALLET_ADDRESS")
 
 parseDryRun :: Parser TxSubmitMode
 parseDryRun = flag SubmitTx DontSubmitTx (help "If this flag is enabled, the transaction will not be submitted to the network." <> long "dry-run")
