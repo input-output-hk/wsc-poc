@@ -1,5 +1,1 @@
-{
-  "tx_in": "24ff90b596f34db2a9056bf0123fa2d9455223cd48081f5fab9e46d3b34dfa8f#0",
-  "issuance_cbor_hex_tx_in": "2b2e63672ebb1382f57a5f4b8f64765e59a9bc7681aa37614f8cfdf21597750f#0",
-  "target": "Production"
-}
+{"tx_in":"6abe6af10e0c68871c8733add37b0900becd7bf780760bde1cc7447103aacffc#2","issuance_cbor_hex_tx_in":"a2c4770f746793c95f6d09c55fceddcff5b29af89498b48e43be10acbe7e3783#2","target":"Production"}

@@ -85,11 +85,11 @@ instance HasDirectoryEnv DirectoryEnv where
   directoryEnv = id
 
 {-| Load the 'DirectoryScriptRoot' from a JSON file. The JSON file is specified by the
-'DIRECTORY_SCRIPT_ROOT' environment variable.
+'CIP_143_DIRECTORY_SCRIPT_ROOT' environment variable.
 -}
 loadFromFile :: IO (Either String DirectoryEnv)
 loadFromFile = do
-  System.Environment.getEnv "DIRECTORY_SCRIPT_ROOT"
+  System.Environment.getEnv "CIP_143_DIRECTORY_SCRIPT_ROOT"
     >>= BSL.readFile
     >>= return . fmap mkDirectoryEnv . JSON.eitherDecode
 

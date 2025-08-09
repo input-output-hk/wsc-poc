@@ -61,6 +61,7 @@ deployCip143RegistryTx target = do
         BuildTx.mintProtocolParams
           >> BuildTx.initDirectorySet
           >> BuildTx.registerProgrammableGlobalScript
+          >> BuildTx.mintIssuanceCborHexNFT
   pure (Convex.CoinSelection.signBalancedTxBody [] tx, root)
 
 -- | Build a transaction that inserts a node into the directory
@@ -84,9 +85,9 @@ registerCip143PolicyTx :: forall era env redeemer err m.
   -> redeemer
   -> m (C.Tx era)
 registerCip143PolicyTx assetName quantity redeemer = do
+  cborHexTxIn <- Query.issuanceCborHexUTxO @era
   headNode <- Query.registryNodeForReferenceOrInsertion @era
   paramsNode <- Query.globalParamsNode @era
-  cborHexTxIn <- Query.issuanceCborHexUTxO @era
   (tx, _) <- Env.balanceTxEnv_ $ do
     policyId <- BuildTx.issueProgrammableToken paramsNode cborHexTxIn (assetName, quantity) headNode
     Env.operatorPaymentCredential

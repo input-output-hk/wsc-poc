@@ -23,9 +23,7 @@ import Blockfrost.Client.Auth qualified as Blockfrost
 import Cardano.Api.Shelley qualified as C
 import Control.Lens (makeLensesFor)
 import Data.Text qualified as Text
-import ProgrammableTokens.OffChain.Env (CombinedEnv, HasDirectoryEnv (..),
-                                        HasOperatorEnv (..),
-                                        HasTransferLogicEnv (..), OperatorEnv)
+import ProgrammableTokens.OffChain.Env (HasOperatorEnv (..), OperatorEnv)
 import System.Environment qualified
 
 data RuntimeEnv =
@@ -48,7 +46,7 @@ loadRuntimeEnv :: IO RuntimeEnv
 loadRuntimeEnv =
   RuntimeEnv
     <$> (LogSettingsEnv.parse >>= newLogger)
-    <*> fmap (mkProject . Text.pack) (System.Environment.getEnv "CIP_0143_BLOCKFROST_TOKEN")
+    <*> fmap (mkProject . Text.pack) (System.Environment.getEnv "CIP_143_BLOCKFROST_TOKEN")
     -- <*> projectFromEnv
 
 class HasRuntimeEnv e where

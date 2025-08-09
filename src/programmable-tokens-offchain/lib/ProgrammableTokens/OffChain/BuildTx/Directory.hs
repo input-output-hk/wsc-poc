@@ -51,7 +51,7 @@ insertNodeArgs dir inta@TransferLogicEnv {tleTransferScript, tleIssuerScript, tl
 -- | Data for a new node to be inserted into the directory
 data InsertNodeArgs
   = InsertNodeArgs
-  { -- | currency symbol of the CIP-0143 token
+  { -- | currency symbol of the CIP-143 token
     inaNewKey :: CurrencySymbol,
     inaHashedParam :: ScriptHash,
     -- | Stake validator for transfers
