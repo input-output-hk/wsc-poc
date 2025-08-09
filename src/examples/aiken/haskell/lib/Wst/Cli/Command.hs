@@ -1,25 +1,31 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Wst.Cli.Command(
   Command(..),
   parseCommand,
   PolicyCommand(..),
   TransferPolicySource(..),
-  loadTransferPolicy
+  loadTransferPolicy,
+  sendTx
 ) where
 
-import Cardano.Api (AssetName, Quantity, ScriptData)
+import Blammo.Logging.Simple (MonadLogger, logInfo)
+import Cardano.Api (AssetName, Quantity)
 import Cardano.Api.Shelley qualified as C
 import Control.Monad.Except (MonadError (..))
 import Control.Monad.IO.Class (MonadIO (..))
+import Convex.Class qualified as Convex
 import Convex.Wallet.Operator (OperatorConfigSigning,
                                parseOperatorConfigSigning)
+import Convex.Wallet.Operator qualified as Operator
 import Data.Bifunctor (Bifunctor (..))
 import Data.ByteString.Base16 qualified as Base16
+import Data.Functor (void)
 import Data.Proxy (Proxy (..))
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Options.Applicative (CommandFields, Mod, Parser, argument, auto, command,
-                            eitherReader, fullDesc, help, info, long, metavar,
-                            option, optional, progDesc, strArgument, subparser)
+                            eitherReader, flag, fullDesc, help, info, long,
+                            metavar, progDesc, strArgument, subparser)
 import PlutusLedgerApi.V1 qualified as PV1
 import ProgrammableTokens.OffChain.Env.TransferLogic (TransferLogicEnv)
 import Text.Read (readEither)
@@ -37,17 +43,21 @@ parseCommand =
       , parseQuery
       ]
 
+data TxSubmitMode =
+  SubmitTx | DontSubmitTx
+  deriving stock (Eq, Show)
+
 data Command
-  = DeployRegistry OperatorConfigSigning FilePath -- ^ Deploy the CIP 143 registry, writing the 'DirectoryScriptRoot' to the file path
+  = DeployRegistry OperatorConfigSigning FilePath TxSubmitMode -- ^ Deploy the CIP 143 registry, writing the 'DirectoryScriptRoot' to the file path
   | PolicyCom TransferPolicySource PolicyCommand
   | Query -- ^ Query registry state and user outputs
   | GenerateOperator -- ^ Generate an operator private key
   deriving stock (Eq, Show)
 
 data PolicyCommand
-  = Register OperatorConfigSigning
-  | Issue OperatorConfigSigning AssetName Quantity PV1.Data
-  | Transfer -- ^ Send tokens
+  = Register OperatorConfigSigning TxSubmitMode
+  | Issue OperatorConfigSigning AssetName Quantity PV1.Data TxSubmitMode
+  | Transfer OperatorConfigSigning (C.Address C.ShelleyAddr) AssetName Quantity PV1.Data TxSubmitMode
   deriving stock (Eq, Show)
 
 parseQuery :: Mod CommandFields Command
@@ -58,7 +68,7 @@ parseQuery =
 parseDeploy :: Mod CommandFields Command
 parseDeploy =
   command "deploy" $
-    info (DeployRegistry <$> parseOperatorConfigSigning <*> parseDirectoryScriptRootPath) (fullDesc <> progDesc "Deploy the CIP-143 directory and global params")
+    info (DeployRegistry <$> parseOperatorConfigSigning <*> parseDirectoryScriptRootPath <*> parseDryRun) (fullDesc <> progDesc "Deploy the CIP-143 directory and global params")
 
 parseGenerate :: Mod CommandFields Command
 parseGenerate =
@@ -75,12 +85,16 @@ parsePolicyCommand =
   subparser $ mconcat
       [ command "register" $
           info
-            (Register <$> parseOperatorConfigSigning)
+            (Register <$> parseOperatorConfigSigning <*> parseDryRun)
             (fullDesc <> progDesc "Register a CIP-143 policy using an aiken blueprint")
       , command "issue" $
           info
-            (Issue <$> parseOperatorConfigSigning <*> parseAssetName <*> parseQuantity <*> parseScriptDataRedeemer)
+            (Issue <$> parseOperatorConfigSigning <*> parseAssetName <*> parseQuantity <*> parseScriptDataRedeemer <*> parseDryRun)
             (fullDesc <> progDesc "Issue (mint) a number of programmable assets")
+      , command "transfer" $
+          info
+            (Transfer <$> parseOperatorConfigSigning <*> parseAddress <*> parseAssetName <*> parseQuantity <*> parseScriptDataRedeemer <*> parseDryRun)
+            (fullDesc <> progDesc "Transfer a programmable asset to another user")
       ]
 
 -- | Registering a new CIP-143 compliant policy
@@ -122,3 +136,19 @@ parseScriptDataRedeemer =
   argument
     (eitherReader (readEither @PV1.Data))
     (help "Redeemer in Plutus Data notation. Example: \"I 100\"" <> metavar "REDEEMER")
+
+parseAddress :: Parser (C.Address C.ShelleyAddr)
+parseAddress =
+  argument
+    (eitherReader $ maybe (Left "Failed to deserialise Cardano address") Right . C.deserialiseAddress (C.proxyToAsType Proxy) . Text.pack)
+    (help "Wallet address of the receiving user" <> metavar "RECEIVER_ADDRESS")
+
+parseDryRun :: Parser TxSubmitMode
+parseDryRun = flag SubmitTx DontSubmitTx (help "If this flag is enabled, the transaction will not be submitted to the network." <> long "dry-run")
+
+sendTx :: (MonadLogger m, Convex.MonadBlockchain era m, C.IsShelleyBasedEra era) => Operator.Operator Operator.Signing -> C.Tx era -> TxSubmitMode -> m ()
+sendTx operator tx = \case
+  SubmitTx -> do
+    logInfo "Submitting transaction to network"
+    void $ Convex.sendTx $ Operator.signTxOperator operator tx
+  DontSubmitTx -> logInfo "Skipping transaction submission"

@@ -6,7 +6,8 @@ import Blammo.Logging.Logger (flushLogger)
 import Blammo.Logging.Simple (Message ((:#)), MonadLogger, logError, logInfo,
                               runLoggerLoggingT, (.=))
 import Cardano.Api.Shelley qualified as C
-import Control.Monad.Error.Lens (throwing)
+import Control.Monad.Error.Lens (throwing, throwing_)
+import Control.Monad.Except (MonadError)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (runReaderT)
 import Convex.Class qualified as Convex
@@ -25,6 +26,7 @@ import PlutusLedgerApi.V1 qualified as PV1
 import ProgrammableTokens.OffChain.Endpoints qualified as Endpoints
 import ProgrammableTokens.OffChain.Env qualified as Env
 import ProgrammableTokens.OffChain.Env.Directory qualified as Directory
+import ProgrammableTokens.OffChain.Error qualified as Error
 import ProgrammableTokens.OffChain.Query qualified as Query
 import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import Wst.Aiken.Error qualified as Error
@@ -53,7 +55,7 @@ runCommand com = do
             operator = Operator.Operator key' Nothing
             addr     = Operator.operatorAddress networkId operator
         liftIO $ putStrLn $ Text.unpack $ C.serialiseAddress addr
-    DeployRegistry operatorConfig targetFile -> do
+    DeployRegistry operatorConfig targetFile submitTx -> do
       result <- runWstApp runtimeEnv $ do
         logInfo $ "cip-143-cli deploy" :# [ "target_file" .= targetFile ]
         operator <- loadOperator operatorConfig
@@ -67,7 +69,7 @@ runCommand com = do
             , "script_target"  .= srTarget
             , "tx_id"          .= C.getTxId (C.getTxBody tx)
             ]
-          void $ Convex.sendTx $ Operator.signTxOperator operator tx
+          Command.sendTx operator tx submitTx
 
           liftIO $ ByteString.writeFile targetFile $ Aeson.encode env
         flushLogger
@@ -92,7 +94,7 @@ runCommand com = do
         dir <- liftIO Directory.loadFromFile >>= either (throwing Error._BlueprintJsonError) pure
         transferPolicy <- Command.loadTransferPolicy policy
         case policyCommand of
-          Register operatorConfig -> do
+          Register operatorConfig submitTx -> do
             logInfo "cip-143-cli policy register"
             operator <- loadOperator operatorConfig
             opEnv <- Env.loadConvexOperatorEnv operator
@@ -101,9 +103,9 @@ runCommand com = do
               logInfo $ "Created policy stake script registration tx" :#
                 [ "tx_id"          .= C.getTxId (C.getTxBody tx)
                 ]
-              void $ Convex.sendTx $ Operator.signTxOperator operator tx
+              Command.sendTx operator tx submitTx
             flushLogger
-          Issue operatorConfig assetName quantity redeemer -> do
+          Issue operatorConfig assetName quantity redeemer submitTx -> do
             logInfo "cip-143-cli policy issue"
             operator <- loadOperator operatorConfig
             opEnv <- Env.loadConvexOperatorEnv operator
@@ -116,9 +118,25 @@ runCommand com = do
                 , "asset_name"     .= assetName
                 , "redeemer"       .= TE.decodeUtf8 (Base16.encode (C.serialiseToCBOR $ C.fromPlutusData $ PV1.fromBuiltin red))
                 ]
-              void $ Convex.sendTx $ Operator.signTxOperator operator tx
+              Command.sendTx operator tx submitTx
             flushLogger
-          Transfer -> pure ()
+          Transfer operatorConfig receiverAddr assetName quantity redeemer submitTx -> do
+            logInfo "cip-143-cli policy transfer"
+            operator <- loadOperator operatorConfig
+            opEnv <- Env.loadConvexOperatorEnv operator
+            flip runReaderT (Env.combinedEnv dir opEnv transferPolicy) $ do
+              let red = PV1.toBuiltin redeemer
+              receiver <- getReceiverPaymentCredential receiverAddr
+              tx <- Endpoints.transferTokens assetName quantity receiver red
+              logInfo $ "Created token transfer tx" :#
+                [ "tx_id"          .= C.getTxId (C.getTxBody tx)
+                , "quantity"       .= quantity
+                , "asset_name"     .= assetName
+                , "receiver"       .= C.serialiseToBech32 receiverAddr
+                , "redeemer"       .= TE.decodeUtf8 (Base16.encode (C.serialiseToCBOR $ C.fromPlutusData $ PV1.fromBuiltin red))
+                ]
+              Command.sendTx operator tx submitTx
+            flushLogger
       case result of
         Left err -> runLoggerLoggingT runtimeEnv $ logError (fromString $ show err)
         Right a -> pure a
@@ -131,3 +149,10 @@ loadOperator opConfig = do
   let addr     = Operator.operatorAddress networkId op
   logInfo $ "Operator ready" :# ["address" .= addr]
   pure op
+
+getReceiverPaymentCredential :: (MonadLogger m, MonadError err m, Error.AsProgrammableTokensError err) => C.Address C.ShelleyAddr -> m C.PaymentCredential
+getReceiverPaymentCredential = \case
+  C.ShelleyAddress _ (C.fromShelleyPaymentCredential -> cred) _ ->
+    case cred of
+      C.PaymentCredentialByKey{} -> pure cred
+      _ -> throwing_ Error._UnexpectedScriptAddress
