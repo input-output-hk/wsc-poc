@@ -26,6 +26,8 @@ data BlueprintError =
     { expectedVersion :: AnyPlutusScriptVersion
     , actualVersion   :: AnyScriptLanguage
     }
+
+  | BlueprintJsonError String
   deriving stock (Show)
 
 makeClassyPrisms ''BlueprintError

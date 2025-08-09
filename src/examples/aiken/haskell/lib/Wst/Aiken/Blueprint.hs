@@ -11,6 +11,7 @@ module Wst.Aiken.Blueprint
     BlueprintValidator (..),
     Preamble (..),
     loadFromFile,
+    loadFromFile_,
     deserialise,
     getPlutusV3,
 
@@ -25,6 +26,7 @@ import Cardano.Api (AnyPlutusScriptVersion, ScriptInAnyLang)
 import Cardano.Api.Shelley qualified as C
 import Control.Monad.Error.Lens (throwing)
 import Control.Monad.Except (MonadError)
+import Control.Monad.IO.Class (MonadIO (..))
 import Data.Aeson (FromJSON (..), ToJSON (..), withObject, (.:))
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
@@ -103,6 +105,10 @@ instance FromJSON Preamble where
 
 loadFromFile :: FilePath -> IO (Either String Blueprint)
 loadFromFile fp = Aeson.eitherDecode . BSL.fromStrict <$> BS.readFile fp
+
+loadFromFile_ :: (MonadIO m, MonadError err m, AsBlueprintError err) => FilePath -> m Blueprint
+loadFromFile_ fp =
+  liftIO (loadFromFile fp) >>= either (throwing _BlueprintJsonError) pure
 
 deserialise :: Preamble -> [BlueprintValidator] -> Either String (Map BlueprintKey ScriptInAnyLang)
 deserialise Preamble {plutusVersion = BlueprintScriptVersion v} validators =

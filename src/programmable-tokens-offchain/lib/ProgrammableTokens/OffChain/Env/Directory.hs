@@ -7,6 +7,7 @@ module ProgrammableTokens.OffChain.Env.Directory(
   HasDirectoryEnv(..),
   DirectoryEnv(..),
   mkDirectoryEnv,
+  loadFromFile,
   programmableLogicStakeCredential,
   programmableLogicBaseCredential,
   directoryNodePolicyId,
@@ -35,10 +36,13 @@ import Convex.PlutusLedger.V1 (transCredential, transPolicyId,
 import Convex.Utxos (BalanceChanges)
 import Convex.Utxos qualified as Utxos
 import Convex.Wallet.Operator (returnOutputFor)
-import Data.Aeson (FromJSON, ToJSON)
+import Data.Aeson (FromJSON (..), ToJSON (..))
+import Data.Aeson qualified as JSON
+import Data.ByteString.Lazy qualified as BSL
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import GHC.Generics (Generic)
+import ProgrammableTokens.JSON.Utils qualified as JSON
 import ProgrammableTokens.OffChain.Env.Operator (HasOperatorEnv (..),
                                                  OperatorEnv (..))
 import ProgrammableTokens.OffChain.Scripts (directoryNodeMintingScript,
@@ -52,6 +56,7 @@ import ProgrammableTokens.OffChain.Scripts (directoryNodeMintingScript,
                                             scriptPolicyIdV3)
 import SmartTokens.Core.Scripts (ScriptTarget)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
+import System.Environment qualified
 
 {-| Data that completely determines the on-chain scripts of the programmable
 token directory, and their hashes. Any information that results in different
@@ -61,17 +66,32 @@ script hashes should go in here. We should be able to write a function
 data DirectoryScriptRoot =
   DirectoryScriptRoot
     { srTxIn :: C.TxIn
-    , issuanceCborHexTxIn :: C.TxIn
+    , srIssuanceCborHexTxIn :: C.TxIn
     , srTarget :: ScriptTarget
     }
     deriving (Show, Generic)
-    deriving anyclass (ToJSON, FromJSON)
+
+instance ToJSON DirectoryScriptRoot where
+  toJSON = JSON.genericToJSON (JSON.customJsonOptions 2)
+  toEncoding = JSON.genericToEncoding (JSON.customJsonOptions 2)
+
+instance FromJSON DirectoryScriptRoot where
+  parseJSON = JSON.genericParseJSON (JSON.customJsonOptions 2)
 
 class HasDirectoryEnv e where
   directoryEnv :: e -> DirectoryEnv
 
 instance HasDirectoryEnv DirectoryEnv where
   directoryEnv = id
+
+{-| Load the 'DirectoryScriptRoot' from a JSON file. The JSON file is specified by the
+'DIRECTORY_SCRIPT_ROOT' environment variable.
+-}
+loadFromFile :: IO (Either String DirectoryEnv)
+loadFromFile = do
+  System.Environment.getEnv "DIRECTORY_SCRIPT_ROOT"
+    >>= BSL.readFile
+    >>= return . fmap mkDirectoryEnv . JSON.eitherDecode
 
 {-| Scripts related to managing the token policy directory.
 All of the scripts and their hashes are determined by the 'TxIn'.
@@ -90,11 +110,11 @@ data DirectoryEnv =
     }
 
 mkDirectoryEnv :: DirectoryScriptRoot -> DirectoryEnv
-mkDirectoryEnv dsScriptRoot@DirectoryScriptRoot{srTxIn, issuanceCborHexTxIn, srTarget} =
-  let dsDirectoryMintingScript        = directoryNodeMintingScript srTarget srTxIn issuanceCborHexTxIn
+mkDirectoryEnv dsScriptRoot@DirectoryScriptRoot{srTxIn, srIssuanceCborHexTxIn, srTarget} =
+  let dsDirectoryMintingScript        = directoryNodeMintingScript srTarget srTxIn srIssuanceCborHexTxIn
       dsProtocolParamsMintingScript   = protocolParamsMintingScript srTarget srTxIn
       dsProtocolParamsSpendingScript  = protocolParamsSpendingScript srTarget
-      dsIssuanceCborHexMintingScript  = issuanceCborHexMintingScript srTarget issuanceCborHexTxIn
+      dsIssuanceCborHexMintingScript  = issuanceCborHexMintingScript srTarget srIssuanceCborHexTxIn
       dsIssuanceCborHexSpendingScript = issuanceCborHexSpendingScript srTarget
       dsDirectorySpendingScript       = directoryNodeSpendingScript srTarget (protocolParamsPolicyId result)
       dsProgrammableLogicBaseScript   = programmableLogicBaseScript srTarget (programmableLogicStakeCredential result) -- Parameterized by the stake cred of the global script
@@ -153,7 +173,7 @@ programmableTokenReceivingAddress destinationCred = do
 -}
 balanceDeployTxEnv_ :: forall era env err a m. (MonadBlockchain era m, MonadReader env m, HasDirectoryEnv env, HasOperatorEnv era env, MonadError err m, C.IsBabbageBasedEra era, AsBalancingError err era, AsCoinSelectionError err) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
 balanceDeployTxEnv_ btx = do
-  issuanceCborHexTxIn <- asks (issuanceCborHexTxIn . dsScriptRoot . directoryEnv)
+  issuanceCborHexTxIn <- asks (srIssuanceCborHexTxIn . dsScriptRoot . directoryEnv)
   OperatorEnv{bteOperatorUtxos, bteOperator} <- asks operatorEnv
   params <- queryProtocolParameters
   txBuilder <- BuildTx.execBuildTxT $ btx >> BuildTx.setMinAdaDepositAll params

@@ -64,7 +64,7 @@ issuanceCborHexTokenC = unTransAssetName issuanceCborHexToken
 -}
 mintIssuanceCborHexNFT :: forall era env m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBuildTx era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBlockchain era m) => m ()
 mintIssuanceCborHexNFT = Utils.inBabbage @era $ do
-  txIn <- asks (Env.issuanceCborHexTxIn . Env.dsScriptRoot . Env.directoryEnv)
+  txIn <- asks (Env.srIssuanceCborHexTxIn . Env.dsScriptRoot . Env.directoryEnv)
   netId <- queryNetworkId
   dir@DirectoryEnv{dsIssuanceCborHexMintingScript, dsIssuanceCborHexSpendingScript} <- asks Env.directoryEnv
   let ProgrammableLogicGlobalParams {progLogicCred} = globalParams dir
