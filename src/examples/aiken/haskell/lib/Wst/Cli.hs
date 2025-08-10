@@ -6,16 +6,19 @@ import Blammo.Logging.Logger (flushLogger)
 import Blammo.Logging.Simple (Message ((:#)), MonadLogger, logError, logInfo,
                               runLoggerLoggingT, (.=))
 import Cardano.Api.Shelley qualified as C
+import Control.Lens qualified as L
 import Control.Monad.Error.Lens (throwing, throwing_)
 import Control.Monad.Except (MonadError)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (runReaderT)
+import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class qualified as Convex
 import Convex.Wallet.Operator (Operator, OperatorConfigSigning, Signing)
 import Convex.Wallet.Operator qualified as Operator
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Base16 qualified as Base16
 import Data.ByteString.Lazy qualified as ByteString
+import Data.Foldable (traverse_)
 import Data.Functor (void)
 import Data.String (IsString (..))
 import Data.Text qualified as Text
@@ -28,6 +31,7 @@ import ProgrammableTokens.OffChain.Env qualified as Env
 import ProgrammableTokens.OffChain.Env.Directory qualified as Directory
 import ProgrammableTokens.OffChain.Error qualified as Error
 import ProgrammableTokens.OffChain.Query qualified as Query
+import ProgrammableTokens.OffChain.UTxODat qualified as UTxODat
 import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import Wst.Aiken.Error qualified as Error
 import Wst.Cli.App (runWstApp)
@@ -65,7 +69,7 @@ runCommand com = do
           (tx, env@Env.DirectoryScriptRoot{Env.srTxIn, Env.srIssuanceCborHexTxIn, Env.srTarget}) <- Endpoints.deployCip143RegistryTx Production
           logInfo $ "Created deployment Tx" :#
             [ "registry_tx_in" .= srTxIn
-            , "cbox_hex_tx_in" .= srIssuanceCborHexTxIn
+            , "cbor_hex_tx_in" .= srIssuanceCborHexTxIn
             , "script_target"  .= srTarget
             , "tx_id"          .= C.getTxId (C.getTxBody tx)
             ]
@@ -83,18 +87,21 @@ runCommand com = do
         flip runReaderT dir $ do
           nodes <- Query.registryNodes @C.ConwayEra
           paymentCred <- traverse getReceiverPaymentCredential addr
-          userNodes <- case paymentCred of
-            Nothing -> pure 0
-            Just addr_ -> do
-              outputs <- Query.userProgrammableOutputs  addr_
-              pure (length outputs)
-          userAddr <- traverse Directory.programmableTokenReceivingAddress paymentCred
           logInfo $ "registry" :#
             [ "nodes.count" .= length nodes
-            , "user_nodes.count" .= userNodes
-            , "user_wallet_address" .= addr
-            , "user_cip_143_address" .= userAddr
             ]
+          flip traverse_ paymentCred $ \addr_ -> do
+              outputs <- Query.userProgrammableOutputs  addr_
+              userAddr <- traverse Directory.programmableTokenReceivingAddress paymentCred
+              let val = foldMap (txOutValue . UTxODat.uOut) outputs
+              logInfo $ "User account" :#
+                [ "user_nodes.count" .= length outputs
+                , "user_wallet_address" .= addr
+                , "user_cip_143_address" .= userAddr
+                ]
+              logInfo $ fromString $ Text.unpack $ Text.unlines
+                [ "User account balance:"
+                , C.renderValuePretty val ]
         flushLogger
       case result of
         Left err -> runLoggerLoggingT runtimeEnv $ logError (fromString $ show err)
@@ -111,8 +118,10 @@ runCommand com = do
             opEnv <- Env.loadConvexOperatorEnv operator
             flip runReaderT (Env.combinedEnv dir opEnv transferPolicy) $ do
               tx <- Endpoints.registerCip143PolicyTransferScripts
+              polId <- Env.programmableTokenPolicyId
               logInfo $ "Created policy stake script registration tx" :#
                 [ "tx_id"          .= C.getTxId (C.getTxBody tx)
+                , "policy_id"      .= polId
                 ]
               Command.sendTx operator tx submitTx
             flushLogger
@@ -123,11 +132,13 @@ runCommand com = do
             flip runReaderT (Env.combinedEnv dir opEnv transferPolicy) $ do
               let red = PV1.toBuiltin redeemer
               tx <- Endpoints.registerCip143PolicyTx assetName quantity red
+              polId <- Env.programmableTokenPolicyId
               logInfo $ "Created policy token issuance tx" :#
                 [ "tx_id"          .= C.getTxId (C.getTxBody tx)
                 , "quantity"       .= quantity
                 , "asset_name"     .= assetName
                 , "redeemer"       .= TE.decodeUtf8 (Base16.encode (C.serialiseToCBOR $ C.fromPlutusData $ PV1.fromBuiltin red))
+                , "policy_id"      .= polId
                 ]
               Command.sendTx operator tx submitTx
             flushLogger
@@ -167,3 +178,6 @@ getReceiverPaymentCredential = \case
     case cred of
       C.PaymentCredentialByKey{} -> pure cred
       _ -> throwing_ Error._UnexpectedScriptAddress
+
+txOutValue :: C.IsMaryBasedEra era => C.TxOut C.CtxUTxO era -> C.Value
+txOutValue = L.view (L._TxOut . L._2 . L._TxOutValue)

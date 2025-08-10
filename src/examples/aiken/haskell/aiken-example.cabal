@@ -78,6 +78,7 @@ library
     , convex-base
     , convex-blockfrost
     , convex-coin-selection
+    , convex-optics
     , convex-wallet
     , lens
     , mtl

@@ -4,26 +4,26 @@ digraph "resolved-transactions" {
          ,style=filled
          ,bgcolor=gray93
          ,height=0.1];
-    txin_060819347ec2811ce7853febb3367842174265e246386531f0a4ea05380870bb_0 [label="0608...70bb#0|script\ 28b6...f377|Ada:\ 1.142150\n7c0a...71cb.aabbccdd:\ 100\n"
+    txin_1899dfab4c8d755227a986d3b9d8d62231c3a34fc16168b8c1342705bfcad2ce_2 [label="1899...d2ce#2|script\ 7c39...b9b3|Ada:\ 1.383510\n95c9...0582.50726f746f636f6c506172616d73:\ 1\n"
                                                                             ,style=rounded];
-    txin_060819347ec2811ce7853febb3367842174265e246386531f0a4ea05380870bb_1 [label="0608...70bb#1|pubkey\ a026...4f64|Ada:\ 91.915090\n"
+    txin_1899dfab4c8d755227a986d3b9d8d62231c3a34fc16168b8c1342705bfcad2ce_3 [label="1899...d2ce#3|pubkey\ a026...4f64|Ada:\ 348.182470\n"
                                                                             ,style=rounded];
-    txin_2c322e42da088707a7010806d58f4899196615d40eeba0f73f884969b85a07f9_1 [label="2c32...07f9#1|pubkey\ a026...4f64|Ada:\ 92.229630\n"
+    txin_3156dd68e42b39b0056dceb5871ca349a91385930df2ed6297302789db55919d_0 [label="3156...919d#0|script\ 4d25...3f07|Ada:\ 1.142150\n66e2...f713.aabbccdd:\ 100\n"
                                                                             ,style=rounded];
-    txin_a42ada8438bbc843c894f28f60d0be1831b577a8cd7c8d9244676b64dbaaf3f0_2 [label="a42a...f3f0#2|script\ 7c39...b9b3|Ada:\ 1.383510\n0a88...98d0.50726f746f636f6c506172616d73:\ 1\n"
+    txin_3156dd68e42b39b0056dceb5871ca349a91385930df2ed6297302789db55919d_2 [label="3156...919d#2|script\ 3065...62b7|Ada:\ 1.736930\nef55...8995.66e2c264559bd14876441e751de5b6c49b94fd6dc88c629e9f59f713:\ 1\n"
                                                                             ,style=rounded];
-    txin_e4b159d1a328b714bb425b1d567a027749f3e321cca1102b91288dfe90673c65_0 [label="e4b1...3c65#0|script\ 28b6...f377|Ada:\ 1.142150\n7c0a...71cb.aabbccdd:\ 100\n"
+    txin_3156dd68e42b39b0056dceb5871ca349a91385930df2ed6297302789db55919d_3 [label="3156...919d#3|pubkey\ a026...4f64|Ada:\ 96.717800\n"
                                                                             ,style=rounded];
-    txin_e4b159d1a328b714bb425b1d567a027749f3e321cca1102b91288dfe90673c65_2 [label="e4b1...3c65#2|script\ 27b8...857d|Ada:\ 1.736930\nafb7...660d.7c0a43d5344e434ebadce309fe6d019d521eabb51fc3b959e0ad71cb:\ 1\n"
+    txin_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9_0 [label="6aa8...41d9#0|script\ 4d25...3f07|Ada:\ 1.142150\n66e2...f713.aabbccdd:\ 100\n"
                                                                             ,style=rounded];
-    txin_e9e3c1f6207098ac98b14d64b16a33ff4eec39eeed68b7e4079f121fa0cbcd92_1 [label="e9e3...cd92#1|pubkey\ a026...4f64|Ada:\ 177.6340\n"
+    txin_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9_1 [label="6aa8...41d9#1|pubkey\ a026...4f64|Ada:\ 96.403360\n"
                                                                             ,style=rounded];
-    tx_060819347ec2811ce7853febb3367842174265e246386531f0a4ea05380870bb [label="Transaction|Fee:\ Ada:\ 0.314530|060819347ec2811ce7853febb3367842174265e246386531f0a4ea05380870bb|Withdrawal:\ stake_test17zflmyygf3mjemf8np6s87wn0jzhxu4enn6ucutpjl4m30glwhpvl\ (Ada:\ 0.00)|Withdrawal:\ stake_test17z23djv9z6r8xvs3zsv49w87lfcsnwm02u34h70nk0w0mmc74g2r7\ (Ada:\ 0.00)"];
-    txin_2c322e42da088707a7010806d58f4899196615d40eeba0f73f884969b85a07f9_1 -> tx_060819347ec2811ce7853febb3367842174265e246386531f0a4ea05380870bb [label=spend];
-    txin_e4b159d1a328b714bb425b1d567a027749f3e321cca1102b91288dfe90673c65_0 -> tx_060819347ec2811ce7853febb3367842174265e246386531f0a4ea05380870bb [label=spend];
-    txin_a42ada8438bbc843c894f28f60d0be1831b577a8cd7c8d9244676b64dbaaf3f0_2 -> tx_060819347ec2811ce7853febb3367842174265e246386531f0a4ea05380870bb [label=reference];
-    txin_e4b159d1a328b714bb425b1d567a027749f3e321cca1102b91288dfe90673c65_2 -> tx_060819347ec2811ce7853febb3367842174265e246386531f0a4ea05380870bb [label=reference];
-    txin_e9e3c1f6207098ac98b14d64b16a33ff4eec39eeed68b7e4079f121fa0cbcd92_1 -> tx_060819347ec2811ce7853febb3367842174265e246386531f0a4ea05380870bb [label=collateral];
-    tx_060819347ec2811ce7853febb3367842174265e246386531f0a4ea05380870bb -> txin_060819347ec2811ce7853febb3367842174265e246386531f0a4ea05380870bb_0;
-    tx_060819347ec2811ce7853febb3367842174265e246386531f0a4ea05380870bb -> txin_060819347ec2811ce7853febb3367842174265e246386531f0a4ea05380870bb_1;
+    tx_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9 [label="Transaction|Fee:\ Ada:\ 0.314440|6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9|Withdrawal:\ stake_test17pge9tfvhttyufephadh22h5pdfkzp56xuxpzl2mnfkx9kq9s6mku\ (Ada:\ 0.00)|Withdrawal:\ stake_test17zflmyygf3mjemf8np6s87wn0jzhxu4enn6ucutpjl4m30glwhpvl\ (Ada:\ 0.00)"];
+    txin_3156dd68e42b39b0056dceb5871ca349a91385930df2ed6297302789db55919d_0 -> tx_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9 [label=spend];
+    txin_3156dd68e42b39b0056dceb5871ca349a91385930df2ed6297302789db55919d_3 -> tx_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9 [label=spend];
+    txin_1899dfab4c8d755227a986d3b9d8d62231c3a34fc16168b8c1342705bfcad2ce_2 -> tx_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9 [label=reference];
+    txin_3156dd68e42b39b0056dceb5871ca349a91385930df2ed6297302789db55919d_2 -> tx_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9 [label=reference];
+    txin_1899dfab4c8d755227a986d3b9d8d62231c3a34fc16168b8c1342705bfcad2ce_3 -> tx_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9 [label=collateral];
+    tx_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9 -> txin_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9_0;
+    tx_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9 -> txin_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9_1;
 }
