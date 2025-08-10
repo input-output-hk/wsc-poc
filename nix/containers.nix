@@ -47,7 +47,7 @@ in rec {
       Env = [
         "WST_STATIC_FILES=${frontend}/frontend"
       ];
-      Entrypoint = lib.singleton (lib.getExe inputs.self.packages.wst-poc-cli);
+      Entrypoint = lib.singleton (lib.getExe inputs.self.packages.regulated-stablecoin-cli);
       Labels = {
         "org.opencontainers.image.source"      = "https://github.com/input-output-hk/wsc-poc";
         "org.opencontainers.image.description" = "Programmable token and regulated stablecoin proof-of-concept";
