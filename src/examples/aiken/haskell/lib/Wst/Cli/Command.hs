@@ -58,6 +58,7 @@ data PolicyCommand
   = Register OperatorConfigSigning TxSubmitMode
   | Issue OperatorConfigSigning AssetName Quantity PV1.Data TxSubmitMode
   | Transfer OperatorConfigSigning (C.Address C.ShelleyAddr) AssetName Quantity PV1.Data TxSubmitMode
+  | Info
   deriving stock (Eq, Show)
 
 parseQuery :: Mod CommandFields Command
@@ -86,7 +87,7 @@ parsePolicyCommand =
       [ command "register" $
           info
             (Register <$> parseOperatorConfigSigning <*> parseDryRun)
-            (fullDesc <> progDesc "Register a CIP-143 policy using an aiken blueprint")
+            (fullDesc <> progDesc "Register a CIP-143 policy using a blueprint file")
       , command "issue" $
           info
             (Issue <$> parseOperatorConfigSigning <*> parseAssetName <*> parseQuantity <*> parseScriptDataRedeemer <*> parseDryRun)
@@ -95,6 +96,10 @@ parsePolicyCommand =
           info
             (Transfer <$> parseOperatorConfigSigning <*> parseAddress <*> parseAssetName <*> parseQuantity <*> parseScriptDataRedeemer <*> parseDryRun)
             (fullDesc <> progDesc "Transfer a programmable asset to another user")
+      , command "info" $
+          info
+            (pure Info)
+            (fullDesc <> progDesc "Display some information about the programmable asset")
       ]
 
 -- | Registering a new CIP-143 compliant policy

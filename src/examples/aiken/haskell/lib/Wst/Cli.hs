@@ -31,6 +31,7 @@ import ProgrammableTokens.OffChain.Env qualified as Env
 import ProgrammableTokens.OffChain.Env.Directory qualified as Directory
 import ProgrammableTokens.OffChain.Error qualified as Error
 import ProgrammableTokens.OffChain.Query qualified as Query
+import ProgrammableTokens.OffChain.Scripts as Scripts
 import ProgrammableTokens.OffChain.UTxODat qualified as UTxODat
 import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import Wst.Aiken.Error qualified as Error
@@ -112,6 +113,16 @@ runCommand com = do
         dir <- liftIO Directory.loadFromFile >>= either (throwing Error._BlueprintJsonError) pure
         transferPolicy <- Command.loadTransferPolicy policy
         case policyCommand of
+          Info -> do
+            logInfo "cip-143-cli policy info"
+              -- polId <- Env.programmableTokenPolicyId
+            let polId =
+                  Scripts.scriptPolicyIdV3
+                    (Env.programmableTokenMintingScript dir transferPolicy)
+            logInfo $ "Policy information" :#
+              [ "policy_id" .= polId
+              ]
+
           Register operatorConfig submitTx -> do
             logInfo "cip-143-cli policy register"
             operator <- loadOperator operatorConfig
