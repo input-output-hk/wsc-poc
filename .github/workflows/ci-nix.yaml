@@ -50,8 +50,10 @@ jobs:
     #     key: cabal-${{ hashFiles('cabal.project') }}
 
     # We currently do not have a default target
-    - name: nix build wst-poc client application
-      run: nix build --accept-flake-config .#wst-poc-cli
+    - name: nix build command-line apps
+      run: |
+        nix build --accept-flake-config .#cip-143-cli
+        nix build --accept-flake-config .#regulated-stablecoin-cli
     - name: nix flake check
       run: nix flake --accept-flake-config check
     - name: Check aiken

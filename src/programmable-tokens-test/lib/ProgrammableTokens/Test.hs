@@ -74,7 +74,7 @@ assertFailingTx :: (MonadMockchain era m, C.IsAlonzoBasedEra era, MonadFail m, M
 assertFailingTx = \case
   Left err  -> fail $ "Expected TxId, got: " <> show err
   Right txId -> do
-    C.TxBody C.TxBodyContent{C.txScriptValidity} <- getTxById txId >>= maybe (fail $ "Tx not found: " <> show txId) (pure . C.getTxBody)
+    (C.getTxBodyContent -> C.TxBodyContent{C.txScriptValidity}) <- getTxById txId >>= maybe (fail $ "Tx not found: " <> show txId) (pure . C.getTxBody)
     liftIO (assertEqual "Tx validity" (C.TxScriptValidity C.alonzoBasedEra C.ScriptInvalid) txScriptValidity)
 
 nodeParamsFor :: ScriptTarget -> NodeParams C.ConwayEra
