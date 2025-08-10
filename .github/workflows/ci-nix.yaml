@@ -57,4 +57,4 @@ jobs:
     - name: nix flake check
       run: nix flake --accept-flake-config check
     - name: Check aiken
-      run: nix develop --accept-flake-config --command bash -c "cd src/aiken-example/aiken && aiken build && aiken check"
+      run: nix develop --accept-flake-config --command bash -c "cd src/examples/aiken/aiken && aiken build && aiken check"
