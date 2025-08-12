@@ -65,5 +65,24 @@ in rec {
     ];
   };
 
+  cip-143-cli = inputs.n2c.packages.nix2container.buildImage {
+    name = "cip-143-cli";
+    config = {
+      Env = [
+      ];
+      Entrypoint = lib.singleton (lib.getExe inputs.self.packages.cip-143-cli);
+      Labels = {
+        "org.opencontainers.image.source"      = "https://github.com/input-output-hk/wsc-poc";
+        "org.opencontainers.image.description" = "CIP-143 command-line interface";
+      };
+    };
+    layers = [
+      # CA certificates for SSL (required for calling blockfrost API)
+      (inputs.n2c.packages.nix2container.buildLayer {
+        copyToRoot = [pkgs.dockerTools.caCertificates];
+      })
+    ];
+  };
+
 }
 
