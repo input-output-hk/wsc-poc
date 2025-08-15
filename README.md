@@ -1,6 +1,30 @@
-# CIP-0143 and programmable token POC
+# CIP-143 reference implementation and examples
 
-This is a proof-of-concept for _WST_, a programmable token with freeze and seize capabilities, based on [CIP-0143](https://github.com/colll78/CIPs/blob/patch-3/CIP-0143/README.md). The programmable logic of _WST_ checks whether the target address is blacklisted before allowing a transfer of the programmable token from one owner to another.
+This repository contains a reference implementation of [CIP-143](https://github.com/colll78/CIPs/blob/patch-3/CIP-0143/README.md).
+The CIP describes a registry of token standards around programmable assets, and some conventions for Cardano addresses that hold programmable assets.
+
+## CLI
+
+`cip-143-cli` is a tool for registering CIP-143 policies and for issuing and transfering tokens.
+
+### CLI Commands
+
+* `deploy` deploys a new instance of the CIP-143 registry
+* `policy` offers a number of commands for managing CIP-143 policies. All sub-commands of `policy` require a blueprint JSON file with the minting and transfer scripts.
+  * `register` registers the stake scripts that are used by the policy
+  * `issue` mints a number of programmable assets
+  * `transfer` sends programmable assets to another account
+  * `info` prints some information on the policies
+
+### Blueprint format
+
+The `policy` command expectes a blueprint JSON file.
+The blueprint should have two validators called `transfer.issue.withdraw` and `transfer.transfer.withdraw`.
+The validators will be called as reward withdrawal validators.
+
+## Freeze-and-seize stablecoin
+
+There is a proof-of-concept for _WST_ a programmable token with freeze and seize capabilities, based on [CIP-0143](https://github.com/colll78/CIPs/blob/patch-3/CIP-0143/README.md). The programmable logic of _WST_ checks whether the target address is blacklisted before allowing a transfer of the programmable token from one owner to another.
 
 ![Screenshot of the UI showing the minting authority.](image-1.png)
 
@@ -18,17 +42,18 @@ See [doc/architecture.md](doc/architecture.md)
 
 This repository contains 
 * Prototype implementation of CIP-0143 in Plutarch (see `src/programmable-tokens`)
+* `cip-143-cli`, a command-line tool for deploying and managing CIP-143 compliant policies
 * Prototype implementation of _WST_, a programmable token with freeze-and-seize capbilities, in Plutarch (see `src/regulated-stablecoin`)
-* Transaction building code for initial deployment, minting programmable tokens, transferring programmable tokens, adding addresses to the blacklist (ie. freezing), and seizing funds from blacklisted addresses. Based on sc-tools and cardano-api.
-* Emulator tests for the nominal cases (happy path) based on the actual ledger implementation and mainnet protocol parameters.
-* A user interface that implements the use cases using browser-based wallets. Based on next.js and lucid.
-* An OCI container image with the on-chain code, the off-chain code and the UI
+  * Transaction building code for initial deployment, minting programmable tokens, transferring programmable tokens, adding addresses to the blacklist (ie. freezing), and seizing funds from blacklisted addresses. Based on sc-tools and cardano-api.
+  * Emulator tests for the nominal cases (happy path) based on the actual ledger implementation and mainnet protocol parameters.
+  * A user interface that implements the use cases using browser-based wallets. Based on next.js and lucid.
+  * An OCI container image with the on-chain code, the off-chain code and the UI
+
+### Using the Freeze-and-seize stablecoin example
 
 With the container image it is possible to run the complete system locally with just a single command.
 There is no need to install the build toolchain or to operate a cardano node or related infrastructure.
 The image can even be used to interact with existing deployments of the POC.
-
-# Usage
 
 The easiest way to get started is by running the [wst](https://github.com/input-output-hk/wsc-poc/pkgs/container/wst) image locally:
 

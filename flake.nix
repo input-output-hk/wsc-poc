@@ -38,6 +38,11 @@
       url = "github:nlewo/nix2container";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    aiken = {
+      url = "github:aiken-lang/aiken/v1.1.16";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = inputs: inputs.iogx.lib.mkFlake {
@@ -51,10 +56,12 @@
     extra-substituters = [
       "https://cache.iog.io"
       "https://cache.zw3rk.com"
+      "https://cache.ml42.de"
     ];
     extra-trusted-public-keys = [
       "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ="
       "loony-tools:pr9m4BkM/5/eSTZlkQyRt57Jz7OMBxNSUiMC4FkcNfk="
+      "cache.ml42.de:RKmSRP9TOc87nh9FZCM/b/pMIE3kBLEeIe71ReCBwRM="
     ];
     allow-import-from-derivation = true;
   };

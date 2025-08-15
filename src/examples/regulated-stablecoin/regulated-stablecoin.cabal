@@ -1,0 +1,197 @@
+cabal-version: 3.4
+name:          regulated-stablecoin
+version:       0.3.0.0
+synopsis:      Regulated stablecoin proof-of-concept
+license:       Apache-2.0
+license-files: LICENSE
+maintainer:    j-mueller@users.noreply.github.com
+author:        Djed team @ IOG
+homepage:      https://github.com/input-output-hk/wsc-poc
+bug-reports:   https://github.com/input-output-hk/wsc-poc
+description:
+  Please see the README on GitHub at <https://github.com/input-output-hk/regulated-stablecoin>
+
+common lang
+  default-language:   Haskell2010
+  default-extensions:
+    DataKinds
+    DeriveAnyClass
+    DeriveFoldable
+    DeriveFunctor
+    DeriveGeneric
+    DeriveLift
+    DeriveTraversable
+    DerivingStrategies
+    DerivingVia
+    ExplicitForAll
+    FlexibleContexts
+    GADTs
+    GeneralizedNewtypeDeriving
+    ImportQualifiedPost
+    KindSignatures
+    LambdaCase
+    MultiParamTypeClasses
+    NumericUnderscores
+    RankNTypes
+    ScopedTypeVariables
+    StandaloneDeriving
+    TypeApplications
+    TypeFamilies
+    TypeOperators
+    ViewPatterns
+
+  ghc-options:
+    -Wall -Wnoncanonical-monad-instances -Wunused-packages
+    -Wincomplete-uni-patterns -Wincomplete-record-updates
+    -Wredundant-constraints -Widentities
+
+library
+  import:          lang
+  exposed-modules:
+    Wst.App
+    Wst.AppError
+    Wst.Cli
+    Wst.Cli.Command
+    Wst.Client
+    Wst.Offchain.BuildTx.Failing
+    Wst.Offchain.BuildTx.LinkedList
+    Wst.Offchain.BuildTx.ProgrammableLogic
+    Wst.Offchain.BuildTx.TransferLogic
+    Wst.Offchain.BuildTx.Utils
+    Wst.Offchain.Endpoints.Deployment
+    Wst.Offchain.Env
+    Wst.Offchain.Query
+    Wst.Offchain.Scripts
+    Wst.Server
+    Wst.Server.DemoEnvironment
+    Wst.Server.Types
+
+  hs-source-dirs:  lib
+  build-depends:
+    , aeson
+    , base
+    , Blammo
+    , blockfrost-api
+    , blockfrost-client
+    , blockfrost-client-core
+    , bytestring
+    , cardano-api
+    , cardano-ledger-core
+    , cardano-ledger-shelley
+    , containers
+    , convex-base
+    , convex-blockfrost
+    , convex-coin-selection
+    , convex-optics
+    , convex-wallet
+    , lens
+    , mtl
+    , openapi3
+    , optparse-applicative
+    , plutarch
+    , plutus-ledger-api
+    , plutus-tx
+    , programmable-tokens-offchain
+    , programmable-tokens-onchain
+    , servant
+    , servant-client
+    , servant-client-core
+    , servant-server
+    , text
+    , wai-cors
+    , warp
+
+  hs-source-dirs:  lib
+
+executable regulated-stablecoin-cli
+  import:         lang
+  main-is:        Main.hs
+  hs-source-dirs: exe/regulated-stablecoin-cli
+  ghc-options:    -threaded -rtsopts -O2 -with-rtsopts=-N
+  build-depends:
+    , base
+    , regulated-stablecoin
+
+executable convert-key
+  import:         lang
+  main-is:        Main.hs
+  hs-source-dirs: exe/convert-key
+  ghc-options:    -threaded -rtsopts -O2 -with-rtsopts=-N
+  build-depends:
+    , base
+    , cardano-api
+    , convex-wallet
+    , text
+
+executable calculate-hashes
+  import:         lang
+  main-is:        Main.hs
+  hs-source-dirs: exe/calculate-hashes
+  ghc-options:    -threaded -rtsopts -O2 -with-rtsopts=-N
+  build-depends:
+    , aeson
+    , base
+    , bytestring
+    , cardano-api
+    , cardano-ledger-core
+    , regulated-stablecoin
+    , text
+
+executable export-smart-tokens
+  import:         lang
+  main-is:        Main.hs
+  build-depends:
+    , aeson
+    , aeson-pretty
+    , base
+    , base16-bytestring
+    , bytestring
+    , cardano-api
+    , cardano-binary
+    , directory
+    , filepath
+    , mtl
+    , optparse-applicative
+    , plutarch
+    , plutus-ledger-api
+    , plutus-tx
+    , programmable-tokens-onchain
+    , regulated-stablecoin
+    , text
+
+  hs-source-dirs: exe/export-smart-tokens
+
+test-suite regulated-stablecoin-test
+  import:         lang
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test/unit
+  main-is:        Spec.hs
+  other-modules:
+    Wst.Test.Env
+    Wst.Test.UnitTest
+
+  build-depends:
+    , base                          >=4.14.0
+    , cardano-api
+    , convex-base
+    , convex-coin-selection
+    , convex-mockchain
+    , convex-wallet
+    , mtl
+    , programmable-tokens-offchain
+    , programmable-tokens-onchain
+    , programmable-tokens-testlib
+    , regulated-stablecoin
+    , tasty
+    , tasty-hunit
+
+executable write-openapi-schema
+  import:         lang
+  main-is:        Main.hs
+  hs-source-dirs: exe/write-openapi-schema
+  build-depends:
+    , aeson-pretty
+    , base
+    , bytestring
+    , regulated-stablecoin
+    , servant-openapi3

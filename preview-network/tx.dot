@@ -1,0 +1,29 @@
+digraph "resolved-transactions" {
+    graph [rankdir=LR];
+    node [shape=record
+         ,style=filled
+         ,bgcolor=gray93
+         ,height=0.1];
+    txin_1899dfab4c8d755227a986d3b9d8d62231c3a34fc16168b8c1342705bfcad2ce_2 [label="1899...d2ce#2|script\ 7c39...b9b3|Ada:\ 1.383510\n95c9...0582.50726f746f636f6c506172616d73:\ 1\n"
+                                                                            ,style=rounded];
+    txin_1899dfab4c8d755227a986d3b9d8d62231c3a34fc16168b8c1342705bfcad2ce_3 [label="1899...d2ce#3|pubkey\ a026...4f64|Ada:\ 348.182470\n"
+                                                                            ,style=rounded];
+    txin_3156dd68e42b39b0056dceb5871ca349a91385930df2ed6297302789db55919d_0 [label="3156...919d#0|script\ 4d25...3f07|Ada:\ 1.142150\n66e2...f713.aabbccdd:\ 100\n"
+                                                                            ,style=rounded];
+    txin_3156dd68e42b39b0056dceb5871ca349a91385930df2ed6297302789db55919d_2 [label="3156...919d#2|script\ 3065...62b7|Ada:\ 1.736930\nef55...8995.66e2c264559bd14876441e751de5b6c49b94fd6dc88c629e9f59f713:\ 1\n"
+                                                                            ,style=rounded];
+    txin_3156dd68e42b39b0056dceb5871ca349a91385930df2ed6297302789db55919d_3 [label="3156...919d#3|pubkey\ a026...4f64|Ada:\ 96.717800\n"
+                                                                            ,style=rounded];
+    txin_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9_0 [label="6aa8...41d9#0|script\ 4d25...3f07|Ada:\ 1.142150\n66e2...f713.aabbccdd:\ 100\n"
+                                                                            ,style=rounded];
+    txin_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9_1 [label="6aa8...41d9#1|pubkey\ a026...4f64|Ada:\ 96.403360\n"
+                                                                            ,style=rounded];
+    tx_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9 [label="Transaction|Fee:\ Ada:\ 0.314440|6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9|Withdrawal:\ stake_test17pge9tfvhttyufephadh22h5pdfkzp56xuxpzl2mnfkx9kq9s6mku\ (Ada:\ 0.00)|Withdrawal:\ stake_test17zflmyygf3mjemf8np6s87wn0jzhxu4enn6ucutpjl4m30glwhpvl\ (Ada:\ 0.00)"];
+    txin_3156dd68e42b39b0056dceb5871ca349a91385930df2ed6297302789db55919d_0 -> tx_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9 [label=spend];
+    txin_3156dd68e42b39b0056dceb5871ca349a91385930df2ed6297302789db55919d_3 -> tx_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9 [label=spend];
+    txin_1899dfab4c8d755227a986d3b9d8d62231c3a34fc16168b8c1342705bfcad2ce_2 -> tx_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9 [label=reference];
+    txin_3156dd68e42b39b0056dceb5871ca349a91385930df2ed6297302789db55919d_2 -> tx_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9 [label=reference];
+    txin_1899dfab4c8d755227a986d3b9d8d62231c3a34fc16168b8c1342705bfcad2ce_3 -> tx_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9 [label=collateral];
+    tx_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9 -> txin_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9_0;
+    tx_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9 -> txin_6aa82e47050fe00891d5f63e2d9d63ef1af2b1caefd0cb4ba8dc5dbc1b4741d9_1;
+}
