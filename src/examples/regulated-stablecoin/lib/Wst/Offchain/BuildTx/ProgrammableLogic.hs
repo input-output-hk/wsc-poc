@@ -1,4 +1,3 @@
-{-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications  #-}
 {-# LANGUAGE TypeFamilies      #-}
@@ -14,29 +13,21 @@ where
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Control.Lens ((^.))
-import Control.Monad (unless)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx, addReference, addWithdrawalWithTxBody,
                        buildScriptWitness, findIndexReference,
-                       findIndexSpending, mintPlutus, prependTxOut,
-                       spendPlutusInlineDatum)
+                       findIndexSpending, prependTxOut, spendPlutusInlineDatum)
 import Convex.CardanoApi.Lenses as L
 import Convex.Class (MonadBlockchain (queryNetworkId))
-import Convex.PlutusLedger.V1 (transPolicyId, transPubKeyHash, transScriptHash)
+import Convex.PlutusLedger.V1 (transPolicyId)
 import Convex.Utils qualified as Utils
-import Data.Foldable (find, traverse_)
+import Data.Foldable (find)
 import Data.List (partition)
 import Data.Maybe (fromJust)
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (CurrencySymbol (..))
-import PlutusLedgerApi.V3 qualified as PV3
-import ProgrammableTokens.OffChain.BuildTx.Directory (insertDirectoryNode)
-import ProgrammableTokens.OffChain.Env (TransferLogicEnv (..))
 import ProgrammableTokens.OffChain.Env qualified as Env
-import SmartTokens.Contracts.Issuance (SmartTokenMintingAction (..))
-import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (..))
-import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedeemer (..),
-                                                    TokenProof (..))
+import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedeemer (..))
 import SmartTokens.Types.ProtocolParams
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import Wst.Offchain.Query (UTxODat (..))

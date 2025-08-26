@@ -1,4 +1,5 @@
-{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE NamedFieldPuns       #-}
+{-# LANGUAGE UndecidableInstances #-}
 -- | Information related to the CIP-143 registry of minting policies
 module ProgrammableTokens.OffChain.Env.TransferLogic(
   HasTransferLogicEnv(..),
@@ -13,6 +14,9 @@ import Cardano.Api.Shelley qualified as C
 import Control.Monad.Reader (MonadReader (..), asks)
 import Convex.PlutusLedger.V1 (unTransCredential)
 import Data.Either (fromRight)
+import Data.HSet.Get (HGettable)
+import Data.HSet.Get qualified as HSet
+import Data.HSet.Type (HSet)
 import PlutusLedgerApi.V3 (CurrencySymbol)
 import ProgrammableTokens.OffChain.Env.Directory (DirectoryEnv (..),
                                                   DirectoryScriptRoot (..),
@@ -48,6 +52,9 @@ class HasTransferLogicEnv e where
 
 instance HasTransferLogicEnv TransferLogicEnv where
   transferLogicEnv = id
+
+instance (HGettable els TransferLogicEnv) => HasTransferLogicEnv (HSet els) where
+  transferLogicEnv = HSet.hget @_ @TransferLogicEnv
 
 {-| The minting script for a programmable token that uses the global parameters
 -}

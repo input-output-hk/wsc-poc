@@ -1,6 +1,7 @@
-{-# LANGUAGE FlexibleInstances      #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE NamedFieldPuns         #-}
+{-# LANGUAGE AllowAmbiguousTypes  #-}
+{-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE NamedFieldPuns       #-}
+{-# LANGUAGE UndecidableInstances #-}
 module ProgrammableTokens.OffChain.Env.Operator(
   HasOperatorEnv(..),
   OperatorEnv(..),
@@ -32,17 +33,23 @@ import Convex.Utxos (BalanceChanges)
 import Convex.Utxos qualified as Utxos
 import Convex.Wallet.Operator (returnOutputFor)
 import Convex.Wallet.Operator qualified as Op
+import Data.HSet.Get (HGettable)
+import Data.HSet.Get qualified as HSet
+import Data.HSet.Type (HSet)
 import Data.Map qualified as Map
 import Data.Maybe (listToMaybe)
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError (..))
 
 {-| Environments that have an 'OperatorEnv'
 -}
-class HasOperatorEnv era e | e -> era where
+class HasOperatorEnv era e where
   operatorEnv :: e -> OperatorEnv era
 
 instance HasOperatorEnv era (OperatorEnv era) where
   operatorEnv = id
+
+instance (HGettable els (OperatorEnv era)) => HasOperatorEnv era (HSet els) where
+  operatorEnv = HSet.hget @_ @(OperatorEnv era)
 
 {-| Information needed to build transactions
 -}
@@ -54,8 +61,8 @@ data OperatorEnv era =
 
 {-| Get the operator's payment credential from the 'env'
 -}
-operatorPaymentCredential :: (MonadReader env m, HasOperatorEnv era env) => m C.PaymentCredential
-operatorPaymentCredential = asks (C.PaymentCredentialByKey . fst . bteOperator . operatorEnv)
+operatorPaymentCredential :: forall env era m. (MonadReader env m, HasOperatorEnv era env) => m C.PaymentCredential
+operatorPaymentCredential = asks (C.PaymentCredentialByKey . fst . bteOperator . operatorEnv @era)
 
 {-| Populate the 'OperatorEnv' with UTxOs locked by the payment credential
 -}
@@ -98,7 +105,7 @@ selectTwoOperatorOutputs = do
 -}
 balanceTxEnv_ :: forall era env err a m. (MonadBlockchain era m, MonadReader env m, HasOperatorEnv era env, MonadError err m, C.IsBabbageBasedEra era, CoinSelection.AsCoinSelectionError err, CoinSelection.AsBalancingError err era) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
 balanceTxEnv_ btx = do
-  OperatorEnv{bteOperatorUtxos, bteOperator} <- asks operatorEnv
+  OperatorEnv{bteOperatorUtxos, bteOperator} <- asks (operatorEnv @era)
   params <- queryProtocolParameters
   txBuilder <- BuildTx.execBuildTxT $ btx >> BuildTx.setMinAdaDepositAll params
   -- TODO: change returnOutputFor to consider the stake address reference
@@ -110,7 +117,7 @@ balanceTxEnv_ btx = do
 -}
 balanceTxEnv :: forall era env err a m. (MonadBlockchain era m, MonadReader env m, HasOperatorEnv era env, MonadError err m, C.IsBabbageBasedEra era, CoinSelection.AsBalancingError err era, CoinSelection.AsCoinSelectionError err) => BuildTxT era m a -> m ((C.BalancedTxBody era, BalanceChanges), a)
 balanceTxEnv btx = do
-  OperatorEnv{bteOperatorUtxos, bteOperator} <- asks operatorEnv
+  OperatorEnv{bteOperatorUtxos, bteOperator} <- asks (operatorEnv @era)
   params <- queryProtocolParameters
   (r, txBuilder) <- BuildTx.runBuildTxT $ btx <* BuildTx.setMinAdaDepositAll params
   -- TODO: change returnOutputFor to consider the stake address reference

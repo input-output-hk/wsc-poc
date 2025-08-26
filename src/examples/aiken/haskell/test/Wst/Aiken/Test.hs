@@ -84,7 +84,7 @@ registerAikenPolicy :: forall era err m.
 registerAikenPolicy step' = do
   blueprint <- liftIO loadExample >>= flip Offchain.lookupScripts_ Offchain.blueprintKeys >>= Offchain.extractV3Scripts_
   scriptRoot <- runReaderT (Test.deployDirectorySet Test.admin) Production
-  let runAsAdmin = Env.runAs Test.admin (Env.mkDirectoryEnv scriptRoot) (Offchain.transferLogic blueprint)
+  let runAsAdmin = Env.runAs @_ @era Test.admin (Env.mkDirectoryEnv scriptRoot) (Offchain.transferLogic blueprint)
       step = liftIO . step'
 
   step "Registering stake scripts"
@@ -120,7 +120,7 @@ transferAikenPolicy :: forall era err m.
 transferAikenPolicy = do
   blueprint <- liftIO loadExample >>= flip Offchain.lookupScripts_ Offchain.blueprintKeys >>= Offchain.extractV3Scripts_
   scriptRoot <- runReaderT (Test.deployDirectorySet Test.admin) Production
-  let runAsAdmin = Env.runAs Test.admin (Env.mkDirectoryEnv scriptRoot) (Offchain.transferLogic blueprint)
+  let runAsAdmin = Env.runAs @_ @era Test.admin (Env.mkDirectoryEnv scriptRoot) (Offchain.transferLogic blueprint)
 
   _ <- runAsAdmin
         $ Endpoints.registerCip143PolicyTransferScripts

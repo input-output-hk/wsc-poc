@@ -84,6 +84,7 @@ library
     , convex-coin-selection
     , convex-optics
     , convex-wallet
+    , hset
     , lens
     , mtl
     , openapi3
@@ -91,3 +92,4 @@ library
     , plutus-ledger-api
     , plutus-tx
     , programmable-tokens-onchain
+    , type-fun

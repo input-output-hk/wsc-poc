@@ -126,7 +126,7 @@ runCommand com = do
           Register operatorConfig submitTx -> do
             logInfo "cip-143-cli policy register"
             operator <- loadOperator operatorConfig
-            opEnv <- Env.loadConvexOperatorEnv operator
+            opEnv <- Env.loadConvexOperatorEnv @_ @C.ConwayEra operator
             flip runReaderT (Env.combinedEnv dir opEnv transferPolicy) $ do
               tx <- Endpoints.registerCip143PolicyTransferScripts
               polId <- Env.programmableTokenPolicyId
@@ -139,7 +139,7 @@ runCommand com = do
           Issue operatorConfig assetName quantity redeemer submitTx -> do
             logInfo "cip-143-cli policy issue"
             operator <- loadOperator operatorConfig
-            opEnv <- Env.loadConvexOperatorEnv operator
+            opEnv <- Env.loadConvexOperatorEnv @_ @C.ConwayEra operator
             flip runReaderT (Env.combinedEnv dir opEnv transferPolicy) $ do
               let red = PV1.toBuiltin redeemer
               tx <- Endpoints.registerCip143PolicyTx assetName quantity red
@@ -156,7 +156,7 @@ runCommand com = do
           Transfer operatorConfig receiverAddr assetName quantity redeemer submitTx -> do
             logInfo "cip-143-cli policy transfer"
             operator <- loadOperator operatorConfig
-            opEnv <- Env.loadConvexOperatorEnv operator
+            opEnv <- Env.loadConvexOperatorEnv @_ @C.ConwayEra operator
             flip runReaderT (Env.combinedEnv dir opEnv transferPolicy) $ do
               let red = PV1.toBuiltin redeemer
               receiver <- getReceiverPaymentCredential receiverAddr

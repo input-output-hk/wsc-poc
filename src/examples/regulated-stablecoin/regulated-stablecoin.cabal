@@ -84,6 +84,7 @@ library
     , convex-coin-selection
     , convex-optics
     , convex-wallet
+    , hset
     , lens
     , mtl
     , openapi3
@@ -98,6 +99,7 @@ library
     , servant-client-core
     , servant-server
     , text
+    , type-fun
     , wai-cors
     , warp
 
@@ -177,6 +179,7 @@ test-suite regulated-stablecoin-test
     , convex-coin-selection
     , convex-mockchain
     , convex-wallet
+    , hset
     , mtl
     , programmable-tokens-offchain
     , programmable-tokens-onchain
@@ -184,6 +187,7 @@ test-suite regulated-stablecoin-test
     , regulated-stablecoin
     , tasty
     , tasty-hunit
+    , type-fun
 
 executable write-openapi-schema
   import:         lang

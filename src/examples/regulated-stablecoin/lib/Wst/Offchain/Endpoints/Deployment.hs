@@ -42,12 +42,12 @@ import Wst.Offchain.Query qualified as Query
 the relevant stablecoin transfer logic scripts and registrations. Returns the
 transaction and the 'TxIn' that was selected for the one-shot NFTs.
 -}
-deployFullTx :: (MonadReader env m, C.IsConwayBasedEra era, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, AsProgrammableTokensError err, AsCoinSelectionError err, AsBalancingError err era) => ScriptTarget -> m (C.Tx era, DirectoryScriptRoot)
+deployFullTx :: forall env era err m. (MonadReader env m, C.IsConwayBasedEra era, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, AsProgrammableTokensError err, AsCoinSelectionError err, AsBalancingError err era) => ScriptTarget -> m (C.Tx era, DirectoryScriptRoot)
 deployFullTx target = do
-  ((txi, _), (issuanceCborHexTxIn, _)) <- Env.selectTwoOperatorOutputs
-  opEnv <- asks Env.operatorEnv
+  ((txi, _), (issuanceCborHexTxIn, _)) <- Env.selectTwoOperatorOutputs @env @_ @era
+  opEnv <- asks (Env.operatorEnv @era)
   let root = DirectoryScriptRoot txi issuanceCborHexTxIn target
-  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectoryFor root $ Env.withTransferFromOperator
+  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectoryFor root $ Env.withTransferFromOperator @era
               $ Env.balanceDeployTxEnv_
               $ BuildTx.mintProtocolParams
                 >> BuildTx.initDirectorySet
@@ -85,11 +85,11 @@ issueSmartTokensTx assetName quantity destinationCred = do
     BuildTx.issueSmartTokens paramsNode cborHexTxIn (assetName, quantity) directory destinationCred
   pure (Convex.CoinSelection.signBalancedTxBody [] tx, aid)
 
-deployBlacklistTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, Env.HasDirectoryEnv env, AsCoinSelectionError err, AsBalancingError err era) => m (C.Tx era)
+deployBlacklistTx :: forall env era err m. (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, Env.HasDirectoryEnv env, AsCoinSelectionError err, AsBalancingError err era) => m (C.Tx era)
 deployBlacklistTx = do
-  opEnv <- asks Env.operatorEnv
+  opEnv <- asks (Env.operatorEnv @era)
   dirEnv <- asks Env.directoryEnv
-  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectory dirEnv $ Env.withTransferFromOperator
+  (tx, _) <- Env.withEnv $ Env.withOperator opEnv $ Env.withDirectory dirEnv $ Env.withTransferFromOperator @era
               $ Env.balanceTxEnv_ BuildTx.initBlacklist
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
@@ -132,7 +132,7 @@ transferSmartTokensTx :: forall era env err m.
 transferSmartTokensTx policy assetId quantity destCred = do
   directory <- Query.registryNodeForReference @era
   blacklist <- Query.blacklistNodes @era
-  userOutputsAtProgrammable <- Env.operatorPaymentCredential >>= Query.userProgrammableOutputs
+  userOutputsAtProgrammable <- Env.operatorPaymentCredential @_ @era >>= Query.userProgrammableOutputs
   paramsTxIn <- Query.globalParamsNode @era
   (tx, _) <- balanceTxEnvFailing policy $ do
     BuildTx.transferSmartTokens paramsTxIn blacklist directory userOutputsAtProgrammable (assetId, quantity) destCred
@@ -158,7 +158,7 @@ seizeCredentialAssetsTx :: forall era env err m.
   -> C.PaymentCredential -- ^ Source/User credential
   -> m (C.Tx era)
 seizeCredentialAssetsTx reason sanctionedCred = do
-  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv @era)
   directory <- Query.registryNodes @era
   let getTxOutValue (C.TxOut _a v _d _r) = v
       -- simple fold to choose the UTxO with the most total assets

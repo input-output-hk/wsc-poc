@@ -80,6 +80,7 @@ library
     , convex-coin-selection
     , convex-optics
     , convex-wallet
+    , hset
     , lens
     , mtl
     , optparse-applicative

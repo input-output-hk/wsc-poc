@@ -1,10 +1,9 @@
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE TemplateHaskell      #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Wst.Cli.Env(
-  -- * Cli env.
-  CliEnv(..),
   cliOperatorEnv,
-
   -- * Runtime data
   RuntimeEnv(..),
   HasRuntimeEnv(..),
@@ -22,10 +21,17 @@ import Blockfrost.Auth (mkProject)
 import Blockfrost.Client.Auth qualified as Blockfrost
 import Cardano.Api.Shelley qualified as C
 import Control.Lens (makeLensesFor)
+import Control.Lens qualified as L
+import Data.HSet.Get (HGettable)
+import Data.HSet.Get qualified as HSet
+import Data.HSet.Modify qualified as HSet
+import Data.HSet.Type (HSet)
+import Data.HSet.Type qualified as HSet
 import Data.Text qualified as Text
-import ProgrammableTokens.OffChain.Env (HasOperatorEnv (..), OperatorEnv)
+import ProgrammableTokens.OffChain.Env (OperatorEnv)
 import System.Environment qualified
 
+-- TODO: move to a common lib
 data RuntimeEnv =
   RuntimeEnv
     { ceLogger :: Logger
@@ -55,31 +61,13 @@ class HasRuntimeEnv e where
 instance HasRuntimeEnv RuntimeEnv where
   runtimeEnv = id
 
-data CliEnv f =
-  CliEnv
-    { ceRuntime  :: RuntimeEnv
-    , ceOperator :: OperatorEnv C.ConwayEra
-    }
+instance (HGettable els RuntimeEnv) => HasRuntimeEnv (HSet els) where
+  runtimeEnv = HSet.hget @_ @RuntimeEnv
 
-makeLensesFor
-  [ ("ceRuntime", "runtime")
-  ]
-  'CliEnv
+instance (HGettable els RuntimeEnv, HSet.HMonoModifiable els RuntimeEnv) => HasLogger (HSet els) where
+  loggerL = L.lens get set where
+    get = L.view logger . runtimeEnv
+    set s x = HSet.hmodify (L.set logger x) s
 
-instance HasLogger (CliEnv f) where
-  loggerL = runtime . logger
-
-instance HasRuntimeEnv (CliEnv f) where
-  runtimeEnv = ceRuntime
-
--- instance HasDirectoryEnv (CliEnv tr) where
---   directoryEnv = directoryEnv . ceCombined
-
-instance HasOperatorEnv C.ConwayEra (CliEnv tr) where
-  operatorEnv = ceOperator
-
--- instance HasTransferLogicEnv (CliEnv Identity) where
---   transferLogicEnv = transferLogicEnv . ceCombined
-
-cliOperatorEnv :: RuntimeEnv -> OperatorEnv C.ConwayEra -> CliEnv f
-cliOperatorEnv = CliEnv
+cliOperatorEnv :: RuntimeEnv -> OperatorEnv C.ConwayEra -> HSet [RuntimeEnv, OperatorEnv C.ConwayEra]
+cliOperatorEnv re ope = HSet.HSCons re (HSet.HSCons ope HSet.HSNil)

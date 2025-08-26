@@ -227,7 +227,7 @@ issueProgrammableTokenEndpoint :: forall era env m.
 issueProgrammableTokenEndpoint IssueProgrammableTokenArgs{itaAssetName, itaQuantity, itaIssuer, itaRecipient} = do
   let C.ShelleyAddress _network cred _stake = itaRecipient
       destinationCredential = C.fromShelleyPaymentCredential cred
-  operatorEnv <- Env.loadOperatorEnvFromAddress itaIssuer
+  operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era itaIssuer
   dirEnv <- asks Env.directoryEnv
   (logic, _) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress itaIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer logic $ do
@@ -254,7 +254,7 @@ transferProgrammableTokenEndpoint :: forall era env m.
   )
   => TransferProgrammableTokenArgs -> m (TextEnvelopeJSON (C.Tx era))
 transferProgrammableTokenEndpoint TransferProgrammableTokenArgs{ttaSender, ttaRecipient, ttaAssetName, ttaQuantity, ttaIssuer, ttaSubmitFailingTx} = do
-  operatorEnv <- Env.loadOperatorEnvFromAddress ttaSender
+  operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era ttaSender
   dirEnv <- asks Env.directoryEnv
   (logic, ble) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress ttaIssuer)
   let assetId = Env.programmableTokenAssetId dirEnv logic ttaAssetName
@@ -275,7 +275,7 @@ addToBlacklistEndpoint :: forall era env m.
   => BlacklistNodeArgs -> m (TextEnvelopeJSON (C.Tx era))
 addToBlacklistEndpoint BlacklistNodeArgs{bnaIssuer, bnaBlacklistAddress, bnaReason} = do
   let badCred = paymentCredentialFromAddress bnaBlacklistAddress
-  operatorEnv <- Env.loadOperatorEnvFromAddress bnaIssuer
+  operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era bnaIssuer
   dirEnv <- asks Env.directoryEnv
   (transferLogic, ble) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress bnaIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withBlacklist ble $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
@@ -293,7 +293,7 @@ removeFromBlacklistEndpoint :: forall era env m.
   => BlacklistNodeArgs -> m (TextEnvelopeJSON (C.Tx era))
 removeFromBlacklistEndpoint BlacklistNodeArgs{bnaIssuer, bnaBlacklistAddress} = do
   let badCred = paymentCredentialFromAddress bnaBlacklistAddress
-  operatorEnv <- Env.loadOperatorEnvFromAddress bnaIssuer
+  operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era bnaIssuer
   dirEnv <- asks Env.directoryEnv
   (transferLogic, ble) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress bnaIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withBlacklist ble $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
@@ -311,7 +311,7 @@ seizeAssetsEndpoint :: forall era env m.
   => SeizeAssetsArgs -> m (TextEnvelopeJSON (C.Tx era))
 seizeAssetsEndpoint SeizeAssetsArgs{saIssuer, saTarget, saReason} = do
   let badCred = paymentCredentialFromAddress saTarget
-  operatorEnv <- Env.loadOperatorEnvFromAddress saIssuer
+  operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era saIssuer
   dirEnv <- asks Env.directoryEnv
   (transferLogic, _) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress saIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
