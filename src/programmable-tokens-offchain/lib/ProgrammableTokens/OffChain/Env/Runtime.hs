@@ -31,7 +31,6 @@ import Data.Text qualified as Text
 import ProgrammableTokens.OffChain.Env.Operator (OperatorEnv)
 import System.Environment qualified
 
--- TODO: move to a common lib
 data RuntimeEnv =
   RuntimeEnv
     { ceLogger :: Logger
