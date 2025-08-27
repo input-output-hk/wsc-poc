@@ -34,6 +34,7 @@ import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors
 import PlutusTx.Prelude qualified as P
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
+import ProgrammableTokens.OffChain.Env.Runtime qualified as Env
 import ProgrammableTokens.OffChain.Query qualified as Query
 import Servant (Server, ServerT)
 import Servant.API (NoContent (..), Raw, (:<|>) (..))
@@ -100,7 +101,7 @@ defaultServerArgs =
 
 runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env, HasLogger env) => env -> ServerArgs -> IO ()
 runServer env ServerArgs{saPort, saStaticFiles, saDemoEnvironmentFile} = do
-  let bf   = Blockfrost.projectId $ Env.envBlockfrost $ Env.runtimeEnv env
+  let bf   = Blockfrost.projectId $ Env.ceBlockfrost $ Env.runtimeEnv env
   demoEnv <-
     fromMaybe (DemoEnvironment.previewNetworkDemoEnvironment bf)
     <$> traverse DemoEnvironment.loadFromFile saDemoEnvironmentFile

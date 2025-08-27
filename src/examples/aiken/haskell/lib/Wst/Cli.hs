@@ -29,6 +29,7 @@ import PlutusLedgerApi.V1 qualified as PV1
 import ProgrammableTokens.OffChain.Endpoints qualified as Endpoints
 import ProgrammableTokens.OffChain.Env qualified as Env
 import ProgrammableTokens.OffChain.Env.Directory qualified as Directory
+import ProgrammableTokens.OffChain.Env.Runtime qualified as Env
 import ProgrammableTokens.OffChain.Error qualified as Error
 import ProgrammableTokens.OffChain.Query qualified as Query
 import ProgrammableTokens.OffChain.Scripts as Scripts
@@ -38,7 +39,6 @@ import Wst.Aiken.Error qualified as Error
 import Wst.Cli.App (runWstApp)
 import Wst.Cli.Command (Command (..), PolicyCommand (..), parseCommand)
 import Wst.Cli.Command qualified as Command
-import Wst.Cli.Env qualified as Env
 
 runMain :: IO ()
 runMain = do

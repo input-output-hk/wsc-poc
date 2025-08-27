@@ -1,9 +1,7 @@
-{-# LANGUAGE AllowAmbiguousTypes    #-}
-{-# LANGUAGE FlexibleInstances      #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE NamedFieldPuns         #-}
-{-# LANGUAGE TemplateHaskell        #-}
-{-# LANGUAGE UndecidableInstances   #-}
+{-# LANGUAGE AllowAmbiguousTypes  #-}
+{-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE NamedFieldPuns       #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 {-| Transaction building environment
@@ -51,11 +49,6 @@ module Wst.Offchain.Env(
   programmableTokenAssetId,
   programmableTokenReceivingAddress,
 
-  -- * Runtime data
-  RuntimeEnv(..),
-  HasRuntimeEnv(..),
-  loadRuntimeEnv,
-
   -- * Combined environment
   withEnv,
   addDirectoryEnvFor,
@@ -72,22 +65,13 @@ module Wst.Offchain.Env(
   addBlacklistEnv
 ) where
 
-import Blammo.Logging (Logger)
-import Blammo.Logging.Logger (HasLogger (..), newLogger)
-import Blammo.Logging.LogSettings.Env qualified as LogSettingsEnv
-import Blockfrost.Auth (mkProject)
-import Blockfrost.Client.Auth qualified as Blockfrost
 import Cardano.Api (PlutusScript, PlutusScriptV3)
 import Cardano.Api qualified as C
-import Control.Lens (makeLensesFor)
-import Control.Lens qualified as L
 import Control.Monad.Reader (MonadReader, ReaderT, ask, asks, runReaderT)
 import Data.HSet.Get (HGettable)
 import Data.HSet.Get qualified as HSet
-import Data.HSet.Modify qualified as HSet
 import Data.HSet.Type (HSet)
 import Data.HSet.Type qualified as HSet
-import Data.Text qualified as Text
 import ProgrammableTokens.OffChain.Env (DirectoryEnv (..),
                                         DirectoryScriptRoot (..),
                                         HasDirectoryEnv (..),
@@ -104,10 +88,10 @@ import ProgrammableTokens.OffChain.Env (DirectoryEnv (..),
                                         programmableTokenMintingScript,
                                         programmableTokenReceivingAddress,
                                         protocolParamsPolicyId)
+import ProgrammableTokens.OffChain.Env.Runtime (RuntimeEnv)
 import ProgrammableTokens.OffChain.Scripts (alwaysSucceedsScript,
                                             scriptPolicyIdV3)
 import SmartTokens.Core.Scripts (ScriptTarget)
-import System.Environment qualified
 import TypeFun.Data.List qualified as HList
 import Wst.Offchain.Scripts (blacklistMintingScript, blacklistSpendingScript,
                              freezeTransferScript, permissionedMintingScript,
@@ -171,42 +155,6 @@ mkTransferLogicEnv BlacklistTransferLogicScriptRoot{tlrTarget, tlrDirEnv, tlrIss
 
 blacklistNodePolicyId :: BlacklistEnv -> C.PolicyId
 blacklistNodePolicyId = scriptPolicyIdV3 . bleMintingScript
-
-data RuntimeEnv
-  = RuntimeEnv
-      { envLogger      :: Logger
-      , envBlockfrost  :: Blockfrost.Project
-      }
-
-makeLensesFor
-  [ ("envLogger", "logger")
-  , ("envBlockfrostProject", "blockfrostProject")
-  ]
-  'RuntimeEnv
-
-instance HasLogger RuntimeEnv where
-  loggerL = logger
-
--- | Load the 'RuntimeEnv' from environment variables
-loadRuntimeEnv :: IO RuntimeEnv
-loadRuntimeEnv =
-  RuntimeEnv
-    <$> (LogSettingsEnv.parse >>= newLogger)
-    <*> fmap (mkProject . Text.pack) (System.Environment.getEnv "WST_BLOCKFROST_TOKEN")
-
-class HasRuntimeEnv e where
-  runtimeEnv :: e -> RuntimeEnv
-
-instance HasRuntimeEnv RuntimeEnv where
-  runtimeEnv = id
-
-instance (HGettable els RuntimeEnv) => HasRuntimeEnv (HSet els) where
-  runtimeEnv = HSet.hget @_ @RuntimeEnv
-
-instance (HGettable els RuntimeEnv, HSet.HMonoModifiable els RuntimeEnv) => HasLogger (HSet els) where
-  loggerL = L.lens get set where
-    get = L.view logger . runtimeEnv
-    set s x = HSet.hmodify (L.set logger x) s
 
 {-| Add a 'DirectoryEnv' for the 'C.TxIn' in to the environment
 -}

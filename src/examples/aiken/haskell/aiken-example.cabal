@@ -62,7 +62,6 @@ library
     Wst.Cli
     Wst.Cli.App
     Wst.Cli.Command
-    Wst.Cli.Env
 
   hs-source-dirs:  lib
   build-depends:

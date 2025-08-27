@@ -71,7 +71,6 @@ library
     , aeson
     , base
     , Blammo
-    , blockfrost-api
     , blockfrost-client
     , blockfrost-client-core
     , bytestring

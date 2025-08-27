@@ -15,11 +15,11 @@ import Control.Monad.Reader (MonadReader, ReaderT, runReaderT)
 import Convex.Blockfrost (BlockfrostT (..), evalBlockfrostT)
 import Convex.Class (MonadBlockchain, MonadUtxoQuery)
 import Data.String (IsString (..))
+import ProgrammableTokens.OffChain.Env.Runtime (RuntimeEnv (..))
+import ProgrammableTokens.OffChain.Env.Runtime qualified as Env
 import Servant.Server (Handler (..))
 import Servant.Server qualified as S
 import Wst.AppError (AppError (..))
-import Wst.Offchain.Env (RuntimeEnv (..))
-import Wst.Offchain.Env qualified as Env
 
 newtype WstApp env era a = WstApp { unWstApp :: ReaderT env (ExceptT (AppError era) (BlockfrostT IO)) a }
   deriving newtype (Monad, Applicative, Functor, MonadIO, MonadReader env, MonadError (AppError era), MonadUtxoQuery, MonadBlockchain C.ConwayEra)
@@ -29,8 +29,8 @@ newtype WstApp env era a = WstApp { unWstApp :: ReaderT env (ExceptT (AppError e
 
 runWstApp :: forall env era a. (Env.HasRuntimeEnv env) => env -> WstApp env era a -> IO (Either (AppError era) a)
 runWstApp env WstApp{unWstApp} = do
-  let RuntimeEnv{envBlockfrost} = Env.runtimeEnv env
-  evalBlockfrostT envBlockfrost (runExceptT (runReaderT unWstApp env)) >>= \case
+  let RuntimeEnv{ceBlockfrost} = Env.runtimeEnv env
+  evalBlockfrostT ceBlockfrost (runExceptT (runReaderT unWstApp env)) >>= \case
     Left e -> pure (Left $ BlockfrostErr e)
     Right a -> pure  a
 

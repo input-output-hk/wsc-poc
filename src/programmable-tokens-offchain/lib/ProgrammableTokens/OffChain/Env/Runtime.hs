@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell      #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module Wst.Cli.Env(
+module ProgrammableTokens.OffChain.Env.Runtime(
   cliOperatorEnv,
   -- * Runtime data
   RuntimeEnv(..),
@@ -28,7 +28,7 @@ import Data.HSet.Modify qualified as HSet
 import Data.HSet.Type (HSet)
 import Data.HSet.Type qualified as HSet
 import Data.Text qualified as Text
-import ProgrammableTokens.OffChain.Env (OperatorEnv)
+import ProgrammableTokens.OffChain.Env.Operator (OperatorEnv)
 import System.Environment qualified
 
 -- TODO: move to a common lib
