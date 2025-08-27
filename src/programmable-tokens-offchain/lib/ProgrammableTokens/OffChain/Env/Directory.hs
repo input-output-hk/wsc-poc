@@ -40,15 +40,13 @@ import Convex.Wallet.Operator (returnOutputFor)
 import Data.Aeson (FromJSON (..), ToJSON (..))
 import Data.Aeson qualified as JSON
 import Data.ByteString.Lazy qualified as BSL
-import Data.HSet.Get (HGettable)
-import Data.HSet.Get qualified as HSet
-import Data.HSet.Type (HSet)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import GHC.Generics (Generic)
 import ProgrammableTokens.JSON.Utils qualified as JSON
 import ProgrammableTokens.OffChain.Env.Operator (HasOperatorEnv (..),
                                                  OperatorEnv (..))
+import ProgrammableTokens.OffChain.Env.Utils qualified as Env
 import ProgrammableTokens.OffChain.Scripts (directoryNodeMintingScript,
                                             directoryNodeSpendingScript,
                                             issuanceCborHexMintingScript,
@@ -88,8 +86,8 @@ class HasDirectoryEnv e where
 instance HasDirectoryEnv DirectoryEnv where
   directoryEnv = id
 
-instance (HGettable els DirectoryEnv) => HasDirectoryEnv (HSet els) where
-  directoryEnv = HSet.hget @_ @DirectoryEnv
+instance (Env.Elem DirectoryEnv els) => HasDirectoryEnv (Env.HSet els) where
+  directoryEnv = Env.hget @_ @DirectoryEnv
 
 {-| Load the 'DirectoryScriptRoot' from a JSON file. The JSON file is specified by the
 'CIP_143_DIRECTORY_SCRIPT_ROOT' environment variable.

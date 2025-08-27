@@ -44,7 +44,7 @@ issueAlwaysSucceedsValidator :: (MonadUtxoQuery m, MonadFail m, MonadError (Test
 issueAlwaysSucceedsValidator scriptRoot = do
   let dirEnv      = Env.mkDirectoryEnv scriptRoot
       transferEnv = Env.alwaysSucceedsTransferLogic Production
-      runAs' = Env.runAs @_ @C.ConwayEra Test.admin dirEnv transferEnv
+      runAs' action = Env.runReaderT (Env.runAs @_ @C.ConwayEra Test.admin action) (Env.addEnv dirEnv $ Env.singleton transferEnv)
   runAs' registerAlwaysSucceedsStakingCert
 
   runAs' $ do

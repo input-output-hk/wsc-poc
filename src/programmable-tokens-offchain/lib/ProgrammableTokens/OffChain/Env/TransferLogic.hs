@@ -14,14 +14,12 @@ import Cardano.Api.Shelley qualified as C
 import Control.Monad.Reader (MonadReader (..), asks)
 import Convex.PlutusLedger.V1 (unTransCredential)
 import Data.Either (fromRight)
-import Data.HSet.Get (HGettable)
-import Data.HSet.Get qualified as HSet
-import Data.HSet.Type (HSet)
 import PlutusLedgerApi.V3 (CurrencySymbol)
 import ProgrammableTokens.OffChain.Env.Directory (DirectoryEnv (..),
                                                   DirectoryScriptRoot (..),
                                                   HasDirectoryEnv (..),
                                                   globalParams)
+import ProgrammableTokens.OffChain.Env.Utils qualified as Env
 import ProgrammableTokens.OffChain.Scripts as Scripts
 import SmartTokens.Core.Scripts (ScriptTarget)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
@@ -53,8 +51,8 @@ class HasTransferLogicEnv e where
 instance HasTransferLogicEnv TransferLogicEnv where
   transferLogicEnv = id
 
-instance (HGettable els TransferLogicEnv) => HasTransferLogicEnv (HSet els) where
-  transferLogicEnv = HSet.hget @_ @TransferLogicEnv
+instance (Env.Elem TransferLogicEnv els) => HasTransferLogicEnv (Env.HSet els) where
+  transferLogicEnv = Env.hget @_ @TransferLogicEnv
 
 {-| The minting script for a programmable token that uses the global parameters
 -}

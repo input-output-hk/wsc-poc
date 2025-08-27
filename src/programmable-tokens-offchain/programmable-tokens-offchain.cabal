@@ -65,6 +65,7 @@ library
     ProgrammableTokens.OffChain.Env.Directory
     ProgrammableTokens.OffChain.Env.Operator
     ProgrammableTokens.OffChain.Env.TransferLogic
+    ProgrammableTokens.OffChain.Env.Utils
     ProgrammableTokens.OffChain.Error
     ProgrammableTokens.OffChain.Orphans
     ProgrammableTokens.OffChain.Query
