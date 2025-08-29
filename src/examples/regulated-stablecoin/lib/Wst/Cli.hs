@@ -16,13 +16,14 @@ import Convex.Wallet.Operator (Operator (Operator, oPaymentKey),
                                PaymentExtendedKey (PESigningEx), signTxOperator,
                                verificationKey)
 import Convex.Wallet.Operator qualified as Operator
-import Data.Functor.Identity (Identity)
 import Data.Maybe (fromMaybe)
 import Data.Proxy (Proxy (..))
 import Data.String (IsString (..))
 import Options.Applicative (customExecParser, disambiguate, helper, idm, info,
                             prefs, showHelpOnEmpty, showHelpOnError)
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
+import ProgrammableTokens.OffChain.Env.Runtime qualified as Env
+import ProgrammableTokens.OffChain.Env.Utils qualified as Utils
 import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import Wst.App (runWstApp)
 import Wst.AppError (AppError)
@@ -42,7 +43,7 @@ runMain = do
 
 runCommand :: Command -> IO ()
 runCommand com = do
-  env <- Env.addRuntimeEnv <$> Env.loadRuntimeEnv <*> pure Env.empty
+  env <- Env.addRuntimeEnv <$> Env.loadRuntimeEnv <*> pure Utils.empty
   result <- case com of
     Deploy config -> runWstApp env (deploy config)
     Manage txIn issuanceCborHexTxIn com_ -> do
@@ -76,7 +77,7 @@ deploy config = do
   opEnv <- Env.loadOperatorEnv @_ @C.ConwayEra operatorPaymentHash C.NoStakeAddress
   runEnv <- asks Env.runtimeEnv
 
-  let env = Env.addOperatorEnv opEnv $ Env.addRuntimeEnv runEnv Env.empty
+  let env = Env.addOperatorEnv opEnv $ Utils.singleton runEnv
 
   -- Use blockfrost backend to run Wst.Offchain.Endpoints.Deployment with the operator's funds
   (tx, root) <- liftIO (runWstApp env $ do
@@ -95,7 +96,7 @@ deploy config = do
       logInfo $ "Tx submitted successfully" :# ["txid" .= show txid]
       (liftIO $ C.writeFileJSON "deployment-root.json" root) >>= either (error . show) pure
 
-startServer :: (MonadIO m, MonadLogger m) => Env.CombinedEnv Proxy Identity Proxy Identity b w -> Server.ServerArgs -> m ()
+startServer :: (Utils.Elem Env.RuntimeEnv els, Utils.Elem Env.DirectoryEnv els, Utils.HMonoModifiable els Env.RuntimeEnv, MonadIO m, MonadLogger m) => Utils.HSet els -> Server.ServerArgs -> m ()
 startServer env' serverArgs@ServerArgs{saPort, saStaticFiles} = do
   logInfo $ "starting server" :# ["port" .= saPort, "static_files" .= fromMaybe "(no static files)" saStaticFiles]
   liftIO (Server.runServer env' serverArgs)

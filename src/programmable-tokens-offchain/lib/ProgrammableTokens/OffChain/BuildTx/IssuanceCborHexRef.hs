@@ -95,7 +95,7 @@ mintIssuanceCborHexNFT = Utils.inBabbage @era $ do
 
 frackUTxOs :: forall era env m. (C.IsBabbageBasedEra era, MonadBuildTx era m, MonadBlockchain era m, MonadReader env m, Env.HasOperatorEnv era env) => m ()
 frackUTxOs = Utils.inBabbage @era $ do
-  Env.OperatorEnv{Env.bteOperator} <- asks Env.operatorEnv
+  Env.OperatorEnv{Env.bteOperator} <- asks (Env.operatorEnv @era)
   netId <- queryNetworkId
   let val = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra
             $ C.lovelaceToValue 150_000_000

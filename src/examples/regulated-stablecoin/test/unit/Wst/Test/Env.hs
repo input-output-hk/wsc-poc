@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-| Running tests that use the 'BuildTxEv'
 -}
 module Wst.Test.Env(
@@ -14,8 +15,9 @@ import Convex.Wallet qualified as Wallet
 import Convex.Wallet.MockWallet (w1)
 import Convex.Wallet.Operator (Operator (..), PaymentExtendedKey (..), Signing)
 import Convex.Wallet.Operator qualified as Operator
-import Data.Functor.Identity (Identity)
+import Data.HSet.Type (HSet)
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
+import TypeFun.Data.List qualified as HList
 import Wst.Offchain.Env qualified as Env
 
 {-| Key used for actions of the stableoin issuer / operator.
@@ -36,24 +38,26 @@ user w =
 
 {-| Run an action using the "admin" key. Deploying the system, minting stablecoins, etc.
 -}
-asAdmin :: forall era o d t r b m a.
+asAdmin :: forall era els m a.
   ( MonadUtxoQuery m
   , C.IsBabbageBasedEra era
-  , MonadReader (Env.CombinedEnv o d t r b era) m
+  , MonadReader (HSet els) m
+  , HList.NotElem (Env.OperatorEnv era) els
   )
-  => ReaderT (Env.CombinedEnv Identity d t r b era) m a -> m a
+  => ReaderT (HSet (Env.OperatorEnv era : els)) m a -> m a
 asAdmin action = do
   env <- Env.loadOperatorEnv
           (C.verificationKeyHash . Operator.verificationKey . oPaymentKey $ admin)
           (maybe C.NoStakeAddress (C.StakeAddressByValue . C.StakeCredentialByKey . C.verificationKeyHash) $ Operator.oStakeKey admin)
   Env.withOperator env action
 
-asWallet :: forall era o d t r b m a.
+asWallet :: forall era els m a.
   ( MonadUtxoQuery m
   , C.IsBabbageBasedEra era
-  , MonadReader (Env.CombinedEnv o d t r b era) m
+  , MonadReader (HSet els) m
+  , HList.NotElem (Env.OperatorEnv era) els
   )
-  => Wallet.Wallet -> ReaderT (Env.CombinedEnv Identity d t r b era) m a -> m a
+  => Wallet.Wallet -> ReaderT (HSet (Env.OperatorEnv era : els)) m a -> m a
 asWallet w action = do
   env <- Env.loadOperatorEnv
           (C.verificationKeyHash . Operator.verificationKey . oPaymentKey $ user w)

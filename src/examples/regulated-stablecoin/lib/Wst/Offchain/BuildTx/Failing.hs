@@ -46,7 +46,7 @@ data BlacklistedTransferPolicy
 -}
 balanceTxEnvFailing :: forall era env err m. (MonadBlockchain era m, MonadReader env m, HasOperatorEnv era env, MonadError err m, C.IsBabbageBasedEra era, CoinSelection.AsCoinSelectionError err, CoinSelection.AsBalancingError err era, AsRegulatedStablecoinError err) => BlacklistedTransferPolicy -> BuildTxT era m (FindProofResult era) -> m (C.BalancedTxBody era, BalanceChanges)
 balanceTxEnvFailing policy btx = do
-  OperatorEnv{bteOperatorUtxos, bteOperator} <- asks operatorEnv
+  OperatorEnv{bteOperatorUtxos, bteOperator} <- asks (operatorEnv @era)
   params <- queryProtocolParameters
   (r, txBuilder) <- BuildTx.runBuildTxT $ btx <* BuildTx.setMinAdaDepositAll params
   -- TODO: change returnOutputFor to consider the stake address reference

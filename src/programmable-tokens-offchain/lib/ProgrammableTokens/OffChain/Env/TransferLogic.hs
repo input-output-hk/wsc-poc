@@ -1,4 +1,5 @@
-{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE NamedFieldPuns       #-}
+{-# LANGUAGE UndecidableInstances #-}
 -- | Information related to the CIP-143 registry of minting policies
 module ProgrammableTokens.OffChain.Env.TransferLogic(
   HasTransferLogicEnv(..),
@@ -18,6 +19,7 @@ import ProgrammableTokens.OffChain.Env.Directory (DirectoryEnv (..),
                                                   DirectoryScriptRoot (..),
                                                   HasDirectoryEnv (..),
                                                   globalParams)
+import ProgrammableTokens.OffChain.Env.Utils qualified as Env
 import ProgrammableTokens.OffChain.Scripts as Scripts
 import SmartTokens.Core.Scripts (ScriptTarget)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
@@ -48,6 +50,9 @@ class HasTransferLogicEnv e where
 
 instance HasTransferLogicEnv TransferLogicEnv where
   transferLogicEnv = id
+
+instance (Env.Elem TransferLogicEnv els) => HasTransferLogicEnv (Env.HSet els) where
+  transferLogicEnv = Env.hget @_ @TransferLogicEnv
 
 {-| The minting script for a programmable token that uses the global parameters
 -}

@@ -1,5 +1,3 @@
-{-# LANGUAGE NamedFieldPuns    #-}
-{-# LANGUAGE OverloadedStrings #-}
 module ProgrammableTokens.OffChain.Endpoints
   (
     -- * Policy registration
@@ -50,13 +48,25 @@ deployIssuanceCborHex = do
 
 -- | Build a transaction that deploys the directory and global params. Returns the
 -- transaction and the 'TxIn' that was selected for the one-shot NFTs.
-deployCip143RegistryTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, AsProgrammableTokensError err, AsCoinSelectionError err, AsBalancingError err era) => ScriptTarget -> m (C.Tx era, DirectoryScriptRoot)
+deployCip143RegistryTx :: forall era env err m.
+  ( MonadReader env m
+  , Env.HasOperatorEnv era env
+  , MonadBlockchain era m
+  , MonadError err m
+  , C.IsBabbageBasedEra era
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , AsProgrammableTokensError err
+  , AsCoinSelectionError err
+  , AsBalancingError err era
+  )
+  => ScriptTarget
+  -> m (C.Tx era, DirectoryScriptRoot)
 deployCip143RegistryTx target = do
-  ((txi, _), (issuanceCborHexTxIn_, _)) <- Env.selectTwoOperatorOutputs
-  opEnv <- asks Env.operatorEnv
+  ((txi, _), (issuanceCborHexTxIn_, _)) <- Env.selectTwoOperatorOutputs @env @_ @era
+  opEnv <- asks (Env.operatorEnv @era)
   let root = DirectoryScriptRoot txi issuanceCborHexTxIn_ target
   (tx, _) <-
-    Env.withEnv (Env.directoryOperatorEnv (Env.mkDirectoryEnv root) opEnv) $
+    flip Env.runReaderT (Env.addEnv (Env.mkDirectoryEnv root) $ Env.singleton opEnv) $
       Env.balanceDeployTxEnv_ $
         BuildTx.mintProtocolParams
           >> BuildTx.initDirectorySet
@@ -90,7 +100,7 @@ registerCip143PolicyTx assetName quantity redeemer = do
   paramsNode <- Query.globalParamsNode @era
   (tx, _) <- Env.balanceTxEnv_ $ do
     policyId <- BuildTx.issueProgrammableToken paramsNode cborHexTxIn (assetName, quantity) headNode
-    Env.operatorPaymentCredential
+    Env.operatorPaymentCredential @env @era
       >>= BuildTx.paySmartTokensToDestination (assetName, quantity) policyId
     BuildTx.invokeMintingStakeScript redeemer
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
@@ -134,14 +144,14 @@ transferTokens assetName quantity target redeemer = do
   headNode <- Query.registryNodeForReference @era
   paramsNode <- Query.globalParamsNode @era
   policyId <- programmableTokenPolicyId
-  op <- Env.operatorPaymentCredential
-  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
+  op <- Env.operatorPaymentCredential @env @era
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv @era)
   (inputs, change) <- Query.selectProgammableOutputsFor op assetName quantity
   (tx, _) <- Env.balanceTxEnv_ $ do
     BuildTx.transferProgrammableToken paramsNode inputs (transPolicyId policyId) headNode
     BuildTx.paySmartTokensToDestination (assetName, quantity) policyId target
     BuildTx.invokeTransferStakeScript redeemer
     when (change > 0) $ do
-      Env.operatorPaymentCredential >>= BuildTx.paySmartTokensToDestination (assetName, change) policyId
+      Env.operatorPaymentCredential @env @era >>= BuildTx.paySmartTokensToDestination (assetName, change) policyId
     BuildTx.addRequiredSignature opPkh
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)

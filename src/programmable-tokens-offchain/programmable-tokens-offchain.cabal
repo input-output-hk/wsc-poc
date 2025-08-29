@@ -64,7 +64,9 @@ library
     ProgrammableTokens.OffChain.Env
     ProgrammableTokens.OffChain.Env.Directory
     ProgrammableTokens.OffChain.Env.Operator
+    ProgrammableTokens.OffChain.Env.Runtime
     ProgrammableTokens.OffChain.Env.TransferLogic
+    ProgrammableTokens.OffChain.Env.Utils
     ProgrammableTokens.OffChain.Error
     ProgrammableTokens.OffChain.Orphans
     ProgrammableTokens.OffChain.Query
@@ -76,6 +78,9 @@ library
     , aeson
     , base
     , base16-bytestring
+    , Blammo
+    , blockfrost-api
+    , blockfrost-client-core
     , bytestring
     , cardano-api
     , cardano-ledger-shelley
@@ -84,6 +89,7 @@ library
     , convex-coin-selection
     , convex-optics
     , convex-wallet
+    , hset
     , lens
     , mtl
     , openapi3
@@ -91,3 +97,5 @@ library
     , plutus-ledger-api
     , plutus-tx
     , programmable-tokens-onchain
+    , text
+    , type-fun

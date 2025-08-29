@@ -128,12 +128,12 @@ deployDirectorySet :: forall era err m.
   -> m Env.DirectoryScriptRoot
 deployDirectorySet op = do
   target <- ask
-  operatorEnv <- Env.loadConvexOperatorEnv op
+  operatorEnv <- Env.loadConvexOperatorEnv @_ @era op
   flip runReaderT operatorEnv $ do
     Endpoints.frackUtxosTx
       >>= void . sendTx . signTxOperator op
 
-  operatorEnv_ <- Env.loadConvexOperatorEnv op
+  operatorEnv_ <- Env.loadConvexOperatorEnv @_ @era op
   dirScriptRoot <- flip runReaderT operatorEnv_ $ do
     (tx, scriptRoot) <- Endpoints.deployCip143RegistryTx target
     void $ sendTx $ signTxOperator op tx
@@ -169,7 +169,7 @@ issueProgrammableTokenTx assetName quantity redeemer = do
 
   (tx, _) <- Env.balanceTxEnv_ $ do
     polId <- BuildTx.issueProgrammableToken paramsNode cborHexTxIn (assetName, quantity) directoryNode
-    Env.operatorPaymentCredential
+    Env.operatorPaymentCredential @_ @era
       >>= BuildTx.paySmartTokensToDestination (assetName, quantity) polId
     BuildTx.invokeMintingStakeScript redeemer
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)

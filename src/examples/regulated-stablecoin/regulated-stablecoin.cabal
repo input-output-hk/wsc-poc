@@ -71,7 +71,6 @@ library
     , aeson
     , base
     , Blammo
-    , blockfrost-api
     , blockfrost-client
     , blockfrost-client-core
     , bytestring
@@ -177,6 +176,7 @@ test-suite regulated-stablecoin-test
     , convex-coin-selection
     , convex-mockchain
     , convex-wallet
+    , hset
     , mtl
     , programmable-tokens-offchain
     , programmable-tokens-onchain
@@ -184,6 +184,7 @@ test-suite regulated-stablecoin-test
     , regulated-stablecoin
     , tasty
     , tasty-hunit
+    , type-fun
 
 executable write-openapi-schema
   import:         lang

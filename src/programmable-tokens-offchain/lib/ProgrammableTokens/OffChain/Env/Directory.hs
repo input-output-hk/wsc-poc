@@ -1,5 +1,6 @@
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE NamedFieldPuns    #-}
+{-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE NamedFieldPuns       #-}
+{-# LANGUAGE UndecidableInstances #-}
 -- TODO: Registry or directory?
 -- | Information related to the CIP-143 registry of minting policies
 module ProgrammableTokens.OffChain.Env.Directory(
@@ -45,6 +46,7 @@ import GHC.Generics (Generic)
 import ProgrammableTokens.JSON.Utils qualified as JSON
 import ProgrammableTokens.OffChain.Env.Operator (HasOperatorEnv (..),
                                                  OperatorEnv (..))
+import ProgrammableTokens.OffChain.Env.Utils qualified as Env
 import ProgrammableTokens.OffChain.Scripts (directoryNodeMintingScript,
                                             directoryNodeSpendingScript,
                                             issuanceCborHexMintingScript,
@@ -83,6 +85,9 @@ class HasDirectoryEnv e where
 
 instance HasDirectoryEnv DirectoryEnv where
   directoryEnv = id
+
+instance (Env.Elem DirectoryEnv els) => HasDirectoryEnv (Env.HSet els) where
+  directoryEnv = Env.hget @_ @DirectoryEnv
 
 {-| Load the 'DirectoryScriptRoot' from a JSON file. The JSON file is specified by the
 'CIP_143_DIRECTORY_SCRIPT_ROOT' environment variable.
@@ -174,7 +179,7 @@ programmableTokenReceivingAddress destinationCred = do
 balanceDeployTxEnv_ :: forall era env err a m. (MonadBlockchain era m, MonadReader env m, HasDirectoryEnv env, HasOperatorEnv era env, MonadError err m, C.IsBabbageBasedEra era, AsBalancingError err era, AsCoinSelectionError err) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
 balanceDeployTxEnv_ btx = do
   issuanceCborHexTxIn <- asks (srIssuanceCborHexTxIn . dsScriptRoot . directoryEnv)
-  OperatorEnv{bteOperatorUtxos, bteOperator} <- asks operatorEnv
+  OperatorEnv{bteOperatorUtxos, bteOperator} <- asks (operatorEnv @era)
   params <- queryProtocolParameters
   txBuilder <- BuildTx.execBuildTxT $ btx >> BuildTx.setMinAdaDepositAll params
 

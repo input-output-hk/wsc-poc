@@ -34,6 +34,7 @@ import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors
 import PlutusTx.Prelude qualified as P
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
+import ProgrammableTokens.OffChain.Env.Runtime qualified as Env
 import ProgrammableTokens.OffChain.Query qualified as Query
 import Servant (Server, ServerT)
 import Servant.API (NoContent (..), Raw, (:<|>) (..))
@@ -100,7 +101,7 @@ defaultServerArgs =
 
 runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env, HasLogger env) => env -> ServerArgs -> IO ()
 runServer env ServerArgs{saPort, saStaticFiles, saDemoEnvironmentFile} = do
-  let bf   = Blockfrost.projectId $ Env.envBlockfrost $ Env.runtimeEnv env
+  let bf   = Blockfrost.projectId $ Env.ceBlockfrost $ Env.runtimeEnv env
   demoEnv <-
     fromMaybe (DemoEnvironment.previewNetworkDemoEnvironment bf)
     <$> traverse DemoEnvironment.loadFromFile saDemoEnvironmentFile
@@ -227,7 +228,7 @@ issueProgrammableTokenEndpoint :: forall era env m.
 issueProgrammableTokenEndpoint IssueProgrammableTokenArgs{itaAssetName, itaQuantity, itaIssuer, itaRecipient} = do
   let C.ShelleyAddress _network cred _stake = itaRecipient
       destinationCredential = C.fromShelleyPaymentCredential cred
-  operatorEnv <- Env.loadOperatorEnvFromAddress itaIssuer
+  operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era itaIssuer
   dirEnv <- asks Env.directoryEnv
   (logic, _) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress itaIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer logic $ do
@@ -254,7 +255,7 @@ transferProgrammableTokenEndpoint :: forall era env m.
   )
   => TransferProgrammableTokenArgs -> m (TextEnvelopeJSON (C.Tx era))
 transferProgrammableTokenEndpoint TransferProgrammableTokenArgs{ttaSender, ttaRecipient, ttaAssetName, ttaQuantity, ttaIssuer, ttaSubmitFailingTx} = do
-  operatorEnv <- Env.loadOperatorEnvFromAddress ttaSender
+  operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era ttaSender
   dirEnv <- asks Env.directoryEnv
   (logic, ble) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress ttaIssuer)
   let assetId = Env.programmableTokenAssetId dirEnv logic ttaAssetName
@@ -275,7 +276,7 @@ addToBlacklistEndpoint :: forall era env m.
   => BlacklistNodeArgs -> m (TextEnvelopeJSON (C.Tx era))
 addToBlacklistEndpoint BlacklistNodeArgs{bnaIssuer, bnaBlacklistAddress, bnaReason} = do
   let badCred = paymentCredentialFromAddress bnaBlacklistAddress
-  operatorEnv <- Env.loadOperatorEnvFromAddress bnaIssuer
+  operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era bnaIssuer
   dirEnv <- asks Env.directoryEnv
   (transferLogic, ble) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress bnaIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withBlacklist ble $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
@@ -293,7 +294,7 @@ removeFromBlacklistEndpoint :: forall era env m.
   => BlacklistNodeArgs -> m (TextEnvelopeJSON (C.Tx era))
 removeFromBlacklistEndpoint BlacklistNodeArgs{bnaIssuer, bnaBlacklistAddress} = do
   let badCred = paymentCredentialFromAddress bnaBlacklistAddress
-  operatorEnv <- Env.loadOperatorEnvFromAddress bnaIssuer
+  operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era bnaIssuer
   dirEnv <- asks Env.directoryEnv
   (transferLogic, ble) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress bnaIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withBlacklist ble $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
@@ -311,7 +312,7 @@ seizeAssetsEndpoint :: forall era env m.
   => SeizeAssetsArgs -> m (TextEnvelopeJSON (C.Tx era))
 seizeAssetsEndpoint SeizeAssetsArgs{saIssuer, saTarget, saReason} = do
   let badCred = paymentCredentialFromAddress saTarget
-  operatorEnv <- Env.loadOperatorEnvFromAddress saIssuer
+  operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era saIssuer
   dirEnv <- asks Env.directoryEnv
   (transferLogic, _) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress saIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do

@@ -10,9 +10,9 @@ import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT)
 import Convex.Blockfrost (BlockfrostT (..), evalBlockfrostT)
 import Convex.Class (MonadBlockchain, MonadUtxoQuery)
+import ProgrammableTokens.OffChain.Env.Runtime (RuntimeEnv (..))
+import ProgrammableTokens.OffChain.Env.Runtime qualified as Env
 import Wst.Aiken.Error (AikenError (..))
-import Wst.Cli.Env (RuntimeEnv (..))
-import Wst.Cli.Env qualified as Env
 
 newtype WstApp env era a = WstApp { unWstApp :: ReaderT env (ExceptT (AikenError era) (BlockfrostT IO)) a }
   deriving newtype (Monad, Applicative, Functor, MonadIO, MonadReader env, MonadError (AikenError era), MonadUtxoQuery, MonadBlockchain C.ConwayEra)

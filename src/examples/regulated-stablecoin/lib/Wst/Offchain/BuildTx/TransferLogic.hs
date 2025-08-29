@@ -100,7 +100,7 @@ initBlacklist = Utils.inBabbage @era $ do
   prependTxOut txout
 
   -- add operator signature
-  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv @era)
   addRequiredSignature opPkh
 
 {-| Reason for adding an address to the blacklist
@@ -162,12 +162,12 @@ insertBlacklistNode reason cred blacklistNodes = Utils.inBabbage @era $ do
   addBlacklistReason reason
 
   -- add operator signature
-  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv @era)
   addRequiredSignature opPkh
 
 removeBlacklistNode :: forall era env err m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasBlacklistEnv env, C.IsBabbageBasedEra era, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, MonadError err m, AsRegulatedStablecoinError err) => C.PaymentCredential -> [UTxODat era BlacklistNode]-> m ()
 removeBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
-  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv @era)
   blacklistSpendingScript <- asks (Env.bleSpendingScript . Env.blacklistEnv)
   blacklistMintingScript <- asks (Env.bleMintingScript . Env.blacklistEnv)
   blacklistPolicyId <- asks (Env.blacklistNodePolicyId . Env.blacklistEnv)
@@ -217,7 +217,7 @@ issueSmartTokens paramsTxOut issuanceCborHexTxOut (an, q) directoryNode destinat
 transferSmartTokens :: forall env era err a m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env, MonadError err m) => UTxODat era ProgrammableLogicGlobalParams -> [UTxODat era BlacklistNode] -> UTxODat era DirectorySetNode -> [UTxODat era a] -> (C.AssetId, C.Quantity) -> C.PaymentCredential -> m (FindProofResult era)
 transferSmartTokens paramsTxIn blacklistNodes directoryNode spendingUserOutputs (assetId, q) destinationCred = Utils.inBabbage @era $ do
   nid <- queryNetworkId
-  userCred <- Env.operatorPaymentCredential
+  userCred <- Env.operatorPaymentCredential @env @era
   progLogicBaseCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
 
   -- Find sufficient inputs to cover the transfer
@@ -299,7 +299,7 @@ seizeSmartTokens reason paramsTxIn seizingTxo destinationCred directoryList = Ut
 
 addIssueWitness :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => m ()
 addIssueWitness = Utils.inBabbage @era $ do
-  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv @era)
   mintingScript <- asks (Env.tleMintingScript . Env.transferLogicEnv)
   let sh = C.hashScript $ C.PlutusScript C.PlutusScriptV3 mintingScript
   addRequiredSignature opPkh
@@ -351,7 +351,7 @@ Uses the user from 'HasOperatorEnv env'. Fails if the user is blacklisted.
 -}
 addTransferWitness :: forall env era err m. (MonadError err m, MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => [UTxODat era BlacklistNode] -> m (FindProofResult era)
 addTransferWitness blacklistNodes = Utils.inBabbage @era $ do
-  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv) -- In this case 'operator' is the user
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv @era) -- In this case 'operator' is the user
   nid <- queryNetworkId
   transferScript <- asks (Env.tleTransferScript . Env.transferLogicEnv)
 
@@ -392,7 +392,7 @@ addReferencesWithTxBody f =
 
 addSeizeWitness :: forall env era m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => m ()
 addSeizeWitness = Utils.inBabbage @era $ do
-  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv)
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv @era)
   seizeScript <- asks (Env.tleIssuerScript . Env.transferLogicEnv)
   let sh = C.hashScript $ C.PlutusScript C.PlutusScriptV3 seizeScript
   addRequiredSignature opPkh

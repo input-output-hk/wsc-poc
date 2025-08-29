@@ -1,6 +1,7 @@
-{-# LANGUAGE FlexibleInstances      #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE NamedFieldPuns         #-}
+{-# LANGUAGE AllowAmbiguousTypes  #-}
+{-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE NamedFieldPuns       #-}
+{-# LANGUAGE UndecidableInstances #-}
 module ProgrammableTokens.OffChain.Env.Operator(
   HasOperatorEnv(..),
   OperatorEnv(..),
@@ -12,17 +13,18 @@ module ProgrammableTokens.OffChain.Env.Operator(
   loadConvexOperatorEnv,
   selectOperatorOutput,
   selectTwoOperatorOutputs,
+  runAs,
 
   -- ** Transaction balancing
   balanceTxEnv_,
-  balanceTxEnv
+  balanceTxEnv,
 ) where
 
 import Cardano.Api (UTxO)
 import Cardano.Api.Shelley qualified as C
 import Control.Monad.Error.Lens (throwing_)
 import Control.Monad.Except (MonadError)
-import Control.Monad.Reader (MonadReader, asks)
+import Control.Monad.Reader (MonadReader, ReaderT, asks)
 import Convex.BuildTx (BuildTxT)
 import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadBlockchain, MonadUtxoQuery (..),
@@ -34,15 +36,19 @@ import Convex.Wallet.Operator (returnOutputFor)
 import Convex.Wallet.Operator qualified as Op
 import Data.Map qualified as Map
 import Data.Maybe (listToMaybe)
+import ProgrammableTokens.OffChain.Env.Utils qualified as Env
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError (..))
 
 {-| Environments that have an 'OperatorEnv'
 -}
-class HasOperatorEnv era e | e -> era where
+class HasOperatorEnv era e where
   operatorEnv :: e -> OperatorEnv era
 
 instance HasOperatorEnv era (OperatorEnv era) where
   operatorEnv = id
+
+instance (Env.Elem (OperatorEnv era) els) => HasOperatorEnv era (Env.HSet els) where
+  operatorEnv = Env.hget @_ @(OperatorEnv era)
 
 {-| Information needed to build transactions
 -}
@@ -54,8 +60,8 @@ data OperatorEnv era =
 
 {-| Get the operator's payment credential from the 'env'
 -}
-operatorPaymentCredential :: (MonadReader env m, HasOperatorEnv era env) => m C.PaymentCredential
-operatorPaymentCredential = asks (C.PaymentCredentialByKey . fst . bteOperator . operatorEnv)
+operatorPaymentCredential :: forall env era m. (MonadReader env m, HasOperatorEnv era env) => m C.PaymentCredential
+operatorPaymentCredential = asks (C.PaymentCredentialByKey . fst . bteOperator . operatorEnv @era)
 
 {-| Populate the 'OperatorEnv' with UTxOs locked by the payment credential
 -}
@@ -98,7 +104,7 @@ selectTwoOperatorOutputs = do
 -}
 balanceTxEnv_ :: forall era env err a m. (MonadBlockchain era m, MonadReader env m, HasOperatorEnv era env, MonadError err m, C.IsBabbageBasedEra era, CoinSelection.AsCoinSelectionError err, CoinSelection.AsBalancingError err era) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
 balanceTxEnv_ btx = do
-  OperatorEnv{bteOperatorUtxos, bteOperator} <- asks operatorEnv
+  OperatorEnv{bteOperatorUtxos, bteOperator} <- asks (operatorEnv @era)
   params <- queryProtocolParameters
   txBuilder <- BuildTx.execBuildTxT $ btx >> BuildTx.setMinAdaDepositAll params
   -- TODO: change returnOutputFor to consider the stake address reference
@@ -110,7 +116,7 @@ balanceTxEnv_ btx = do
 -}
 balanceTxEnv :: forall era env err a m. (MonadBlockchain era m, MonadReader env m, HasOperatorEnv era env, MonadError err m, C.IsBabbageBasedEra era, CoinSelection.AsBalancingError err era, CoinSelection.AsCoinSelectionError err) => BuildTxT era m a -> m ((C.BalancedTxBody era, BalanceChanges), a)
 balanceTxEnv btx = do
-  OperatorEnv{bteOperatorUtxos, bteOperator} <- asks operatorEnv
+  OperatorEnv{bteOperatorUtxos, bteOperator} <- asks (operatorEnv @era)
   params <- queryProtocolParameters
   (r, txBuilder) <- BuildTx.runBuildTxT $ btx <* BuildTx.setMinAdaDepositAll params
   -- TODO: change returnOutputFor to consider the stake address reference
@@ -118,3 +124,16 @@ balanceTxEnv btx = do
   output <- returnOutputFor (C.PaymentCredentialByKey $ fst bteOperator)
   (balBody, balChanges) <- CoinSelection.balanceTx mempty output (Utxos.fromApiUtxo bteOperatorUtxos) txBuilder CoinSelection.TrailingChange
   pure ((balBody, balChanges), r)
+
+{-| Load the operator UTxOs and run the action
+-}
+runAs ::
+  forall k era els m a.
+  ( MonadUtxoQuery m
+  , C.IsBabbageBasedEra era
+  , Env.NotElem (OperatorEnv era) els
+  , MonadReader (Env.HSet els) m
+  ) => Op.Operator k -> ReaderT (Env.HSet (OperatorEnv era : els)) m a -> m a
+runAs op action = do
+  opEnv <- loadConvexOperatorEnv op
+  Env.withEnv opEnv action
