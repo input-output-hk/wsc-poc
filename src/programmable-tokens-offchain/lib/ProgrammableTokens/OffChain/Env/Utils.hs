@@ -4,6 +4,7 @@ module ProgrammableTokens.OffChain.Env.Utils(
   HSet,
   Elem,
   NotElem,
+  HMonoModifiable,
 
   -- * HSet operations
   empty,
@@ -19,6 +20,7 @@ module ProgrammableTokens.OffChain.Env.Utils(
 
 import Control.Monad.Reader (MonadReader, ReaderT, asks, runReaderT)
 import Data.HSet.Get (HGettable, hget)
+import Data.HSet.Modify (HMonoModifiable)
 import Data.HSet.Type (HSet)
 import Data.HSet.Type qualified as HSet
 import TypeFun.Data.List (NotElem)

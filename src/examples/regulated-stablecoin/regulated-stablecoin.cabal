@@ -83,7 +83,6 @@ library
     , convex-coin-selection
     , convex-optics
     , convex-wallet
-    , hset
     , lens
     , mtl
     , openapi3
@@ -98,7 +97,6 @@ library
     , servant-client-core
     , servant-server
     , text
-    , type-fun
     , wai-cors
     , warp
 
