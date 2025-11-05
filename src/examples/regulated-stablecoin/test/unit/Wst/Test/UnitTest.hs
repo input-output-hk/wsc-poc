@@ -5,7 +5,7 @@ module Wst.Test.UnitTest(
 
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
-import Control.Monad (void)
+import Control.Monad (void, when)
 import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader (ask), ReaderT (runReaderT), asks)
 import Convex.BuildTx qualified as BuildTx
@@ -22,6 +22,7 @@ import Data.List (isPrefixOf)
 import Data.String (IsString (..))
 import GHC.Exception (SomeException, throw)
 import ProgrammableTokens.OffChain.Endpoints qualified as Endpoints
+import ProgrammableTokens.OffChain.Env (programmableTokenPolicyId)
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
 import ProgrammableTokens.OffChain.Query qualified as Query
 import ProgrammableTokens.Test (deployDirectorySet)
@@ -55,6 +56,7 @@ scriptTargetTests target =
         , testCase "blacklisted transfer" (mockchainFails (blacklistTransfer DontSubmitFailingTx) assertBlacklistedAddressException)
         , testCase "blacklisted transfer (failing tx)" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target (blacklistTransfer SubmitFailingTx >>= Test.assertFailingTx))
         , testCase "seize user output" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target $ deployDirectorySet admin >>= seizeUserOutput)
+        , testCase "seize multi user outputs" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target $ deployDirectorySet admin >>= seizeMultiUserOutputs)
         , testCase "deploy all" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target deployAll)
         ]
     ]
@@ -224,7 +226,47 @@ seizeUserOutput scriptRoot = Env.withEnv $ do
     Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh)
       >>= void . Test.expectN 1 "user programmable outputs"
     Query.userProgrammableOutputs (C.PaymentCredentialByKey opPkh)
+      >>= void . Test.expectN 2 "operator programmable outputs"
+
+seizeMultiUserOutputs ::  (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m, MonadError (AppError C.ConwayEra) m) => DirectoryScriptRoot -> m ()
+seizeMultiUserOutputs scriptRoot = Env.withEnv $ do
+  userPkh <- asWallet @C.ConwayEra Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv @C.ConwayEra)
+  let userPaymentCred = C.PaymentCredentialByKey userPkh
+
+  aid <- issueTransferLogicProgrammableToken scriptRoot
+
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator @C.ConwayEra $ Endpoints.deployBlacklistTx
+    >>= void . sendTx . signTxOperator admin
+
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator @C.ConwayEra $ do
+    Endpoints.transferSmartTokensTx DontSubmitFailingTx aid 50 (C.PaymentCredentialByKey userPkh)
+      >>= void . sendTx . signTxOperator admin
+    Query.programmableLogicOutputs @C.ConwayEra
+      >>= void . Test.expectN 2 "programmable logic outputs"
+    Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh)
+      >>= void . Test.expectN 1 "user programmable outputs"
+
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator @C.ConwayEra $ do
+    Endpoints.transferSmartTokensTx DontSubmitFailingTx aid 50 (C.PaymentCredentialByKey userPkh)
+      >>= void . sendTx . signTxOperator admin
+    Query.programmableLogicOutputs @C.ConwayEra
+      >>= void . Test.expectN 3 "programmable logic outputs"
+    Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh)
       >>= void . Test.expectN 2 "user programmable outputs"
+
+  asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator @C.ConwayEra $ do
+    opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv @C.ConwayEra)
+    toSeizePolicyId <- asks programmableTokenPolicyId
+    Endpoints.seizeMultiCredentialAssetsTx mempty 2 userPaymentCred
+      >>= void . sendTx . signTxOperator admin
+    Query.programmableLogicOutputs @C.ConwayEra
+      >>= void . Test.expectN 4 "programmable logic outputs"
+    userOutputs <- Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh)
+    Test.expectN 2 "user programmable outputs" userOutputs
+    mapM_ (\utxo -> when (Query.utxoHasPolicyId toSeizePolicyId utxo) $ fail "User should not have any UTxOs with the programmable token policy ID") userOutputs
+
+    Query.userProgrammableOutputs (C.PaymentCredentialByKey opPkh)
+      >>= void . Test.expectN 2 "operator programmable outputs"
 
 -- TODO: registration to be moved to the endpoints
 registerTransferScripts :: (MonadFail m, MonadError (AppError C.ConwayEra) m, MonadReader env m, Env.HasTransferLogicEnv env, MonadMockchain C.ConwayEra m) => C.Hash C.PaymentKey -> m C.TxId

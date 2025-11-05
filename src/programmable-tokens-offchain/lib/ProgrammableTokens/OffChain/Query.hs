@@ -13,8 +13,11 @@ module ProgrammableTokens.OffChain.Query(
   issuanceCborHexUTxO,
   globalParamsNode,
   programmableLogicOutputs,
-  selectProgammableOutputsFor
+  selectProgammableOutputsFor,
 
+  utxoHasPolicyId,
+  hasPolicyId,
+  extractValue,
 ) where
 
 import Cardano.Api qualified as C

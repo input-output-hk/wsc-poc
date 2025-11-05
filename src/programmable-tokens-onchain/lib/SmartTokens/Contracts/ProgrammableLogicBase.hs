@@ -309,7 +309,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
               pvalueContains # (pvalueToCred # progLogicCred # pfromData ptxInfo'outputs) # totalProgTokenValue_
           ]
     PSeizeAct {pdirectoryNodeIdx, pinputIdxs, poutputsStartIdx, plengthInputIdxs} -> P.do
-      inputIdxs <- plet $ pmap @PBuiltinList @(PAsData PInteger) # plam (\idx -> pfromData idx) # pfromData pinputIdxs
+      inputIdxs <- plet $ pmap @PBuiltinList @(PAsData PInteger) # plam pfromData # pfromData pinputIdxs
       let remainingOutputs = pdropFast # pfromData poutputsStartIdx # pfromData ptxInfo'outputs
       let directoryNodeUTxO = pelemAtFast @PBuiltinList # referenceInputs # pfromData pdirectoryNodeIdx
       PTxOut {ptxOut'value=seizeDirectoryNodeValue, ptxOut'datum=seizeDirectoryNodeDatum} <- pmatch (ptxInInfoResolved $ pfromData directoryNodeUTxO)
@@ -347,7 +347,7 @@ punionTokens = pfix #$ plam $ \self tokensA tokensB ->
                     -- entry A has a token that entry B does not so we add the token and quantity from entry A.
                     (pcons # tokenPairA # (self # tokensRestA # tokensB))
                     -- entry B has a token that entry A does not so we add the token and quantity from entry B.
-                    ( pcons # tokenPairB # (self # tokensA # tokensRestB))
+                    (pcons # tokenPairB # (self # tokensA # tokensRestB))
                )
         )
         pnil tokensB
@@ -378,9 +378,9 @@ processThirdPartyTransfer = plam $ \programmableCS progLogicCred inputs progOutp
             pelimList
               (\programmableOutput programmableOutputsRest ->
                 pmatch (pfromData programmableOutput) $ \(PTxOut {ptxOut'address=programmableOutputAddress, ptxOut'value=programmableOutputValue}) ->
-                  pif (paddressCredential programmableOutputAddress #== progLogicCred)
+                  pif ( paddressCredential programmableOutputAddress #== progLogicCred )
                       ( pfromData programmableOutputValue #<> (self # programmableOutputsRest) )
-                      perror
+                      pmempty
               )
               pmempty
               programmableOutputs

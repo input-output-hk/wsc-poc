@@ -9,6 +9,7 @@ module Wst.Offchain.BuildTx.TransferLogic
     issueSmartTokens,
     SeizeReason(..),
     seizeSmartTokens,
+    multiSeizeSmartTokens,
     initBlacklist,
     BlacklistReason(..),
     insertBlacklistNode,
@@ -20,15 +21,17 @@ where
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Control.Lens (at, over, set, (&), (?~), (^.))
+import Control.Lens qualified as L
 import Control.Monad (when)
 import Control.Monad.Error.Lens (throwing_)
 import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx (addTxBuilder), TxBuilder (TxBuilder),
-                       addBtx, addRequiredSignature, addScriptWithdrawal,
-                       addWithdrawalWithTxBody, buildScriptWitness,
-                       findIndexReference, mintPlutus, payToAddress,
-                       prependTxOut, spendPlutusInlineDatum)
+                       addBtx, addOutput, addRequiredSignature,
+                       addScriptWithdrawal, addWithdrawalWithTxBody,
+                       buildScriptWitness, findIndexReference, mintPlutus,
+                       payToAddress, payToAddressTxOut, prependTxOut,
+                       spendPlutusInlineDatum)
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain (queryNetworkId))
 import Convex.PlutusLedger.V1 (transCredential, transPolicyId,
@@ -282,7 +285,7 @@ seizeSmartTokens reason paramsTxIn seizingTxo destinationCred directoryList = Ut
             (toList $ C.txOutValueToValue v)
 
   (progTokenPolId, an, q) <- maybe (error "No programmable token found in seizing transaction") pure maybeProgAsset
-  seizeProgrammableToken paramsTxIn seizingTxo progTokenPolId directoryList
+  seizeProgrammableToken paramsTxIn [seizingTxo] progTokenPolId directoryList
   addSeizeWitness
 
   progLogicBaseCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
@@ -295,7 +298,36 @@ seizeSmartTokens reason paramsTxIn seizingTxo destinationCred directoryList = Ut
 
   addSeizeReason reason
   -- Send seized funds to destinationCred
-  payToAddress destinationAddress seizedVal
+  addOutput $ payToAddressTxOut destinationAddress seizedVal
+
+-- This function should probably accept the programmable token policy which we want to seize as a parameter.
+-- As of now, it just assumes that the first non-ada token in the seizing inputs is the token we want to seize.
+multiSeizeSmartTokens :: forall env era a m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => SeizeReason -> UTxODat era ProgrammableLogicGlobalParams -> C.PolicyId -> [UTxODat era a] -> C.PaymentCredential -> [UTxODat era DirectorySetNode] -> m ()
+multiSeizeSmartTokens reason paramsTxIn toSeizePolicyId seizingTxos destinationCred directoryList = Utils.inBabbage @era $ do
+  nid <- queryNetworkId
+
+  let seizedValue = C.policyAssetsToValue toSeizePolicyId $
+        foldl (\acc (uOut -> utxoDat) ->
+          let filteredAssets = foldMap ( \(pid, assets) ->
+                if pid == toSeizePolicyId then assets else mempty
+                )
+                (toList $ C.valueToPolicyAssets (L.view (L._TxOut . L._2 . L._TxOutValue) utxoDat))
+          in acc <> filteredAssets
+          )
+          (mempty :: C.PolicyAssets)
+          seizingTxos
+
+  seizeProgrammableToken paramsTxIn seizingTxos toSeizePolicyId directoryList
+  addSeizeWitness
+
+  progLogicBaseCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
+  destStakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential destinationCred
+  let
+      destinationAddress = C.makeShelleyAddressInEra C.shelleyBasedEra nid progLogicBaseCred (C.StakeAddressByValue destStakeCred)
+
+  addSeizeReason reason
+  -- Send seized funds to destinationCred
+  addOutput $ payToAddressTxOut destinationAddress seizedValue
 
 addIssueWitness :: forall era env m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => m ()
 addIssueWitness = Utils.inBabbage @era $ do

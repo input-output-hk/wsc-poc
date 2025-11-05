@@ -1,4 +1,3 @@
-{-# LANGUAGE NamedFieldPuns #-}
 {-| Deploy the directory and global params
 -}
 module Wst.Offchain.Endpoints.Deployment(
@@ -9,6 +8,7 @@ module Wst.Offchain.Endpoints.Deployment(
   insertBlacklistNodeTx,
   removeBlacklistNodeTx,
   seizeCredentialAssetsTx,
+  seizeMultiCredentialAssetsTx
 ) where
 
 import Cardano.Api (Quantity)
@@ -25,7 +25,9 @@ import Data.Function (on)
 import GHC.IsList (IsList (..))
 import ProgrammableTokens.OffChain.BuildTx qualified as BuildTx
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
+import ProgrammableTokens.OffChain.Env.TransferLogic (programmableTokenPolicyId)
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError (..))
+import ProgrammableTokens.OffChain.Query (utxoHasPolicyId)
 import ProgrammableTokens.OffChain.Query qualified as Query
 import SmartTokens.Core.Scripts (ScriptTarget (..))
 import Wst.AppError (AsRegulatedStablecoinError (..))
@@ -174,4 +176,37 @@ seizeCredentialAssetsTx reason sanctionedCred = do
   paramsTxIn <- Query.globalParamsNode @era
   (tx, _) <- Env.balanceTxEnv_ $ do
     BuildTx.seizeSmartTokens reason paramsTxIn seizeTxo (C.PaymentCredentialByKey opPkh) directory
+  pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
+seizeMultiCredentialAssetsTx :: forall era env err m.
+  ( MonadReader env m
+  , Env.HasOperatorEnv era env
+  , Env.HasTransferLogicEnv env
+  , Env.HasDirectoryEnv env
+  , MonadBlockchain era m
+  , MonadError err m
+  , C.IsBabbageBasedEra era
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , MonadUtxoQuery m
+  , AsProgrammableTokensError err
+  , AsBalancingError err era
+  , AsCoinSelectionError err
+  , AsRegulatedStablecoinError err
+  )
+  => BuildTx.SeizeReason
+  -> Int
+  -> C.PaymentCredential -- ^ Source/User credential
+  -> m (C.Tx era)
+seizeMultiCredentialAssetsTx reason numUTxOsToSeize sanctionedCred = do
+  toSeizePolicyId <- asks programmableTokenPolicyId
+  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv @era)
+  directory <- Query.registryNodes @era
+
+  utxosToSeize <- take numUTxOsToSeize . filter (utxoHasPolicyId toSeizePolicyId) <$> Query.userProgrammableOutputs sanctionedCred
+
+  when (null utxosToSeize) $
+    throwing_ _NoTokensToSeize
+  paramsTxIn <- Query.globalParamsNode @era
+  (tx, _) <- Env.balanceTxEnv_ $ do
+    BuildTx.multiSeizeSmartTokens reason paramsTxIn toSeizePolicyId utxosToSeize (C.PaymentCredentialByKey opPkh) directory
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
