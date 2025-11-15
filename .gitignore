@@ -33,3 +33,4 @@ protocol-parameters-mainnet.json
 .pre-commit-config.yaml
 tags
 /mainnet
+operator/*
