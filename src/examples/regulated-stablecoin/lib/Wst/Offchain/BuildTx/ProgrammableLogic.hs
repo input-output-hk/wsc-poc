@@ -27,7 +27,7 @@ import Convex.PlutusLedger.V1 (transPolicyId)
 import Convex.Utils qualified as Utils
 import Data.Foldable (find)
 import Data.List (findIndex, partition)
-import Data.Maybe (fromJust, fromMaybe)
+import Data.Maybe (fromMaybe)
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (CurrencySymbol (..))
 import ProgrammableTokens.OffChain.Env qualified as Env
