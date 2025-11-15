@@ -18,6 +18,7 @@ module ProgrammableTokens.OffChain.Query(
   utxoHasPolicyId,
   hasPolicyId,
   extractValue,
+  userTotalProgrammableValue,
 ) where
 
 import Cardano.Api qualified as C
@@ -28,12 +29,12 @@ import Control.Monad.Reader (MonadReader, asks)
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain (..), MonadUtxoQuery,
                      utxosByPaymentCredential)
-import Convex.PlutusLedger.V1 (transCredential, transPolicyId,
+import Convex.PlutusLedger.V1 (transCredential, transPolicyId, unTransPolicyId,
                                unTransStakeCredential)
 import Convex.Utxos (UtxoSet (UtxoSet))
 import Convex.Wallet (selectMixedInputsCovering)
 import Data.List (sortOn)
-import Data.Maybe (listToMaybe)
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Ord (Down (..))
 import GHC.Exts (IsList (..))
 import ProgrammableTokens.OffChain.Env.Directory (DirectoryEnv (..),
@@ -104,16 +105,39 @@ registryNode op' = do
     x : _ -> pure x
 
 -- | CIP-143 outputs addressed to the given payment credential
-userProgrammableOutputs :: forall era env m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadBlockchain era m) => C.PaymentCredential -> m [UTxODat era ()]
-userProgrammableOutputs userCred = do
+userProgrammableOutputs :: forall era env m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadBlockchain era m) => (C.PaymentCredential, Maybe C.StakeCredential) -> m [UTxODat era ()]
+userProgrammableOutputs (userPayCred, userStakeCred) = do
   nid <- queryNetworkId
   baseCred <- asks (C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsProgrammableLogicBaseScript . directoryEnv)
 
-  userStakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential userCred
-  let expectedAddress = C.makeShelleyAddressInEra C.shelleyBasedEra nid baseCred (C.StakeAddressByValue userStakeCred)
+  userPayCredAsStakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential userPayCred
+  let expectedAddress = C.makeShelleyAddressInEra C.shelleyBasedEra nid baseCred (C.StakeAddressByValue userPayCredAsStakeCred)
       isUserUtxo UTxODat{uOut=(C.TxOut addr _ _ _)} = addr == expectedAddress
+        || maybe False (\stakeCred -> addr == C.makeShelleyAddressInEra C.shelleyBasedEra nid baseCred (C.StakeAddressByValue stakeCred)) userStakeCred
 
   filter isUserUtxo <$> programmableLogicOutputs
+
+-- | Get the total of a user's programmable tokens
+userTotalProgrammableValue :: forall era env m. (MonadReader env m, HasDirectoryEnv env, MonadUtxoQuery m, C.IsBabbageBasedEra era, MonadBlockchain era m) => (C.PaymentCredential, Maybe C.StakeCredential) -> m C.Value
+userTotalProgrammableValue (userCred, userStakeCred) = do
+  baseCred <- asks (C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsProgrammableLogicBaseScript . directoryEnv)
+  nid <- queryNetworkId
+  userPayCredAsStakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential userCred
+  let programmableAddressByPayCred = C.makeShelleyAddressInEra C.shelleyBasedEra nid baseCred (C.StakeAddressByValue userPayCredAsStakeCred)
+      isUserUtxo UTxODat{uOut=(C.TxOut addr _ _ _)} =
+        addr == programmableAddressByPayCred
+        || maybe False (\stakeCred -> addr == C.makeShelleyAddressInEra C.shelleyBasedEra nid baseCred (C.StakeAddressByValue stakeCred)) userStakeCred
+  plOutputs <- filter isUserUtxo <$> programmableLogicOutputs @era @env
+
+  directoryPolicyIds <- mapMaybe (either (const Nothing) Just . unTransPolicyId . key . uDatum) <$> registryNodes @era
+  pure $ foldMap (filterValueByPolicyIds directoryPolicyIds . extractValue . uOut) plOutputs
+  where
+    filterValueByPolicyIds :: [C.PolicyId] -> C.Value -> C.Value
+    filterValueByPolicyIds policyIds val =
+      let isPolicy (C.AssetId pid _, _) = pid `elem` policyIds
+          isPolicy _ = False
+      in fromList $ filter isPolicy (toList val)
+
 
 {-| Select enough programmable outputs to cover the desired amount
 of the token. Returns the 'TxIn's and the leftover (change) quantity
@@ -126,12 +150,12 @@ selectProgammableOutputsFor :: forall era env m.
   , MonadBlockchain era m
   , HasTransferLogicEnv env
   )
-  => C.PaymentCredential
+  => (C.PaymentCredential, Maybe C.StakeCredential)
   -> C.AssetName
   -> C.Quantity
   -> m ([C.TxIn], C.Quantity)
-selectProgammableOutputsFor owner assetname quantity = do
-  userOutputs <- userProgrammableOutputs owner
+selectProgammableOutputsFor (owner, ownerStakeCred) assetname quantity = do
+  userOutputs <- userProgrammableOutputs (owner, ownerStakeCred)
   policyId <- programmableTokenPolicyId
   -- Find sufficient inputs to cover the transfer
   let assetId = C.AssetId policyId assetname

@@ -48,7 +48,9 @@ paddressStakingCredential addr =
   pmatch addr $ \addr' ->
     pjustData $ paddress'stakingCredential addr'
 
--- TODO: Implement efficient comparison of all fields of TxOut except value.
+-- TODO: Replace current corresponding input / output comparison (which compares address, reference script and datum) for multi-seize
+-- with constructing the expected output from the input with this function and comparing it to the actual output.
+-- Further optimize this with the optimization in the "Everything is possible" UPLC fest presentation.
 -- pconstructExpectedOutputWithOutputDatum :: Term s PAddress -> Term s (PAsData (PValue 'Sorted 'Positive)) -> Term s POutputDatum -> Term s (PAsData PTxOut)
 -- pconstructExpectedOutputWithOutputDatum address value datum =
 --   pdata $ pcon $
@@ -61,8 +63,8 @@ paddressStakingCredential addr =
 
 -- TODO:
 -- The current implementation of the contracts in this module are not designed to be maximally efficient.
--- In the future, this should be optimized to use the redeemer indexing design pattern to identify and validate
--- the programmable inputs.
+-- In the future, this should be optimized to use the redeemer indexing design pattern to not just index the directory nodes in the reference inputs,
+-- but also to index the programmable inputs and outputs.
 data TokenProof
   = TokenExists Integer
   | TokenDoesNotExist Integer
@@ -507,7 +509,6 @@ pnegateTokens = pfix #$ plam $ \self tokens ->
 -- `pvalueEqualsDeltaCurrencySymbol # progCS # inputUTxOValue # outputUTxOValue` MUST check that inputUTxOValue is equal to outputUTxOValue for all tokens except those of currency symbol progCS.
 -- The function should return a value consisting of only tokens with the currency symbol progCS, this value is as follows: For each token t of currency symbol progCS, the quantity of the token
 -- in the return value rValue is the quantity of token t in inputUTxOValue minus the quantity of token t in outputUTxOValue.
--- When t exists in either inputUTxOValue or outputUTxOValue but doesn't exist in the other value, then the quantity for the value which t doesn't exist in should be considered 0
 -- for the purposes of the subtraction ie. if inputUTxOValue has 0 FooToken and outputUTxOValue has 10 FooToken then rValue should have 0 - 10 = -10 FooToken.
 --
 pvalueEqualsDeltaCurrencySymbol ::
@@ -578,10 +579,6 @@ pvalueEqualsDeltaCurrencySymbol = plam $ \progCS inputUTxOValue outputUTxOValue 
       -- no need to check for progCs in "everything should be same" parts
       -- input  : |- everything should be same -| |-progCs-| |-everything should be same-|
       -- output : |- everything should be same -| |-progCs-| |-everything should be same-|
-
-      -- once input reaches progCs, only need to check if output have progCs and if not, assume zero
-      -- input  : |- everything should be same -| |-progCs-| |-everything should be same-|
-      -- output : |- everything should be same -| |-everything should be same-|
       goOuter ::
         Term _
           ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap anyOrder PTokenName PInteger)))
@@ -597,7 +594,6 @@ pvalueEqualsDeltaCurrencySymbol = plam $ \progCS inputUTxOValue outputUTxOValue 
                         (\outputValueEntry outputValueEntries ->
                             pif (pfromData inputValueEntryCS #== pfromData (pfstBuiltin # outputValueEntry))
                               (pif (pfromData inputValueEntryCS #== progCS)
-                                  -- (pif (pdata (punsafeCoerce @(PBuiltinList PData) outputValueEntries) #== pdata (punsafeCoerce @(PBuiltinList PData) inputValueEntries))
                                   (pif  (pmapData # punsafeCoerce outputValueEntries #== pmapData # punsafeCoerce inputValueEntries)
                                         (psubtractTokens # pto (pfromData (psndBuiltin # inputValueEntry)) # pto (pfromData @(PMap anyOrder PTokenName PInteger) (psndBuiltin # outputValueEntry)))
                                         perror
@@ -609,30 +605,3 @@ pvalueEqualsDeltaCurrencySymbol = plam $ \progCS inputUTxOValue outputUTxOValue 
                         ) pnil outputValuePairs
                     ) pnil inputValuePairs
    in goOuter # innerInputValue # innerOutputValue # pnil
-
-
-
-
-                            --   pif (pfromData inputValueEntryCS #== pfromData (pfstBuiltin # outputValueEntry))
-                            --     (pif (pfromData inputValueEntryCS #== progCS)
-                            --         (pif (pdata (punsafeCoerce @(PBuiltinList PData) outputValueEntries) #== pdata (punsafeCoerce @(PBuiltinList PData) inputValueEntries))
-                            --               (psubtractTokens # pto (pfromData (psndBuiltin # inputValueEntry)) # pto (pfromData @(PMap anyOrder PTokenName PInteger) (psndBuiltin # outputValueEntry)))
-                            --               perror
-                            --         )
-                            --         (pif (psndBuiltin # inputValueEntry #== psndBuiltin # outputValueEntry) (self # inputValueEntries # outputValueEntries # diffAccumulator) perror)
-                            --     )
-                            --     (pif (psndBuiltin # inputValueEntry #== psndBuiltin # outputValueEntry) diffAccumulator perror)
-
-
-                            -- pif (pfromData inputValueEntryCS #== progCS)
-                            --     (pif (pfromData inputValueEntryCS #== pfromData (pfstBuiltin # outputValueEntry))
-                            --          (pif (pdata (punsafeCoerce @(PBuiltinList PData) outputValueEntries) #== pdata (punsafeCoerce @(PBuiltinList PData) inputValueEntries))
-                            --                (psubtractTokens # pto (pfromData (psndBuiltin # inputValueEntry)) # pto (pfromData @(PMap anyOrder PTokenName PInteger) (psndBuiltin # outputValueEntry)))
-                            --                perror
-                            --          )
-                            --          (pif (psndBuiltin # inputValueEntry #== psndBuiltin # outputValueEntry) diffAccumulator perror)
-                            --     )
-                            --     (pif (pdata (punsafeCoerce @(PBuiltinList PData) (psndBuiltin # inputValueEntry)) #== pdata (punsafeCoerce @(PBuiltinList PData) (psndBuiltin # outputValueEntry)))
-                            --          (self # inputValueEntries # outputValueEntries # diffAccumulator)
-                            --          perror
-                            --     )

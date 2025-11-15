@@ -27,7 +27,7 @@ import Convex.PlutusLedger.V1 (transPolicyId)
 import Convex.Utils qualified as Utils
 import Data.Foldable (find)
 import Data.List (findIndex, partition)
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, fromMaybe)
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (CurrencySymbol (..))
 import ProgrammableTokens.OffChain.Env qualified as Env
@@ -45,8 +45,18 @@ import Wst.Offchain.Query (UTxODat (..))
    ensure that the specific issuer logic stake script witness is included in the
    final transaction.
 
-   NOTE: Seems the issuer is only able to seize 1 UTxO at a time.
-   In the future we should allow multiple UTxOs in 1 Tx.
+  * @UTxODat era ProgrammableLogicGlobalParams@: The reference input
+    containing the global programmable-logic parameters. Used to anchor the
+    global stake script during the seize.
+  * @[UTxODat era a]@: The input UTxOs to be seized. Each entry is a
+    programmable-token UTxO that will be spent and redirected.
+  * @C.PolicyId@: The policy ID of the programmable token being seized. This is
+    used to locate the corresponding directory node and to filter the value
+    being removed from each seized UTxO.
+  * @[UTxODat era DirectorySetNode]@: The directory entries that map programmable
+    policies to the relevant transfer / issuer logic scripts. The function searches this list to find the node
+    for the supplied policy ID so it can include the correct reference input.
+
 -}
 seizeProgrammableToken ::
   forall a env era m.
@@ -106,7 +116,7 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicy
       -- Finds the index of the first output to the programmable logic base credential
       firstSeizeContinuationOutputIndex txBody =
         fromIntegral @Int @Integer $
-          fromJust $
+          fromMaybe (error "firstSeizeContinuationOutputIndex: No output to programmable logic base credential found") $
             findIndex
               ( maybe False ((== programmableLogicBaseCredential) . C.fromShelleyPaymentCredential)
                   . L.preview (L._TxOut . L._1 . L._AddressInEra . L._Address . L._2)

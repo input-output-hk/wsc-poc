@@ -27,7 +27,7 @@ import DemoEnvironmentContext from '../context/demoEnvironmentContext';
 
 
 export default function Home() {
-  const { lucid, mintAccount, accounts, selectedTab, changeAlertInfo, changeMintAccountDetails, changeWalletAccountDetails } = useStore();
+  const { lucid, mintAccount, accounts, selectedTab, changeAlertInfo, changeMintAccountDetails, changeWalletAccountDetails, changeUserAccount } = useStore();
   const [addressCleared, setAddressCleared] = useState(false);
   // Temporary state for each text field
   const [mintTokensAmount, setMintTokens] = useState(0);
@@ -42,6 +42,10 @@ export default function Home() {
 
   const demoEnv = useContext(DemoEnvironmentContext);
   
+  useEffect(() => {
+    changeUserAccount('Mint Authority');
+  }, [changeUserAccount]);
+
   useEffect(() => {
     const initialize = async () => {
       await fetchUserDetails();
@@ -62,8 +66,25 @@ export default function Home() {
   };
 
   const fetchBlacklistStatus = async () => {
-    const blacklist = await getBlacklist(demoEnv);
-    const { accounts, changeWalletAccountDetails } = useStore.getState();
+    const { accounts, changeWalletAccountDetails, currentUser, mintAccount } = useStore.getState();
+    let targetAddress: string | undefined;
+    if (currentUser === 'Connected Wallet') {
+      targetAddress = accounts.walletUser.regular_address;
+    } else if (currentUser === 'Mint Authority') {
+      targetAddress = mintAccount.regular_address;
+    }
+
+    if (!targetAddress || targetAddress.trim() === '') {
+      console.warn('No wallet address available for blacklist lookup.');
+      return;
+    }
+
+    let blacklist = await getBlacklist(targetAddress);
+    // if blacklist is not a list then make it an empty list 
+    if (!Array.isArray(blacklist)) {
+      console.log("Blacklist response incorrect: ", blacklist);
+      blacklist = [];
+    }
     
     Object.entries(accounts).map(async ([key, account]) => {
       if (!account.regular_address || account.regular_address.trim() === "") {
@@ -71,7 +92,7 @@ export default function Home() {
         return;
       }
       const credential : LucidCredential = await paymentCredentialOf(account.regular_address);
-      if(blacklist.includes(credential.hash)) {
+      if(blacklist && blacklist.includes(credential.hash)) {
         // console.log('a match was found', key as keyof typeof accounts);
         changeWalletAccountDetails(key as keyof typeof accounts, { ...account, status: 'Frozen',});
       }

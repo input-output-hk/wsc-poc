@@ -9,10 +9,12 @@ module ProgrammableTokens.OffChain.Env.Operator(
   -- ** Creating operator env values
   operatorPaymentCredential,
   loadOperatorEnv,
+  reloadOperatorEnv,
   loadOperatorEnvFromAddress,
   loadConvexOperatorEnv,
   selectOperatorOutput,
   selectTwoOperatorOutputs,
+  selectOperatorUTxOs,
   runAs,
 
   -- ** Transaction balancing
@@ -27,12 +29,12 @@ import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader, ReaderT, asks)
 import Convex.BuildTx (BuildTxT)
 import Convex.BuildTx qualified as BuildTx
-import Convex.Class (MonadBlockchain, MonadUtxoQuery (..),
+import Convex.CardanoApi.Lenses (emptyTxOut)
+import Convex.Class (MonadBlockchain, MonadUtxoQuery (..), queryNetworkId,
                      queryProtocolParameters, utxosByPaymentCredential)
 import Convex.CoinSelection qualified as CoinSelection
 import Convex.Utxos (BalanceChanges)
 import Convex.Utxos qualified as Utxos
-import Convex.Wallet.Operator (returnOutputFor)
 import Convex.Wallet.Operator qualified as Op
 import Data.Map qualified as Map
 import Data.Maybe (listToMaybe)
@@ -71,6 +73,12 @@ loadOperatorEnv paymentCredential stakeCredential = do
   bteOperatorUtxos <- Utxos.toApiUtxo <$> utxosByPaymentCredential (C.PaymentCredentialByKey paymentCredential)
   pure OperatorEnv{bteOperator, bteOperatorUtxos}
 
+{-| Refresh an existing 'OperatorEnv' by re-querying the chain for its UTxOs
+-}
+reloadOperatorEnv :: (MonadUtxoQuery m, C.IsBabbageBasedEra era) => OperatorEnv era -> m (OperatorEnv era)
+reloadOperatorEnv OperatorEnv{bteOperator = (paymentCredential, stakeCredential)} =
+  loadOperatorEnv paymentCredential stakeCredential
+
 {-| Glue code for creating an 'OperatorEnv' from the convex type
 -}
 -- TODO: This entire module should be merged with the one from convex!
@@ -100,6 +108,25 @@ selectTwoOperatorOutputs = do
     (k1, v1) : (k2, v2) : _rest -> pure ((k1, v1), (k2, v2))
     _ -> throwing_ _OperatorNoUTxOs
 
+{-| Select all UTxOs owned by the operator
+-}
+selectOperatorUTxOs :: (MonadReader env m, HasOperatorEnv era env, MonadError err m, AsProgrammableTokensError err) => m [(C.TxIn, C.TxOut C.CtxUTxO era)]
+selectOperatorUTxOs = do
+    asks (C.unUTxO . bteOperatorUtxos . operatorEnv) >>= (\case
+      [] -> throwing_ _OperatorNoUTxOs
+      utxos -> pure utxos) . Map.toList
+
+{- An empty output to address produced by the payment credential and stake credential.
+-}
+returnOutputForWithStakeReference :: (MonadBlockchain era m, C.IsShelleyBasedEra era) => (C.Hash C.PaymentKey, C.StakeAddressReference) -> m (C.TxOut ctx era)
+returnOutputForWithStakeReference (paymentCredential, stakeReference) = do
+  addr <-
+    C.makeShelleyAddress
+      <$> queryNetworkId
+      <*> pure (C.PaymentCredentialByKey paymentCredential)
+      <*> pure stakeReference
+  pure $ emptyTxOut $ C.AddressInEra (C.ShelleyAddressInEra C.shelleyBasedEra) addr
+
 {-| Balance a transaction using the operator's funds and return output
 -}
 balanceTxEnv_ :: forall era env err a m. (MonadBlockchain era m, MonadReader env m, HasOperatorEnv era env, MonadError err m, C.IsBabbageBasedEra era, CoinSelection.AsCoinSelectionError err, CoinSelection.AsBalancingError err era) => BuildTxT era m a -> m (C.BalancedTxBody era, BalanceChanges)
@@ -107,9 +134,7 @@ balanceTxEnv_ btx = do
   OperatorEnv{bteOperatorUtxos, bteOperator} <- asks (operatorEnv @era)
   params <- queryProtocolParameters
   txBuilder <- BuildTx.execBuildTxT $ btx >> BuildTx.setMinAdaDepositAll params
-  -- TODO: change returnOutputFor to consider the stake address reference
-  -- (needs to be done in sc-tools)
-  output <- returnOutputFor (C.PaymentCredentialByKey $ fst bteOperator)
+  output <- returnOutputForWithStakeReference bteOperator
   CoinSelection.balanceTx mempty output (Utxos.fromApiUtxo bteOperatorUtxos) txBuilder CoinSelection.TrailingChange
 
 {-| Balance a transaction using the operator's funds and return output
@@ -119,9 +144,7 @@ balanceTxEnv btx = do
   OperatorEnv{bteOperatorUtxos, bteOperator} <- asks (operatorEnv @era)
   params <- queryProtocolParameters
   (r, txBuilder) <- BuildTx.runBuildTxT $ btx <* BuildTx.setMinAdaDepositAll params
-  -- TODO: change returnOutputFor to consider the stake address reference
-  -- (needs to be done in sc-tools)
-  output <- returnOutputFor (C.PaymentCredentialByKey $ fst bteOperator)
+  output <- returnOutputForWithStakeReference bteOperator
   (balBody, balChanges) <- CoinSelection.balanceTx mempty output (Utxos.fromApiUtxo bteOperatorUtxos) txBuilder CoinSelection.TrailingChange
   pure ((balBody, balChanges), r)
 

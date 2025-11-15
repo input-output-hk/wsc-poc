@@ -14,6 +14,7 @@ module Wst.AppError(
 ) where
 
 import Blockfrost.Client.Core (BlockfrostError)
+import Cardano.Api (PolicyId)
 import Control.Lens (makeClassyPrisms)
 import Convex.Class (AsValidationError (..), ValidationError)
 import Convex.CoinSelection (AsBalanceTxError (..), AsCoinSelectionError (..))
@@ -27,6 +28,7 @@ data RegulatedStablecoinError =
   | DuplicateBlacklistNode -- ^ Attempting to add a duplicate blacklist node
   | BlacklistNodeNotFound -- ^ Attempting to remove a blacklist node that does not exist
   | TransferBlacklistedCredential Credential -- ^ Attempting to transfer funds from a blacklisted address
+  | PolicyIssuerNotFound PolicyId -- ^ Attempting to use a programmable token whose issuer is unknown
   deriving stock (Show)
 
 makeClassyPrisms ''RegulatedStablecoinError

@@ -9,7 +9,7 @@ import NavDrawer from './components/NavDrawer';
 //Local file
 import { ThemeModeProvider } from "./styles/themeContext";
 import "./styles/globals.css";
-import { makeLucid, getWalletFromSeed } from "./utils/walletUtils";
+import { makeLucid, getWalletFromSeed, getProgrammableTokenAddress } from "./utils/walletUtils";
 import useStore from './store/store'; 
 import WSTAppBar from "./components/WSTAppBar";
 import AlertBar from './components/AlertBar';
@@ -26,17 +26,6 @@ async function loadDemoEnvironment(): Promise<DemoEnvironment> {
     });
   return response?.data;
 }
-
-async function getProgrammableTokenAddress(regular_address: string) {
-  const response = await axios.get<string>(`/api/v1/query/address/${regular_address}`,
-    {
-      headers: {
-        'Content-Type': 'application/json;charset=utf-8', 
-      },
-    });
-  return response?.data;
-}
-
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
     const { mintAccount, accounts, changeMintAccountDetails, changeWalletAccountDetails, setLucidInstance } = useStore();

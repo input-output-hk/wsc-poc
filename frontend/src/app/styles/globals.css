@@ -40,7 +40,7 @@ a {
   border: 1px solid #C9C6C6;
   flex-basis: 50%;
   flex-grow: 1;
-  height: 365px;
+  min-height: 365px;
   display: flex;
   flex-direction: column;
 }

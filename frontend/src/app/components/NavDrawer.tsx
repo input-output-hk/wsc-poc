@@ -12,6 +12,7 @@ import ListItemText from '@mui/material/ListItemText';
 import ImportExportIcon from '@mui/icons-material/ImportExport';
 import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
+import AppRegistrationIcon from '@mui/icons-material/AppRegistration';
 
 //Local Imports
 import useStore from '../store/store'; 
@@ -22,16 +23,27 @@ const drawerWidth = 200;
 const iconMapping = {
   'Mint Actions': <ImportExportIcon />,
   'Addresses': <FormatListBulletedIcon />,
-  'Wallet': <AccountBalanceWalletIcon />
+  'Wallet': <AccountBalanceWalletIcon />,
+  'Register Asset': <AppRegistrationIcon />
 };
 
 export default function NavDrawer() {
-  const { currentUser, selectTab, selectedTab } = useStore();
+  const { currentUser, selectTab, selectedTab, accounts } = useStore();
 
   // Define list items based on the current user
-  const listItems: MenuTab[] = currentUser === 'Mint Authority' ? 
-    ['Mint Actions', 'Addresses'] : 
-    ['Wallet'];
+  const connectedWalletTabs: MenuTab[] = ['Wallet', 'Register Asset'];
+  if (accounts.walletUser.hasRegisteredScripts) {
+    connectedWalletTabs.push('Mint Actions', 'Addresses');
+  }
+
+  const listItems: MenuTab[] =
+    currentUser === 'Mint Authority'
+      ? ['Mint Actions', 'Addresses']
+      : currentUser === 'Connected Wallet'
+        ? connectedWalletTabs
+        : currentUser === 'Not Connected'
+          ? []
+          : ['Wallet'];
 
     const handleListItemClick = (item: MenuTab) => {
       selectTab(item); 

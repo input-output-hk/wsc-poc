@@ -134,12 +134,18 @@ transferSmartTokensTx :: forall era env err m.
 transferSmartTokensTx policy assetId quantity destCred = do
   directory <- Query.registryNodeForReference @era
   blacklist <- Query.blacklistNodes @era
-  userOutputsAtProgrammable <- Env.operatorPaymentCredential @_ @era >>= Query.userProgrammableOutputs
+  (opCred, fromStakeAddressReference -> opStakeCred) <- asks (Env.bteOperator . Env.operatorEnv @era)
+  userOutputsAtProgrammable <- Query.userProgrammableOutputs (C.PaymentCredentialByKey opCred, opStakeCred)
   paramsTxIn <- Query.globalParamsNode @era
   (tx, _) <- balanceTxEnvFailing policy $ do
     BuildTx.transferSmartTokens paramsTxIn blacklist directory userOutputsAtProgrammable (assetId, quantity) destCred
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
+fromStakeAddressReference :: C.StakeAddressReference -> Maybe C.StakeCredential
+fromStakeAddressReference = \case
+  C.StakeAddressByValue stakeCred -> Just stakeCred
+  C.StakeAddressByPointer _ -> Nothing
+  C.NoStakeAddress -> Nothing
 
 seizeCredentialAssetsTx :: forall era env err m.
   ( MonadReader env m
@@ -170,7 +176,7 @@ seizeCredentialAssetsTx reason sanctionedCred = do
                   ) 0 $ toList v
 
       getNonAdaTokens = nonAda . C.txOutValueToValue . getTxOutValue . uOut
-  seizeTxo <- maximumBy (compare `on` getNonAdaTokens) <$> Query.userProgrammableOutputs sanctionedCred
+  seizeTxo <- maximumBy (compare `on` getNonAdaTokens) <$> Query.userProgrammableOutputs (sanctionedCred, Nothing)
   when (getNonAdaTokens seizeTxo == 0) $
     throwing_ _NoTokensToSeize
   paramsTxIn <- Query.globalParamsNode @era
@@ -195,18 +201,20 @@ seizeMultiCredentialAssetsTx :: forall era env err m.
   )
   => BuildTx.SeizeReason
   -> Int
-  -> C.PaymentCredential -- ^ Source/User credential
+  -> [C.PaymentCredential] -- ^ Source/User credentials
   -> m (C.Tx era)
-seizeMultiCredentialAssetsTx reason numUTxOsToSeize sanctionedCred = do
+seizeMultiCredentialAssetsTx reason numUTxOsToSeize sanctionedCreds = do
   toSeizePolicyId <- asks programmableTokenPolicyId
   opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv @era)
   directory <- Query.registryNodes @era
 
-  utxosToSeize <- take numUTxOsToSeize . filter (utxoHasPolicyId toSeizePolicyId) <$> Query.userProgrammableOutputs sanctionedCred
+  utxosToSeize <-
+    take numUTxOsToSeize . concatMap (filter (utxoHasPolicyId toSeizePolicyId))
+      <$> traverse (\cred -> Query.userProgrammableOutputs (cred, Nothing)) sanctionedCreds
 
   when (null utxosToSeize) $
     throwing_ _NoTokensToSeize
   paramsTxIn <- Query.globalParamsNode @era
   (tx, _) <- Env.balanceTxEnv_ $ do
-    BuildTx.multiSeizeSmartTokens reason paramsTxIn toSeizePolicyId utxosToSeize (C.PaymentCredentialByKey opPkh) directory
+    BuildTx.multiSeizeSmartTokens reason paramsTxIn toSeizePolicyId utxosToSeize [C.PaymentCredentialByKey opPkh] directory
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)

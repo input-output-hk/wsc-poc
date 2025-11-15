@@ -1,5 +1,5 @@
-export type UserName = 'Mint Authority' | 'Alice' | 'Bob' | 'Connected Wallet';
-export type MenuTab = 'Mint Actions' | 'Addresses' | 'Wallet';
+export type UserName = 'Mint Authority' | 'Alice' | 'Bob' | 'Connected Wallet' | 'Not Connected';
+export type MenuTab = 'Mint Actions' | 'Addresses' | 'Wallet' | 'Register Asset';
 import { Network } from "@lucid-evolution/lucid";
 
 export type AccountInfo = {
@@ -7,6 +7,7 @@ export type AccountInfo = {
     programmable_token_address: string,
     balance: WalletBalance,
     status?: 'Active' | 'Frozen',
+    hasRegisteredScripts?: boolean,
 };
 export type AccountKey = 'alice' | 'bob' | 'walletUser';
 export type Accounts = {

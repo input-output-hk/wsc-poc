@@ -1,30 +1,31 @@
 {-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
+
 module Main (main) where
 
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Cardano.Binary qualified as CBOR
+import Control.Applicative (optional)
 import Control.Monad (when)
 import Control.Monad.IO.Class
 import Control.Monad.Reader (asks)
-import Data.Aeson (KeyValue ((.=)), eitherDecode, object)
+import Data.Aeson (KeyValue ((.=)), object)
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.Bifunctor (first)
 import Data.ByteString.Base16 qualified as Base16
 import Data.ByteString.Lazy qualified as LBS
-import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.Data (Proxy (..))
 import Data.Foldable (traverse_)
 import Data.String (IsString (..))
 import Data.Text (Text, pack)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Text.IO qualified as TIO
-import Options.Applicative (Parser, argument, customExecParser, disambiguate,
-                            eitherReader, help, helper, idm, info, metavar,
-                            optional, prefs, showHelpOnEmpty, showHelpOnError,
-                            strArgument)
-import Options.Applicative.Builder (ReadM)
+import Options.Applicative (Parser, ReadM, argument, disambiguate, eitherReader,
+                            help, idm, info, metavar, prefs, showHelpOnEmpty,
+                            showHelpOnError, strArgument)
+import Options.Applicative.Extra (customExecParser, helper)
 import Plutarch.Evaluate (applyArguments, evalScript)
 import Plutarch.Internal.Term (Config (..), LogLevel (LogInfo), Script,
                                TracingMode (DoTracing, DoTracingAndBinds),
@@ -126,18 +127,18 @@ breakCborHex toSplitOn cborHex =
 
 main :: IO ()
 main = do
-  let progLogicBase = V3.ScriptCredential (V3.ScriptHash "deadbeef")
-      mintingLogicA = V3.ScriptHash $ stringToBuiltinByteStringHex "deadbeefdeadbeef"
-      mintingLogicB = V3.ScriptHash $ stringToBuiltinByteStringHex "deadbeefcafebabe"
-      (prefixIssuerCborHex, postfixIssuerCborHex) = issuerPrefixPostfixBytes progLogicBase
-  let baseCompiled = case compile NoTracing (mkProgrammableLogicMinting # pconstant progLogicBase) of
-        Right compiledScript -> compiledScript
-        Left err -> error $ "Failed to compile base issuance script: " <> show err
+  -- let progLogicBase = V3.ScriptCredential (V3.ScriptHash "deadbeef")
+  --     mintingLogicA = V3.ScriptHash $ stringToBuiltinByteStringHex "deadbeefdeadbeef"
+  --     mintingLogicB = V3.ScriptHash $ stringToBuiltinByteStringHex "deadbeefcafebabe"
+  --     (prefixIssuerCborHex, postfixIssuerCborHex) = issuerPrefixPostfixBytes progLogicBase
+  -- let baseCompiled = case compile NoTracing (mkProgrammableLogicMinting # pconstant progLogicBase) of
+  --       Right compiledScript -> compiledScript
+  --       Left err -> error $ "Failed to compile base issuance script: " <> show err
 
-  TIO.writeFile ("generated" </> "unapplied" </> "test" </> "prefixIssuerCborHex.txt") prefixIssuerCborHex
-  TIO.writeFile ("generated" </> "unapplied" </> "test" </> "postfixIssuerCborHex.txt") postfixIssuerCborHex
-  _writePlutusScriptWithArgs "Issuance" ("generated" </> "unapplied" </> "test" </> "issuance1.json") [toData mintingLogicA] baseCompiled
-  _writePlutusScriptWithArgs "Issuance" ("generated" </> "unapplied" </> "test" </> "issuance2.json") [toData mintingLogicB] baseCompiled
+  -- TIO.writeFile ("generated" </> "unapplied" </> "test" </> "prefixIssuerCborHex.txt") prefixIssuerCborHex
+  -- TIO.writeFile ("generated" </> "unapplied" </> "test" </> "postfixIssuerCborHex.txt") postfixIssuerCborHex
+  -- _writePlutusScriptWithArgs "Issuance" ("generated" </> "unapplied" </> "test" </> "issuance1.json") [toData mintingLogicA] baseCompiled
+  -- _writePlutusScriptWithArgs "Issuance" ("generated" </> "unapplied" </> "test" </> "issuance2.json") [toData mintingLogicB] baseCompiled
 
   runMain
 
@@ -153,8 +154,11 @@ writeAppliedScripts baseFolder AppliedScriptArgs{asaTxIn, asaIssuerCborHexTxIn, 
   let opkh = case issuerAddr of
               (C.ShelleyAddress _ntw (C.fromShelleyPaymentCredential -> C.PaymentCredentialByKey pmt) _stakeRef) -> pmt
               _ -> error "Expected public key address" -- FIXME: proper error
+      stakeCred = case issuerAddr of
+        (C.ShelleyAddress _ntw _pmt (C.fromShelleyStakeReference -> C.StakeAddressByValue sCred)) -> Just sCred
+        _ -> Nothing
       dirRoot = DirectoryScriptRoot asaTxIn asaIssuerCborHexTxIn Production
-      blacklistTransferRoot = BlacklistTransferLogicScriptRoot Production (mkDirectoryEnv dirRoot) opkh
+      blacklistTransferRoot = BlacklistTransferLogicScriptRoot Production (mkDirectoryEnv dirRoot) opkh stakeCred
   putStrLn "Writing applied Plutus scripts to files"
   createDirectoryIfMissing True baseFolder
   withEnv $
@@ -195,7 +199,10 @@ writeAppliedScripts baseFolder AppliedScriptArgs{asaTxIn, asaIssuerCborHexTxIn, 
           writeAppliedScript (baseFolder </> "transferLogicSpending") "Transfer Logic Spending" tleTransferScript
           writeAppliedScript (baseFolder </> "transferLogicIssuerSpending") "Transfer Logic Issuer Spending" tleIssuerScript
           writeAppliedScript (baseFolder </> "programmableTokenMinting") "Programmable Token Minting" programmableMinting
-
+          -- blacklist address
+          let nid = C.Testnet (C.NetworkMagic 1)
+              blacklistSpendingHash = C.hashScript $ C.PlutusScript C.PlutusScriptV3 bleSpendingScript
+          liftIO $ print $ "Blacklist address: " <> show (C.serialiseAddress (C.makeShelleyAddressInEra C.ShelleyBasedEraConway nid (C.PaymentCredentialByScript blacklistSpendingHash) C.NoStakeAddress))
 
 runExportCommand :: ExportCommand -> IO ()
 runExportCommand ExportCommand{exBaseFolder, exAppliedScript} = case exAppliedScript of
@@ -281,19 +288,25 @@ parseAppliedScriptArgs :: Parser AppliedScriptArgs
 parseAppliedScriptArgs = AppliedScriptArgs <$> Cli.Command.parseTxIn <*> parseIssuerTxIn <*> parseAddress
 
 parseAddress :: Parser (SerialiseAddress (C.Address C.ShelleyAddr))
-parseAddress = argument (eitherReader (eitherDecode . LBS8.pack)) (help "The address to use for the issuer" <> metavar "ISSUER_ADDRESS")
+parseAddress = argument (eitherReader parseAddressString) (help "The address to use for the issuer" <> metavar "ISSUER_ADDRESS")
+  where
+    parseAddressString :: String -> Either String (SerialiseAddress (C.Address C.ShelleyAddr))
+    parseAddressString str' =
+      maybe (Left $ "Failed to deserialise address: " ++ str')
+            (Right . SerialiseAddress)
+            (C.deserialiseAddress (C.proxyToAsType (Proxy @(C.Address C.ShelleyAddr))) (Text.pack str'))
 
 parseIssuerTxIn :: Parser C.TxIn
 parseIssuerTxIn =
   argument
     txInReader
-    (help "The reference utxo with the prefix and postfix cborhex of the issuance script. Format: <tx-id>.<index>" <> metavar "ISSUER_TX_IN")
+    (help "The reference utxo with the prefix and postfix cborhex of the issuance script. Format: <tx-id>#<index>" <> metavar "ISSUER_TX_IN")
 
 txInReader :: ReadM C.TxIn
-txInReader = eitherReader $ \str -> do
-  (txId, txIx) <- case break (== '.') str of
+txInReader = eitherReader $ \str' -> do
+  (txId, txIx) <- case break (== '#') str' of
     (txId, _:txIx) -> Right (txId, txIx)
-    _ -> Left "Expected <tx-id>.<index>"
+    _ -> Left "Expected <tx-id>#<index>"
   when (length txId /= 64) $ Left "Expected tx ID with 64 characters"
   ix <- case readMaybe @Word txIx of
           Nothing -> Left "Expected tx index"

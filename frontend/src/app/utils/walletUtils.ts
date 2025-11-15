@@ -2,8 +2,8 @@
 import axios, { AxiosResponse } from 'axios';
 
 //Lucis imports
-import { Address, Assets, Blockfrost, CML, credentialToAddress, Lucid, LucidEvolution, makeTxSignBuilder, paymentCredentialOf, toUnit, TxSignBuilder, Unit, valueToAssets, walletFromSeed } from "@lucid-evolution/lucid";
-import type { Credential as LucidCredential } from "@lucid-evolution/core-types";
+import { Address, Assets, Blockfrost, CML, credentialToAddress, credentialToRewardAddress, Lucid, LucidEvolution, makeTxSignBuilder, Network, paymentCredentialOf, scriptHashToCredential, toText, toUnit, TxSignBuilder, Unit, valueToAssets, walletFromSeed } from "@lucid-evolution/lucid";
+import type { Credential as LucidCredential, ScriptHash } from "@lucid-evolution/core-types";
 import { WalletBalance, DemoEnvironment } from '../store/types';
 
 export async function makeLucid(demoEnvironment: DemoEnvironment) {
@@ -59,10 +59,10 @@ export async function getWalletBalance(demoEnv: DemoEnvironment, address: string
   }
 }
 
-export async function getBlacklist(demoEnv: DemoEnvironment){
+export async function getBlacklist(address: string){
   try {
     const response = await axios.get(
-      `/api/v1/query/blacklist/${demoEnv.transfer_logic_address}`,  
+      `/api/v1/query/blacklist/${address}`,  
       {
         headers: {
           'Content-Type': 'application/json;charset=utf-8', 
@@ -70,12 +70,263 @@ export async function getBlacklist(demoEnv: DemoEnvironment){
       }
     );
     
-    // console.log('Get blacklist:', response);
     return response.data;
   } catch (error) {
       console.warn('Failed to get blacklist', error);
       return error;
   }
+}
+
+export async function getProgrammableTokenAddress(address: string): Promise<string> {
+  const response = await axios.get<string>(`/api/v1/query/address/${address}`,
+    {
+      headers: {
+        'Content-Type': 'application/json;charset=utf-8',
+      },
+    });
+  return response?.data;
+}
+
+export async function getFreezePolicyId(address: string): Promise<string> {
+  const response = await axios.get<string>(`/api/v1/query/freeze-policy-id/${address}`,
+    {
+      headers: {
+        'Content-Type': 'application/json;charset=utf-8',
+      },
+    });
+  return response?.data;
+}
+
+export async function getPolicyIssuer(policyId: string): Promise<string> {
+  const response = await axios.get<string>(`/api/v1/query/policy-issuer/${policyId}`, {
+    headers: {
+      'Content-Type': 'application/json;charset=utf-8',
+    },
+  });
+  return response?.data;
+}
+
+const getBlockfrostProjectId = (demoEnv: DemoEnvironment) =>
+  process.env.NEXT_PUBLIC_BLOCKFROST_API_KEY ?? demoEnv.blockfrost_key;
+
+const trimTrailingSlash = (url: string) => url.replace(/\/+$/, '');
+
+export async function getStakeScriptHashes(address: string): Promise<ScriptHash[]> {
+  try {
+    const response = await axios.get<ScriptHash[]>(`/api/v1/query/stake-scripts/${address}`, {
+      headers: {
+        'Content-Type': 'application/json;charset=utf-8',
+      },
+    });
+    return response?.data ?? [];
+  } catch (error) {
+    console.warn('Failed to fetch stake script hashes', error);
+    return [];
+  }
+}
+
+const buildAccountsEndpoint = (baseUrl: string, rewardAddress: string) => {
+  const trimmed = trimTrailingSlash(baseUrl);
+  return `${trimmed}/accounts/${rewardAddress}`;
+};
+
+const stakeScriptActive = async (demoEnv: DemoEnvironment, rewardAddress: string): Promise<boolean> => {
+  try {
+    const response = await axios.get(
+      buildAccountsEndpoint(demoEnv.blockfrost_url, rewardAddress),
+      {
+        headers: {
+          project_id: getBlockfrostProjectId(demoEnv),
+        },
+      }
+    );
+    return response?.data?.active_epoch && response?.data?.active_epoch > 0;
+  } catch (error) {
+    console.warn(`Failed to check stake script status for ${rewardAddress}`, error);
+    return false;
+  }
+};
+
+export async function areStakeScriptsRegistered(
+  demoEnv: DemoEnvironment,
+  lucid: LucidEvolution,
+  issuerAddress: string
+): Promise<boolean> {
+  try {
+    if (!lucid || typeof lucid.config !== 'function') {
+      console.warn('Lucid is not initialised; cannot verify stake script registration.');
+      return false;
+    }
+    const network = lucid.config().network ?? demoEnv.network;
+    const scriptHashes = await getStakeScriptHashes(issuerAddress);
+    if (scriptHashes.length === 0) {
+      return false;
+    }
+    const statuses = await Promise.all(
+      scriptHashes.map(async (hash) => {
+        const rewardAddress = deriveStakeAddressFromScriptHash(hash, lucid, network);
+        return stakeScriptActive(demoEnv, rewardAddress);
+      })
+    );
+    return statuses.every(Boolean);
+  } catch (error) {
+    console.warn('Failed to determine stake script registration status', error);
+    return false;
+  }
+}
+
+export type PolicyHolder = {
+  address: string;
+  assets: Array<{ unit: string; quantity: string; assetName?: string }>;
+};
+
+export const decodeAssetName = (hexName?: string): string | undefined => {
+  if (!hexName) {
+    return undefined;
+  }
+  try {
+    return toText(hexName);
+  } catch (error) {
+    console.warn('Failed to decode asset name from hex', hexName, error);
+    return hexName;
+  }
+};
+
+type UserProgrammableValueResponse = Record<string, number | Record<string, number | string>>;
+
+const normaliseQuantity = (value: number | string | undefined): string => {
+  if (typeof value === 'number') {
+    return value.toString();
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value;
+  }
+  return '0';
+};
+
+const isAssetMap = (value: unknown): value is Record<string, number | string> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+export type PolicyTokenBalance = {
+  policyId: string;
+  tokens: Array<{ assetNameHex: string; displayName: string; quantity: string }>;
+};
+
+const parseProgrammableValue = (data: UserProgrammableValueResponse): PolicyTokenBalance[] => {
+  return Object.entries(data ?? {})
+    .filter(([policyId, assets]) => policyId !== 'lovelace' && isAssetMap(assets))
+    .map(([policyId, assets]) => {
+      const tokens = Object.entries(assets as Record<string, number | string>).map(([assetHex, quantity]) => {
+        const displayName =
+          decodeAssetName(assetHex) ??
+          (assetHex && assetHex.length > 0 ? assetHex : 'Unnamed asset');
+        return {
+          assetNameHex: assetHex,
+          displayName,
+          quantity: normaliseQuantity(quantity),
+        };
+      });
+      return { policyId, tokens };
+    })
+    .filter((group) => group.tokens.length > 0);
+};
+
+export async function getUserTotalProgrammableValue(address: string): Promise<PolicyTokenBalance[]> {
+  if (!address) {
+    return [];
+  }
+  try {
+    const response = await axios.get<UserProgrammableValueResponse>(
+      `/api/v1/query/user-total-programmable-value/${address}`,
+      {
+        headers: {
+          'Content-Type': 'application/json;charset=utf-8',
+        },
+      }
+    );
+    return parseProgrammableValue(response?.data ?? {});
+  } catch (error) {
+    console.warn('Failed to fetch user programmable value', error);
+    throw error;
+  }
+}
+
+const extractAssetNameHex = (assetUnit: string, policyId: string): string | undefined => {
+  if (!assetUnit?.startsWith(policyId)) {
+    return undefined;
+  }
+  return assetUnit.slice(policyId.length);
+};
+
+const fetchPolicyAssets = async (demoEnv: DemoEnvironment, policyId: string) => {
+  const projectId = getBlockfrostProjectId(demoEnv);
+  const baseUrl = trimTrailingSlash(demoEnv.blockfrost_url);
+  const assets: Array<{ asset: string; assetName?: string }> = [];
+  const pageSize = 100;
+  for (let page = 1; page <= 10; page++) {
+    try {
+      const { data } = await axios.get(
+        `${baseUrl}/assets/policy/${policyId}`,
+        {
+          params: { page, count: pageSize },
+          headers: { project_id: projectId },
+        }
+      );
+      if (!Array.isArray(data) || data.length === 0) {
+        break;
+      }
+      assets.push(
+        ...data.map((entry: any) => ({
+          asset: entry.asset,
+          assetName:
+            decodeAssetName(entry.asset_name) ??
+            decodeAssetName(extractAssetNameHex(entry.asset, policyId)),
+        }))
+      );
+      if (data.length < pageSize) {
+        break;
+      }
+    } catch (error) {
+      console.warn('Failed to fetch assets for policy', policyId, error);
+      break;
+    }
+  }
+  return assets;
+};
+
+export async function fetchPolicyHolders(
+  demoEnv: DemoEnvironment,
+  policyId: string
+): Promise<PolicyHolder[]> {
+  const projectId = getBlockfrostProjectId(demoEnv);
+  const baseUrl = trimTrailingSlash(demoEnv.blockfrost_url);
+  const assets = await fetchPolicyAssets(demoEnv, policyId);
+  const holders = new Map<string, Array<{ unit: string; quantity: string; assetName?: string }>>();
+
+  await Promise.all(
+    assets.map(async ({ asset, assetName }) => {
+      try {
+        const { data } = await axios.get(
+          `${baseUrl}/assets/${asset}/addresses`,
+          { headers: { project_id: projectId } }
+        );
+        if (Array.isArray(data)) {
+          data.forEach((entry: { address: string; quantity: string }) => {
+            const current = holders.get(entry.address) ?? [];
+            current.push({ unit: asset, quantity: entry.quantity, assetName });
+            holders.set(entry.address, current);
+          });
+        }
+      } catch (error) {
+        console.warn('Failed to fetch holders for asset', asset, error);
+      }
+    })
+  );
+
+  return Array.from(holders.entries()).map(([address, assetsList]) => ({
+    address,
+    assets: assetsList,
+  }));
 }
 
 export async function submitTx(tx: string): Promise<AxiosResponse<any, any>> {
@@ -99,9 +350,16 @@ export async function signAndSentTx(lucid: LucidEvolution, tx: TxSignBuilder): P
   const txBuilder = await makeTxSignBuilder(lucid.wallet(), tx.toTransaction()).complete();
   const cmlTx = txBuilder.toTransaction();
   const witnessSet = txBuilder.toTransaction().witness_set();
-  const expectedScriptDataHash : CML.ScriptDataHash | undefined = CML.calc_script_data_hash(witnessSet.redeemers()!, CML.PlutusDataList.new(), lucid.config().costModels!, witnessSet.languages());
+  const redeemers = witnessSet.redeemers();
+  const languages = witnessSet.languages();
+  const expectedScriptDataHash : CML.ScriptDataHash | undefined =
+    redeemers && languages && languages.len() > 0
+      ? CML.calc_script_data_hash(redeemers, CML.PlutusDataList.new(), lucid.config().costModels!, languages)
+      : undefined;
   const cmlTxBodyClone = CML.TransactionBody.from_cbor_hex(cmlTx!.body().to_cbor_hex());
-  cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash!);
+  if (expectedScriptDataHash) {
+    cmlTxBodyClone.set_script_data_hash(expectedScriptDataHash);
+  }
   
   const cmlClonedTx = CML.Transaction.new(cmlTxBodyClone, cmlTx!.witness_set(), isValid, cmlTx!.auxiliary_data());
   const cmlClonedSignedTx = await makeTxSignBuilder(lucid.wallet(), cmlClonedTx).sign.withWallet().complete();
@@ -245,4 +503,11 @@ export async function deriveProgrammableAddress(demoEnv: DemoEnvironment, lucid:
       );
   return userProgrammableTokenAddress;
 
+}
+
+export function deriveStakeAddressFromScriptHash(stakeScriptHash: ScriptHash, lucid: LucidEvolution, networkOverride?: Network): string{
+  const network = networkOverride ?? lucid.config().network!;
+  // user's staking script credentials
+  const stakeCredential = scriptHashToCredential(stakeScriptHash);
+  return credentialToRewardAddress(network, stakeCredential);
 }

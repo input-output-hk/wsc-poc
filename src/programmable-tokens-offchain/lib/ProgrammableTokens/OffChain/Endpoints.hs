@@ -36,7 +36,7 @@ import SmartTokens.Core.Scripts (ScriptTarget (..))
 -}
 frackUtxosTx :: (MonadReader env m, Env.HasOperatorEnv era env, MonadBlockchain era m, MonadError err m, C.IsBabbageBasedEra era, AsBalancingError err era, AsCoinSelectionError err) => m (C.Tx era)
 frackUtxosTx = do
-  (tx, _) <- Env.balanceTxEnv_ $ BuildTx.frackUTxOs
+  (tx, _) <- Env.balanceTxEnv_ BuildTx.frackUTxOs
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
 
 {-| Build a transaction that deploys the cbox hex outputs
@@ -145,8 +145,8 @@ transferTokens assetName quantity target redeemer = do
   paramsNode <- Query.globalParamsNode @era
   policyId <- programmableTokenPolicyId
   op <- Env.operatorPaymentCredential @env @era
-  opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv @era)
-  (inputs, change) <- Query.selectProgammableOutputsFor op assetName quantity
+  (opPkh, fromStakeAddressReference -> opStakeCred) <- asks (Env.bteOperator . Env.operatorEnv @era)
+  (inputs, change) <- Query.selectProgammableOutputsFor (op, opStakeCred) assetName quantity
   (tx, _) <- Env.balanceTxEnv_ $ do
     BuildTx.transferProgrammableToken paramsNode inputs (transPolicyId policyId) headNode
     BuildTx.paySmartTokensToDestination (assetName, quantity) policyId target
@@ -155,3 +155,9 @@ transferTokens assetName quantity target redeemer = do
       Env.operatorPaymentCredential @env @era >>= BuildTx.paySmartTokensToDestination (assetName, change) policyId
     BuildTx.addRequiredSignature opPkh
   pure (Convex.CoinSelection.signBalancedTxBody [] tx)
+
+fromStakeAddressReference :: C.StakeAddressReference -> Maybe C.StakeCredential
+fromStakeAddressReference = \case
+  C.StakeAddressByValue stakeCred -> Just stakeCred
+  C.StakeAddressByPointer _ -> Nothing
+  C.NoStakeAddress -> Nothing

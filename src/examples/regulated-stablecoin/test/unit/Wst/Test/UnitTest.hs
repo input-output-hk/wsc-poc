@@ -123,9 +123,9 @@ transferSmartTokens scriptRoot = Env.withEnv $ do
 
     Query.programmableLogicOutputs @C.ConwayEra
       >>= void . Test.expectN 2 "programmable logic outputs"
-    Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh)
+    Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh, Nothing)
       >>= void . Test.expectN 1 "user programmable outputs"
-    Query.userProgrammableOutputs (C.PaymentCredentialByKey opPkh)
+    Query.userProgrammableOutputs (C.PaymentCredentialByKey opPkh, Nothing)
       >>= void . Test.expectN 1 "user programmable outputs"
 
 blacklistCredential :: (MonadUtxoQuery m, MonadFail m, MonadError (AppError C.ConwayEra) m, MonadMockchain C.ConwayEra m) => DirectoryScriptRoot -> m C.PaymentCredential
@@ -191,7 +191,7 @@ blacklistTransfer policy = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv 
       >>= void . sendTx . signTxOperator admin
     pure opPkh
 
-  (transferLogic, ble) <- Env.withDirectoryFor scriptRoot $ Env.transferLogicForDirectory (C.verificationKeyHash . Operator.verificationKey . Operator.oPaymentKey $ admin)
+  (transferLogic, ble) <- Env.withDirectoryFor scriptRoot $ Env.transferLogicForDirectory (C.verificationKeyHash . Operator.verificationKey . Operator.oPaymentKey $ admin) Nothing
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator @C.ConwayEra $ Endpoints.insertBlacklistNodeTx "" userPaymentCred
     >>= void . sendTx . signTxOperator admin
@@ -214,7 +214,7 @@ seizeUserOutput scriptRoot = Env.withEnv $ do
       >>= void . sendTx . signTxOperator admin
     Query.programmableLogicOutputs @C.ConwayEra
       >>= void . Test.expectN 2 "programmable logic outputs"
-    Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh)
+    Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh, Nothing)
       >>= void . Test.expectN 1 "user programmable outputs"
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator @C.ConwayEra $ do
@@ -223,9 +223,9 @@ seizeUserOutput scriptRoot = Env.withEnv $ do
       >>= void . sendTx . signTxOperator admin
     Query.programmableLogicOutputs @C.ConwayEra
       >>= void . Test.expectN 3 "programmable logic outputs"
-    Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh)
+    Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh, Nothing)
       >>= void . Test.expectN 1 "user programmable outputs"
-    Query.userProgrammableOutputs (C.PaymentCredentialByKey opPkh)
+    Query.userProgrammableOutputs (C.PaymentCredentialByKey opPkh, Nothing)
       >>= void . Test.expectN 2 "operator programmable outputs"
 
 seizeMultiUserOutputs ::  (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m, MonadError (AppError C.ConwayEra) m) => DirectoryScriptRoot -> m ()
@@ -243,7 +243,7 @@ seizeMultiUserOutputs scriptRoot = Env.withEnv $ do
       >>= void . sendTx . signTxOperator admin
     Query.programmableLogicOutputs @C.ConwayEra
       >>= void . Test.expectN 2 "programmable logic outputs"
-    Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh)
+    Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh, Nothing)
       >>= void . Test.expectN 1 "user programmable outputs"
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator @C.ConwayEra $ do
@@ -251,21 +251,21 @@ seizeMultiUserOutputs scriptRoot = Env.withEnv $ do
       >>= void . sendTx . signTxOperator admin
     Query.programmableLogicOutputs @C.ConwayEra
       >>= void . Test.expectN 3 "programmable logic outputs"
-    Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh)
+    Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh, Nothing)
       >>= void . Test.expectN 2 "user programmable outputs"
 
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator @C.ConwayEra $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv @C.ConwayEra)
     toSeizePolicyId <- asks programmableTokenPolicyId
-    Endpoints.seizeMultiCredentialAssetsTx mempty 2 userPaymentCred
+    Endpoints.seizeMultiCredentialAssetsTx mempty 2 [userPaymentCred]
       >>= void . sendTx . signTxOperator admin
     Query.programmableLogicOutputs @C.ConwayEra
       >>= void . Test.expectN 4 "programmable logic outputs"
-    userOutputs <- Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh)
+    userOutputs <- Query.userProgrammableOutputs (C.PaymentCredentialByKey userPkh, Nothing)
     Test.expectN 2 "user programmable outputs" userOutputs
     mapM_ (\utxo -> when (Query.utxoHasPolicyId toSeizePolicyId utxo) $ fail "User should not have any UTxOs with the programmable token policy ID") userOutputs
 
-    Query.userProgrammableOutputs (C.PaymentCredentialByKey opPkh)
+    Query.userProgrammableOutputs (C.PaymentCredentialByKey opPkh, Nothing)
       >>= void . Test.expectN 2 "operator programmable outputs"
 
 -- TODO: registration to be moved to the endpoints

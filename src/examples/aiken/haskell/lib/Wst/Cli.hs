@@ -18,7 +18,7 @@ import Convex.Wallet.Operator qualified as Operator
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Base16 qualified as Base16
 import Data.ByteString.Lazy qualified as ByteString
-import Data.Foldable (traverse_)
+import Data.Foldable (for_)
 import Data.Functor (void)
 import Data.String (IsString (..))
 import Data.Text qualified as Text
@@ -91,8 +91,8 @@ runCommand com = do
           logInfo $ "registry" :#
             [ "nodes.count" .= length nodes
             ]
-          flip traverse_ paymentCred $ \addr_ -> do
-              outputs <- Query.userProgrammableOutputs  addr_
+          for_ paymentCred $ \addr_ -> do
+              outputs <- Query.userProgrammableOutputs  (addr_, Nothing)
               userAddr <- traverse Directory.programmableTokenReceivingAddress paymentCred
               let val = foldMap (txOutValue . UTxODat.uOut) outputs
               logInfo $ "User account" :#

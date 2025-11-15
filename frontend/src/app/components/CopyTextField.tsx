@@ -14,9 +14,10 @@ interface PHATextFieldProps {
     value: TextFieldProps['defaultValue'];
     fullWidth?: TextFieldProps['fullWidth'];
     label: TextFieldProps['label'];
+    sx?: TextFieldProps['sx'];
 }
 
-export default function CopyTextField({value, fullWidth, label}: PHATextFieldProps) {
+export default function CopyTextField({value, fullWidth, label, sx}: PHATextFieldProps) {
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   const copyToClipboard = () => {
@@ -32,6 +33,7 @@ export default function CopyTextField({value, fullWidth, label}: PHATextFieldPro
           value={value}
           fullWidth={fullWidth}
           label={label}
+          sx={sx}
           size="small"
           slotProps={{
             inputLabel: {color: "primary"},

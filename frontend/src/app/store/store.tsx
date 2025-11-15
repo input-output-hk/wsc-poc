@@ -10,7 +10,7 @@ export type State = {
   accounts: Accounts;
   blacklistAddresses: string[];
   currentUser: UserName;
-  selectedTab: MenuTab;
+  selectedTab: MenuTab | null;
   alertInfo: AlertInfo; 
   lucid: LucidEvolution;
 };
@@ -37,23 +37,26 @@ const useStore = create<State & Actions>((set) => ({
         programmable_token_address: '',
         balance: {ada: 0, wst: 0, adaOnlyOutputs: 0},
         status: 'Active',
+        hasRegisteredScripts: false,
       },
       bob: {
         regular_address: '',
         programmable_token_address: '',
         balance: {ada: 0, wst: 0, adaOnlyOutputs: 0},
         status: 'Active',
+        hasRegisteredScripts: false,
       },
       walletUser: {
         regular_address: '',
         programmable_token_address: '',
         balance: {ada: 0, wst: 0, adaOnlyOutputs: 0},
         status: 'Active',
+        hasRegisteredScripts: false,
       },
     },
     blacklistAddresses: [],
-    currentUser: 'Mint Authority',
-    selectedTab: 'Mint Actions',
+    currentUser: 'Not Connected',
+    selectedTab: null,
     alertInfo: {
       open: false,
       message: 'Transaction sent successfully!',
@@ -77,23 +80,26 @@ const useStore = create<State & Actions>((set) => ({
     },
 
     changeUserAccount: (newUser: UserName) => {
-        let firstAccessibleTab: MenuTab;
+        let firstAccessibleTab: MenuTab | null;
         switch (newUser) {
           case 'Mint Authority':
-            firstAccessibleTab = 'Mint Actions'; 
+            firstAccessibleTab = 'Mint Actions';
             break;
           case 'Alice':
           case 'Bob':
-            firstAccessibleTab = 'Wallet'; 
+            firstAccessibleTab = 'Wallet';
             break;
           case 'Connected Wallet':
             if (useStore.getState().accounts.walletUser.regular_address === useStore.getState().mintAccount.regular_address)
               firstAccessibleTab = 'Mint Actions';
             else
               firstAccessibleTab = 'Wallet';
-            break
+            break;
+          case 'Not Connected':
+            firstAccessibleTab = null;
+            break;
           default:
-            firstAccessibleTab = 'Mint Actions';
+            firstAccessibleTab = null;
         }
         set({ currentUser: newUser, selectedTab: firstAccessibleTab });
     },

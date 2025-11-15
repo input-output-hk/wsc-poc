@@ -13,7 +13,10 @@ module Wst.Client (
   postTransferProgrammableTokenTx,
   postAddToBlacklistTx,
   postRemoveFromBlacklistTx,
-  postSeizeFundsTx
+  postSeizeFundsTx,
+  postSeizeMultiFundsTx,
+  postRegisterTransferScriptsTx,
+  postBlacklistInitTx
 ) where
 
 import Cardano.Api qualified as C
@@ -23,8 +26,9 @@ import Servant.Client (ClientEnv, client, runClientM)
 import Servant.Client.Core (ClientError)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
 import Wst.Offchain.Query (UTxODat)
-import Wst.Server.Types (API, APIInEra, BlacklistNodeArgs,
-                         IssueProgrammableTokenArgs (..), SeizeAssetsArgs,
+import Wst.Server.Types (API, APIInEra, BlacklistInitArgs, BlacklistNodeArgs,
+                         IssueProgrammableTokenArgs (..), MultiSeizeAssetsArgs,
+                         RegisterTransferScriptsArgs, SeizeAssetsArgs,
                          TextEnvelopeJSON, TransferProgrammableTokenArgs (..))
 
 getHealthcheck :: ClientEnv -> IO (Either ClientError NoContent)
@@ -59,5 +63,20 @@ postRemoveFromBlacklistTx env args = do
 
 postSeizeFundsTx :: forall era. C.IsShelleyBasedEra era => ClientEnv -> SeizeAssetsArgs -> IO (Either ClientError (TextEnvelopeJSON (C.Tx era)))
 postSeizeFundsTx env args = do
-  let _ :<|> _ :<|> ((_ :<|> _ :<|> _ :<|> _ :<|> seizeFunds) :<|> _) = client (Proxy @(API era))
+  let _ :<|> _ :<|> ((_ :<|> _ :<|> _ :<|> _ :<|> seizeFunds :<|> _) :<|> _) = client (Proxy @(API era))
   runClientM (seizeFunds args) env
+
+postSeizeMultiFundsTx :: forall era. C.IsShelleyBasedEra era => ClientEnv -> MultiSeizeAssetsArgs -> IO (Either ClientError (TextEnvelopeJSON (C.Tx era)))
+postSeizeMultiFundsTx env args = do
+  let _ :<|> _ :<|> ((_ :<|> _ :<|> _ :<|> _ :<|> _ :<|> seizeMultiFunds :<|> _) :<|> _) = client (Proxy @(API era))
+  runClientM (seizeMultiFunds args) env
+
+postRegisterTransferScriptsTx :: forall era. C.IsShelleyBasedEra era => ClientEnv -> RegisterTransferScriptsArgs -> IO (Either ClientError (TextEnvelopeJSON (C.Tx era)))
+postRegisterTransferScriptsTx env args = do
+  let _ :<|> _ :<|> ((_ :<|> _ :<|> _ :<|> _ :<|> _ :<|> _ :<|> registerTransferScripts :<|> _) :<|> _) = client (Proxy @(API era))
+  runClientM (registerTransferScripts args) env
+
+postBlacklistInitTx :: forall era. C.IsShelleyBasedEra era => ClientEnv -> BlacklistInitArgs -> IO (Either ClientError (TextEnvelopeJSON (C.Tx era)))
+postBlacklistInitTx env args = do
+  let _ :<|> _ :<|> ((_ :<|> _ :<|> _ :<|> _ :<|> _ :<|> _ :<|> _ :<|> blacklistInit) :<|> _) = client (Proxy @(API era))
+  runClientM (blacklistInit args) env
