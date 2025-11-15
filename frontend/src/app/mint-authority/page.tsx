@@ -43,8 +43,11 @@ export default function Home() {
   const demoEnv = useContext(DemoEnvironmentContext);
   
   useEffect(() => {
+    if (!accounts.walletUser.regular_address) {
+      return;
+    }
     changeUserAccount('Mint Authority');
-  }, [changeUserAccount]);
+  }, [accounts.walletUser.regular_address, changeUserAccount]);
 
   const fetchUserDetails = useCallback(async () => {
     const mintBalance = await getWalletBalance(demoEnv, mintAccount.regular_address);
@@ -401,7 +404,19 @@ maxRows={3}
       />
   </Box>;
 
+  const renderInactiveState = () => (
+    <Box sx={{ p: 4 }}>
+      <Typography variant='h4' sx={{ mb: 1 }}>Connect a Wallet to Continue</Typography>
+      <Typography variant='body1'>
+        Use the Connect Wallet button in the top-right corner to link Lace, Eternl, or Yoroi before accessing mint-authority tools.
+      </Typography>
+    </Box>
+  );
+
   const getContentComponent = () => {
+    if (!selectedTab) {
+      return renderInactiveState();
+    }
     switch (selectedTab) {
       case 'Mint Actions':
         return <>
@@ -461,6 +476,8 @@ maxRows={3}
           </Box> 
           <WSTTable />
         </>;
+      default:
+        return renderInactiveState();
     }
   };
 
