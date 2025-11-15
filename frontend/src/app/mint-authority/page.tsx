@@ -1,6 +1,6 @@
 'use client';
 //React imports
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useState } from 'react';
 
 //Axios imports
 import axios from 'axios';
@@ -46,15 +46,7 @@ export default function Home() {
     changeUserAccount('Mint Authority');
   }, [changeUserAccount]);
 
-  useEffect(() => {
-    const initialize = async () => {
-      await fetchUserDetails();
-      await fetchBlacklistStatus();
-    };
-    initialize();
-  }, [demoEnv]);
-
-  const fetchUserDetails = async () => {
+  const fetchUserDetails = useCallback(async () => {
     const mintBalance = await getWalletBalance(demoEnv, mintAccount.regular_address);
     const userABalance = await getWalletBalance(demoEnv, accounts.alice.regular_address);
     const userBBalance = await getWalletBalance(demoEnv, accounts.bob.regular_address);
@@ -63,7 +55,15 @@ export default function Home() {
     await changeMintAccountDetails({ ...mintAccount, balance: mintBalance});
     await changeWalletAccountDetails('alice', { ...accounts.alice, balance: userABalance});
     await changeWalletAccountDetails('bob', { ...accounts.bob, balance: userBBalance});
-  };
+  }, [accounts.alice, accounts.bob, changeMintAccountDetails, changeWalletAccountDetails, demoEnv, mintAccount]);
+
+  useEffect(() => {
+    const initialize = async () => {
+      await fetchUserDetails();
+      await fetchBlacklistStatus();
+    };
+    initialize();
+  }, [demoEnv, fetchUserDetails]);
 
   const fetchBlacklistStatus = async () => {
     const { accounts, changeWalletAccountDetails, currentUser, mintAccount } = useStore.getState();

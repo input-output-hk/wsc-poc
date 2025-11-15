@@ -12,7 +12,7 @@ import type { SelectChangeEvent } from '@mui/material/Select';
 //Local components
 import useStore from '../store/store'; 
 import { Accounts } from '../store/types';
-import { getWalletBalance, signAndSentTx, getProgrammableTokenAddress, areStakeScriptsRegistered, getFreezePolicyId, fetchPolicyHolders, deriveProgrammableAddress, getUserTotalProgrammableValue, PolicyTokenBalance, getPolicyIssuer } from '../utils/walletUtils';
+import { getWalletBalance, signAndSentTx, getProgrammableTokenAddress, areStakeScriptsRegistered, getFreezePolicyId, fetchPolicyHolders, getUserTotalProgrammableValue, PolicyTokenBalance, getPolicyIssuer } from '../utils/walletUtils';
 import WalletCard from '../components/Card';
 import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
@@ -20,7 +20,7 @@ import WSTTable, { WSTTableRow } from '../components/WSTTable';
 import DemoEnvironmentContext from '../context/demoEnvironmentContext';
 
 export default function Profile() {
-  const { lucid, currentUser, mintAccount, changeAlertInfo, changeWalletAccountDetails, selectedTab } = useStore();
+  const { lucid, currentUser, changeAlertInfo, changeWalletAccountDetails, selectedTab } = useStore();
   const accounts = useStore((state) => state.accounts);
   const [overrideTx, setOverrideTx] = useState<boolean>(false);
   const [isRegistering, setIsRegistering] = useState<boolean>(false);
@@ -74,7 +74,7 @@ export default function Profile() {
     return () => {
       cancelled = true;
     };
-  }, [accounts.walletUser.hasRegisteredScripts, accounts.walletUser.regular_address, changeWalletAccountDetails, demoEnv, lucid]);
+  }, [accounts.walletUser, accounts.walletUser.hasRegisteredScripts, accounts.walletUser.regular_address, changeWalletAccountDetails, demoEnv, lucid]);
 
   const getUserAccountDetails = () => {
     switch (currentUser) {
@@ -212,7 +212,6 @@ export default function Profile() {
         const holders = await fetchPolicyHolders(demoEnv, selectedPolicy);
         const rows = await Promise.all(
           holders.map(async (holder) => {
-            let programmableAddress = '';
             return {
               regularAddress: '',
               programmableAddress: holder.address,

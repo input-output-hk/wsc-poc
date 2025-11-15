@@ -28,7 +28,7 @@ async function loadDemoEnvironment(): Promise<DemoEnvironment> {
 }
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
-    const { mintAccount, accounts, changeMintAccountDetails, changeWalletAccountDetails, setLucidInstance } = useStore();
+    const { accounts, changeMintAccountDetails, changeWalletAccountDetails, setLucidInstance } = useStore();
     const [demoEnv, setDemoEnv] = useState<DemoEnvironment>(previewEnv);
 
     useEffect(() => {
@@ -45,11 +45,12 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             const walletATokenAddr = await getProgrammableTokenAddress(walletA.address);
             const walletBTokenAddr = await getProgrammableTokenAddress(walletB.address);
             const mintAuthorityTokenAddr = await getProgrammableTokenAddress(mintAuthorityWallet.address);
-    
+            const { mintAccount: currentMintAccount, accounts: currentAccounts } = useStore.getState();
+
             // Update Zustand store with the initialized wallet information
-            changeMintAccountDetails({ ...mintAccount, regular_address: mintAuthorityWallet.address, programmable_token_address: mintAuthorityTokenAddr});
-            changeWalletAccountDetails('alice', { ...accounts.alice, regular_address: walletA.address, programmable_token_address: walletATokenAddr},);
-            changeWalletAccountDetails('bob', { ...accounts.bob, regular_address: walletB.address, programmable_token_address: walletBTokenAddr});
+            changeMintAccountDetails({ ...currentMintAccount, regular_address: mintAuthorityWallet.address, programmable_token_address: mintAuthorityTokenAddr});
+            changeWalletAccountDetails('alice', { ...currentAccounts.alice, regular_address: walletA.address, programmable_token_address: walletATokenAddr},);
+            changeWalletAccountDetails('bob', { ...currentAccounts.bob, regular_address: walletB.address, programmable_token_address: walletBTokenAddr});
     
             const initialLucid = await makeLucid(demoEnv);
             setLucidInstance(initialLucid);
@@ -60,7 +61,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         };
     
         fetchUserWallets();
-      },[]);
+      },[changeMintAccountDetails, changeWalletAccountDetails, setLucidInstance]);
 
   if(accounts.bob.regular_address === '') {
     return <div className="mainLoadingContainer">

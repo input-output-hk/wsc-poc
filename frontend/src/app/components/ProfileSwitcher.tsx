@@ -14,7 +14,6 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 
 //Local Imports
 import useStore from '../store/store'; 
-import { UserName } from '../store/types';
 import { selectLucidWallet, getWalletBalance, getProgrammableTokenAddress, areStakeScriptsRegistered, WalletType } from '../utils/walletUtils';
 import DemoEnvironmentContext from '../context/demoEnvironmentContext';
 
@@ -42,7 +41,7 @@ export default function ProfileSwitcher() {
     }
   }, [currentUser, router]);
 
-  const handleClick = (event: React.MouseEvent<HTMLDivElement>) => {
+  const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     setAnchorEl(event.currentTarget as HTMLElement);
   };
 
