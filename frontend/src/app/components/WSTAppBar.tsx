@@ -21,7 +21,7 @@ export default function WSTAppBar() {
                 height={39}
                 alt="Logo for WST"
                 />
-                <Typography variant='h3'>CIP-0143 Progammable Token Demo</Typography>
+                <Typography variant='h3'>CIP-0143 Programmable Token Demo</Typography>
             </Box>
             <ProfileSwitcher />
         </Toolbar>

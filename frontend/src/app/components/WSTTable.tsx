@@ -10,7 +10,6 @@ import TableRow from "@mui/material/TableRow";
 import Paper from "@mui/material/Paper";
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 
-import useStore from '../store/store'; 
 import IconButton from './WSTIconButton';
 
 export type WSTTableRow = {
@@ -22,7 +21,7 @@ export type WSTTableRow = {
 };
 
 interface WSTTableProps {
-  rows?: WSTTableRow[];
+  rows: WSTTableRow[];
   loading?: boolean;
   emptyMessage?: string;
 }
@@ -43,20 +42,6 @@ const formatAssets = (assets?: Array<{ unit: string; quantity: string; assetName
 };
 
 export default function WSTTable({ rows, loading = false, emptyMessage = 'No addresses to display.' }: WSTTableProps) {
-  const { accounts } = useStore();
-  const accountArray = Object.values(accounts);
-
-  const defaultRows: WSTTableRow[] = accountArray
-    .filter((acct) => acct.regular_address !== "")
-    .map((acct) => ({
-      regularAddress: acct.regular_address,
-      programmableAddress: acct.programmable_token_address,
-      status: acct.status ?? 'Active',
-      balanceText: `${acct.balance.wst} WST`,
-    }));
-
-  const tableRows = rows ?? defaultRows;
-
   const copyToClipboard = (str: string) => {
     navigator.clipboard.writeText(str);
   };
@@ -80,7 +65,7 @@ export default function WSTTable({ rows, loading = false, emptyMessage = 'No add
               <CircularProgress size={24} />
             </TableCell>
           </TableRow>
-        ) : tableRows.length === 0 ? (
+        ) : rows.length === 0 ? (
           <TableRow>
             <TableCell colSpan={4} align="center">
               <Typography variant="body2" color="text.secondary">
@@ -89,7 +74,7 @@ export default function WSTTable({ rows, loading = false, emptyMessage = 'No add
             </TableCell>
           </TableRow>
         ) : (
-          tableRows.map((row, i) => {
+          rows.map((row, i) => {
             const balanceDisplay = formatAssets(row.assets) ?? row.balanceText ?? '—';
             return (
               <TableRow key={`${row.regularAddress}-${i}`}>

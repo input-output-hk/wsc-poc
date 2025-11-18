@@ -4,7 +4,7 @@
 import * as React from 'react';
 
 //Next.js Imports
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 //MUI Imports
 import Button from '@mui/material/Button';
@@ -16,30 +16,40 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import useStore from '../store/store'; 
 import { selectLucidWallet, getWalletBalance, getProgrammableTokenAddress, areStakeScriptsRegistered, WalletType } from '../utils/walletUtils';
 import DemoEnvironmentContext from '../context/demoEnvironmentContext';
+import type { UserName } from '../store/types';
 
 export default function ProfileSwitcher() {
   const [anchorEl, setAnchorEl] = React.useState<HTMLElement | null>(null);
-  const { currentUser, accounts, changeWalletAccountDetails, changeAlertInfo } = useStore();
-  const lucid = useStore(state => state.lucid);
-  const changeUserAccount = useStore(state => state.changeUserAccount);
+  const currentUser = useStore((state) => state.currentUser);
+  const accounts = useStore((state) => state.accounts);
+  const changeWalletAccountDetails = useStore((state) => state.changeWalletAccountDetails);
+  const changeAlertInfo = useStore((state) => state.changeAlertInfo);
+  const changeUserAccount = useStore((state) => state.changeUserAccount);
+  const lucid = useStore((state) => state.lucid);
+  const hasHydrated = useStore((state) => state.hasHydrated);
   const router = useRouter();
+  const pathname = usePathname();
   const demoContext = React.useContext(DemoEnvironmentContext);
 
+  const getRouteForUser = React.useCallback((user: UserName) => {
+    if (user === 'Mint Authority') {
+      return '/mint-authority';
+    }
+    if (user === 'Not Connected') {
+      return '/connected-wallet';
+    }
+    return `/${user.toLowerCase().replace(/\s+/g, '-')}`;
+  }, []);
+
   React.useEffect(() => {
-    if (currentUser === 'Not Connected') {
+    if (!hasHydrated) {
       return;
     }
-    // Check the current path and redirect if the currentUser doesn't match
-    const expectedPath =
-      currentUser === 'Mint Authority'
-        ? '/mint-authority'
-        : `/${currentUser.toLowerCase().replace(/\s+/g, '-')}`;
-    const currentPath = window.location.pathname;
-
-    if (currentPath !== expectedPath) {
-      router.push(expectedPath);
+    const expectedPath = getRouteForUser(currentUser);
+    if (pathname !== expectedPath) {
+      router.replace(expectedPath);
     }
-  }, [currentUser, router]);
+  }, [currentUser, router, pathname, getRouteForUser, hasHydrated]);
 
   const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     setAnchorEl(event.currentTarget as HTMLElement);

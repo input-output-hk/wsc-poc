@@ -44,6 +44,11 @@ export default function Profile() {
   const [programmableBalanceError, setProgrammableBalanceError] = useState<string | null>(null);
   const [programmableBalanceRefreshKey, setProgrammableBalanceRefreshKey] = useState(0);
   const [selectedTokenHex, setSelectedTokenHex] = useState('');
+  const [isSendingTokens, setIsSendingTokens] = useState(false);
+  const [isUserMinting, setIsUserMinting] = useState(false);
+  const [isUserFreezing, setIsUserFreezing] = useState(false);
+  const [isUserUnfreezing, setIsUserUnfreezing] = useState(false);
+  const [isUserSeizing, setIsUserSeizing] = useState(false);
 
   const demoEnv = useContext(DemoEnvironmentContext);
 
@@ -276,6 +281,9 @@ export default function Profile() {
   }, [accounts.walletUser.regular_address, currentUser, programmableBalanceRefreshKey]);
 
   const onSend = async () => {
+    if (isSendingTokens) {
+      return;
+    }
     if (getUserAccountDetails()?.status === 'Frozen' && !overrideTx) {
       changeAlertInfo({
         severity: 'error',
@@ -346,6 +354,7 @@ export default function Profile() {
       });
       return;
     }
+    setIsSendingTokens(true);
     const requestData = {
       asset_name: selectedTokenHex,
       issuer: issuerForPolicy,
@@ -370,9 +379,17 @@ export default function Profile() {
       await updateAccountBalance(sendRecipientAddress);
       await updateAccountBalance(accountInfo.regular_address);
       setProgrammableBalanceRefreshKey((key) => key + 1);
-      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `${demoEnv.explorer_url}/${txId}`});
+      changeAlertInfo({
+        severity: 'success',
+        message: 'Transaction sent successfully!',
+        open: true,
+        link: `${demoEnv.explorer_url}/${txId}`,
+        actionText: 'View on Explorer'
+      });
     } catch (error) {
       console.error('Send failed:', error);
+    } finally {
+      setIsSendingTokens(false);
     }
   };
 
@@ -422,7 +439,8 @@ export default function Profile() {
         severity: 'success',
         message: msg,
         open: true,
-        link: txId ? `${demoEnv.explorer_url}/${txId}` : ''
+        link: txId ? `${demoEnv.explorer_url}/${txId}` : '',
+        actionText: txId ? 'View on Explorer' : undefined
       });
     };
 
@@ -494,7 +512,8 @@ export default function Profile() {
         severity: 'success',
         message: 'Blacklist initialised successfully!',
         open: true,
-        link: `${demoEnv.explorer_url}/${txId}`
+        link: `${demoEnv.explorer_url}/${txId}`,
+        actionText: 'View on Explorer'
       });
     } catch (error) {
       console.error('Blacklist init failed:', error);
@@ -550,6 +569,9 @@ export default function Profile() {
   };
 
   const onUserMint = async () => {
+    if (isUserMinting) {
+      return;
+    }
     const issuerAddress = ensureWalletReady();
     if (!issuerAddress) return;
     if (!userAddressCleared) {
@@ -570,6 +592,7 @@ export default function Profile() {
       quantity: userMintAmount,
       recipient
     };
+    setIsUserMinting(true);
     try {
       const response = await axios.post(
         '/api/v1/tx/programmable-token/issue',
@@ -584,7 +607,8 @@ export default function Profile() {
         severity: 'success',
         message: 'Mint successful!',
         open: true,
-        link: `${demoEnv.explorer_url}/${txId}`
+        link: `${demoEnv.explorer_url}/${txId}`,
+        actionText: 'View on Explorer'
       });
       await updateAccountBalance(recipient);
       await updateAccountBalance(issuerAddress);
@@ -597,10 +621,15 @@ export default function Profile() {
         open: true,
         link: ''
       });
+    } finally {
+      setIsUserMinting(false);
     }
   };
 
   const onUserFreeze = async () => {
+    if (isUserFreezing) {
+      return;
+    }
     const issuerAddress = ensureWalletReady();
     if (!issuerAddress || !userFreezeAddress) return;
     changeAlertInfo({severity: 'info', message: 'Processing freeze request…', open: true, link: ''});
@@ -609,6 +638,7 @@ export default function Profile() {
       blacklist_address: userFreezeAddress,
       reason: userFreezeReason
     };
+    setIsUserFreezing(true);
     try {
       const response = await axios.post(
         '/api/v1/tx/programmable-token/blacklist',
@@ -621,7 +651,8 @@ export default function Profile() {
         severity: 'success',
         message: 'Address frozen.',
         open: true,
-        link: `${demoEnv.explorer_url}/${txId}`
+        link: `${demoEnv.explorer_url}/${txId}`,
+        actionText: 'View on Explorer'
       });
       const frozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].regular_address === userFreezeAddress
@@ -643,10 +674,15 @@ export default function Profile() {
       } else {
         console.error('Connected wallet freeze failed:', error);
       }
+    } finally {
+      setIsUserFreezing(false);
     }
   };
 
   const onUserUnfreeze = async () => {
+    if (isUserUnfreezing) {
+      return;
+    }
     const issuerAddress = ensureWalletReady();
     if (!issuerAddress || !userUnfreezeAddress) return;
     changeAlertInfo({severity: 'info', message: 'Processing unfreeze request…', open: true, link: ''});
@@ -655,6 +691,7 @@ export default function Profile() {
       blacklist_address: userUnfreezeAddress,
       reason: '(unfreeze)'
     };
+    setIsUserUnfreezing(true);
     try {
       const response = await axios.post(
         '/api/v1/tx/programmable-token/unblacklist',
@@ -667,7 +704,8 @@ export default function Profile() {
         severity: 'success',
         message: 'Address unfrozen.',
         open: true,
-        link: `${demoEnv.explorer_url}/${txId}`
+        link: `${demoEnv.explorer_url}/${txId}`,
+        actionText: 'View on Explorer'
       });
       const unfrozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].regular_address === userUnfreezeAddress
@@ -689,10 +727,15 @@ export default function Profile() {
       } else {
         console.error('Connected wallet unfreeze failed:', error);
       }
+    } finally {
+      setIsUserUnfreezing(false);
     }
   };
 
   const onUserSeize = async () => {
+    if (isUserSeizing) {
+      return;
+    }
     const issuerAddress = ensureWalletReady();
     if (!issuerAddress || !userSeizeAddress) return;
     changeAlertInfo({severity: 'info', message: 'Processing seizure request…', open: true, link: ''});
@@ -701,6 +744,7 @@ export default function Profile() {
       target: userSeizeAddress,
       reason: userSeizeReason
     };
+    setIsUserSeizing(true);
     try {
       const response = await axios.post(
         '/api/v1/tx/programmable-token/seize',
@@ -714,7 +758,8 @@ export default function Profile() {
         severity: 'success',
         message: 'Funds seized.',
         open: true,
-        link: `${demoEnv.explorer_url}/${txId}`
+        link: `${demoEnv.explorer_url}/${txId}`,
+        actionText: 'View on Explorer'
       });
     } catch (error) {
       console.error('Connected wallet seize failed:', error);
@@ -724,6 +769,8 @@ export default function Profile() {
         open: true,
         link: ''
       });
+    } finally {
+      setIsUserSeizing(false);
     }
   };
   
@@ -956,9 +1003,10 @@ export default function Profile() {
           {
             label: 'Send',
             content: sendContent,
-            buttonLabel: 'Send',
+            buttonLabel: isSendingTokens ? 'Sending…' : 'Send',
             onAction: onSend,
-            buttonDisabled: !sendAmountValid
+            buttonDisabled: !sendAmountValid || isSendingTokens,
+            buttonLoading: isSendingTokens
           },
           {
             label: 'Receive',
@@ -1011,26 +1059,34 @@ export default function Profile() {
             {
               label: 'Mint',
               content: userMintContent,
-              buttonLabel: 'Mint',
-              onAction: onUserMint
+              buttonLabel: isUserMinting ? 'Minting…' : 'Mint',
+              onAction: onUserMint,
+              buttonDisabled: isUserMinting,
+              buttonLoading: isUserMinting
             },
             {
               label: 'Freeze',
               content: userFreezeContent,
-              buttonLabel: 'Freeze',
-              onAction: onUserFreeze
+              buttonLabel: isUserFreezing ? 'Freezing…' : 'Freeze',
+              onAction: onUserFreeze,
+              buttonDisabled: isUserFreezing,
+              buttonLoading: isUserFreezing
             },
             {
               label: 'Unfreeze',
               content: userUnfreezeContent,
-              buttonLabel: 'Unfreeze',
-              onAction: onUserUnfreeze
+              buttonLabel: isUserUnfreezing ? 'Unfreezing…' : 'Unfreeze',
+              onAction: onUserUnfreeze,
+              buttonDisabled: isUserUnfreezing,
+              buttonLoading: isUserUnfreezing
             },
             {
               label: 'Seize',
               content: userSeizeContent,
-              buttonLabel: 'Seize',
-              onAction: onUserSeize
+              buttonLabel: isUserSeizing ? 'Seizing…' : 'Seize',
+              onAction: onUserSeize,
+              buttonDisabled: isUserSeizing,
+              buttonLoading: isUserSeizing
             }
           ]}/>
         </div>
@@ -1113,14 +1169,16 @@ export default function Profile() {
             content: registerContent,
             buttonLabel: isRegistering ? 'Registering…' : 'Register Asset',
             onAction: onRegisterAsset,
-            buttonDisabled: isRegistering
+            buttonDisabled: isRegistering,
+            buttonLoading: isRegistering
           },
           {
             label: 'Blacklist Init',
             content: blacklistInitContent,
             buttonLabel: isInitializingBlacklist ? 'Initializing…' : 'Initialize Blacklist',
             onAction: onBlacklistInit,
-            buttonDisabled: isInitializingBlacklist
+            buttonDisabled: isInitializingBlacklist,
+            buttonLoading: isInitializingBlacklist
           }
         ]}/>
       </div>

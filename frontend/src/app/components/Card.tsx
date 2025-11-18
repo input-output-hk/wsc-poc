@@ -10,11 +10,12 @@ import ContentTabs from './ContentTabs';
 import WSTCommonButton from './WSTCommonButton';
 
 interface TabContent {
-  label: string
-  content: React.ReactNode
-  buttonLabel?: string
-  onAction?: () => void
-  buttonDisabled?: boolean
+  label: string;
+  content: React.ReactNode;
+  buttonLabel?: string;
+  onAction?: () => void;
+  buttonDisabled?: boolean;
+  buttonLoading?: boolean;
 }
 
 interface WalletCardProps {
@@ -42,7 +43,7 @@ export default function WalletCard({ tabs }: WalletCardProps) {
     }
 
     const safeTabIndex = Math.min(tabValue, tabs.length - 1);
-    const { content, buttonLabel, onAction, buttonDisabled } = tabs[safeTabIndex]
+    const { content, buttonLabel, onAction, buttonDisabled, buttonLoading } = tabs[safeTabIndex]
 
   return (
     <div className="cardWrapper">
@@ -65,6 +66,7 @@ export default function WalletCard({ tabs }: WalletCardProps) {
             onClick={onAction}
             variant="outlined"
             size="small"
+            loading={buttonLoading}
           />
         )}
       </Box>

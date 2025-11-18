@@ -1,6 +1,6 @@
 'use client';
 //React imports
-import React, { useCallback, useContext, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 //Axios imports
 import axios from 'axios';
@@ -20,14 +20,31 @@ import { Accounts } from '../store/types';
 import WalletCard from '../components/Card';
 import WSTTextField from '../components/WSTTextField';
 import CopyTextField from '../components/CopyTextField';
-import WSTTable from '../components/WSTTable';
+import WSTTable, { WSTTableRow } from '../components/WSTTable';
 import { getWalletBalance, signAndSentTx, getBlacklist } from '../utils/walletUtils';
 import DemoEnvironmentContext from '../context/demoEnvironmentContext';
 
 
 
 export default function Home() {
-  const { lucid, mintAccount, accounts, selectedTab, changeAlertInfo, changeMintAccountDetails, changeWalletAccountDetails, changeUserAccount } = useStore();
+  const lucid = useStore((state) => state.lucid);
+  const mintAccount = useStore((state) => state.mintAccount);
+  const accounts = useStore((state) => state.accounts);
+  const selectedTab = useStore((state) => state.selectedTab);
+  const changeAlertInfo = useStore((state) => state.changeAlertInfo);
+  const changeMintAccountDetails = useStore((state) => state.changeMintAccountDetails);
+  const changeWalletAccountDetails = useStore((state) => state.changeWalletAccountDetails);
+  const changeUserAccount = useStore((state) => state.changeUserAccount);
+  const addressRows = useMemo<WSTTableRow[]>(() => {
+    return Object.values(accounts)
+      .filter((acct) => acct.regular_address !== '')
+      .map((acct) => ({
+        regularAddress: acct.regular_address,
+        programmableAddress: acct.programmable_token_address,
+        status: acct.status ?? 'Active',
+        balanceText: `${acct.balance.wst} WST`,
+      }));
+  }, [accounts]);
   const [addressCleared, setAddressCleared] = useState(false);
   // Temporary state for each text field
   const [mintTokensAmount, setMintTokens] = useState(0);
@@ -39,6 +56,11 @@ export default function Home() {
   const [freezeReason, setFreezeReason] = useState('Enter reason here');
   const [seizeAccountNumber, setSeizeAccountNumber] = useState('address to seize');
   const [seizeReason, setSeizeReason] = useState('Enter reason here');
+  const [authorityMintPending, setAuthorityMintPending] = useState(false);
+  const [authoritySendPending, setAuthoritySendPending] = useState(false);
+  const [authorityFreezePending, setAuthorityFreezePending] = useState(false);
+  const [authorityUnfreezePending, setAuthorityUnfreezePending] = useState(false);
+  const [authoritySeizePending, setAuthoritySeizePending] = useState(false);
 
   const demoEnv = useContext(DemoEnvironmentContext);
   
@@ -107,6 +129,9 @@ export default function Home() {
   };
 
   const onMint = async () => {
+    if (authorityMintPending) {
+      return;
+    }
     if (addressCleared === false) {
       // setAlertStatus(true);
       console.error("Recipient Address not cleared.");
@@ -121,6 +146,7 @@ export default function Home() {
       recipient: mintRecipientAddress
     };
 
+    setAuthorityMintPending(true);
     try {
       const response = await axios.post(
         '/api/v1/tx/programmable-token/issue', 
@@ -135,15 +161,26 @@ export default function Home() {
       const tx = await lucid.fromTx(response.data.cborHex);
       const txId = await signAndSentTx(lucid, tx);
       
-      changeAlertInfo({severity: 'success', message: 'Successful new WST mint. View the transaction here:', open: true, link: `${demoEnv.explorer_url}/${txId}`});
+      changeAlertInfo({
+        severity: 'success',
+        message: 'Successful new WST mint.',
+        open: true,
+        link: `${demoEnv.explorer_url}/${txId}`,
+        actionText: 'View on Explorer'
+      });
       
       await fetchUserDetails();
     } catch (error) {
       console.error('Minting failed:', error);
+    } finally {
+      setAuthorityMintPending(false);
     }
   };
 
   const onSend = async () => {
+    if (authoritySendPending) {
+      return;
+    }
     lucid.selectWallet.fromSeed(demoEnv.mint_authority);
     console.log('send tokens');
     changeAlertInfo({severity: 'info', message: 'Transaction processing', open: true, link: ''});
@@ -154,6 +191,7 @@ export default function Home() {
       recipient: sendRecipientAddress,
       sender: mintAccount.regular_address,
     };
+    setAuthoritySendPending(true);
     try {
       const response = await axios.post(
         '/api/v1/tx/programmable-token/transfer', 
@@ -177,14 +215,25 @@ export default function Home() {
           balance: newAccountBalance,
         });
       }
-      changeAlertInfo({severity: 'success', message: 'Transaction sent successfully!', open: true, link: `${demoEnv.explorer_url}/${txId}`});
+      changeAlertInfo({
+        severity: 'success',
+        message: 'Transaction sent successfully!',
+        open: true,
+        link: `${demoEnv.explorer_url}/${txId}`,
+        actionText: 'View on Explorer'
+      });
       await fetchUserDetails();
     } catch (error) {
       console.error('Send failed:', error);
+    } finally {
+      setAuthoritySendPending(false);
     }
   };
 
   const onFreeze = async () => {
+    if (authorityFreezePending) {
+      return;
+    }
     console.log('freeze an address');
     lucid.selectWallet.fromSeed(demoEnv.mint_authority);
     changeAlertInfo({severity: 'info', message: 'Freeze request processing', open: true, link: ''});
@@ -193,6 +242,7 @@ export default function Home() {
       blacklist_address: freezeAccountNumber,
       reason: freezeReason,
     };
+    setAuthorityFreezePending(true);
     try {
       const response = await axios.post(
         '/api/v1/tx/programmable-token/blacklist', 
@@ -207,7 +257,13 @@ export default function Home() {
       const tx = await lucid.fromTx(response.data.cborHex);
       const txId = await signAndSentTx(lucid, tx);
       console.log(txId);
-      changeAlertInfo({severity: 'success', message: 'Address successfully frozen', open: true, link: `${demoEnv.explorer_url}/${txId}`});
+      changeAlertInfo({
+        severity: 'success',
+        message: 'Address successfully frozen',
+        open: true,
+        link: `${demoEnv.explorer_url}/${txId}`,
+        actionText: 'View on Explorer'
+      });
       const frozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].regular_address === freezeAccountNumber
       );
@@ -228,10 +284,15 @@ export default function Home() {
       } else {
         console.error('Freeze failed:', error);
       }
+    } finally {
+      setAuthorityFreezePending(false);
     }
   };
 
   const onUnfreeze = async () => {
+    if (authorityUnfreezePending) {
+      return;
+    }
     console.log('unfreeze an account');
     lucid.selectWallet.fromSeed(demoEnv.mint_authority);
     changeAlertInfo({severity: 'info', message: 'Unfreeze request processing', open: true, link: ''});
@@ -240,6 +301,7 @@ export default function Home() {
       blacklist_address: unfreezeAccountNumber,
       reason: "(unfreeze)"
     };
+    setAuthorityUnfreezePending(true);
     try {
       const response = await axios.post(
         '/api/v1/tx/programmable-token/unblacklist', 
@@ -253,7 +315,13 @@ export default function Home() {
       console.log('Unfreeze response:', response.data);
       const tx = await lucid.fromTx(response.data.cborHex);
       const txId = await signAndSentTx(lucid, tx);
-      changeAlertInfo({severity: 'success', message: 'Address successfully unfrozen', open: true, link: `${demoEnv.explorer_url}/${txId}`});
+      changeAlertInfo({
+        severity: 'success',
+        message: 'Address successfully unfrozen',
+        open: true,
+        link: `${demoEnv.explorer_url}/${txId}`,
+        actionText: 'View on Explorer'
+      });
       const unfrozenWalletKey = (Object.keys(accounts) as (keyof Accounts)[]).find(
         (key) => accounts[key].regular_address === freezeAccountNumber
       );
@@ -274,10 +342,15 @@ export default function Home() {
       } else {
         console.error('Unfreeze failed:', error);
       }
+    } finally {
+      setAuthorityUnfreezePending(false);
     }
   };
 
   const onSeize = async () => {
+    if (authoritySeizePending) {
+      return;
+    }
     console.log('seize account funds');
     lucid.selectWallet.fromSeed(demoEnv.mint_authority);
     changeAlertInfo({severity: 'info', message: 'WST seizure processing', open: true, link: ''});
@@ -286,6 +359,7 @@ export default function Home() {
       target: seizeAccountNumber,
       reason: seizeReason,
     };
+    setAuthoritySeizePending(true);
     try {
       const response = await axios.post(
         '/api/v1/tx/programmable-token/seize', 
@@ -309,10 +383,18 @@ export default function Home() {
           balance: newAccountBalance,
         });
       }
-      changeAlertInfo({severity: 'success', message: 'Funds successfully seized', open: true, link: `${demoEnv.explorer_url}/${txId}`});
+      changeAlertInfo({
+        severity: 'success',
+        message: 'Funds successfully seized',
+        open: true,
+        link: `${demoEnv.explorer_url}/${txId}`,
+        actionText: 'View on Explorer'
+      });
       await fetchUserDetails();
     } catch (error) {
       console.error('Seize failed:', error);
+    } finally {
+      setAuthoritySeizePending(false);
     }
   };
 
@@ -433,34 +515,44 @@ maxRows={3}
           {
             label: 'Mint',
             content: mintContent,
-            buttonLabel: 'Mint',
-            onAction: onMint
+            buttonLabel: authorityMintPending ? 'Minting…' : 'Mint',
+            onAction: onMint,
+            buttonDisabled: authorityMintPending,
+            buttonLoading: authorityMintPending
           },
           {
             label: 'Freeze',
             content: freezeContent,
-            buttonLabel: 'Freeze',
-            onAction: onFreeze
+            buttonLabel: authorityFreezePending ? 'Freezing…' : 'Freeze',
+            onAction: onFreeze,
+            buttonDisabled: authorityFreezePending,
+            buttonLoading: authorityFreezePending
           },
           {
             label: 'Unfreeze',
             content: unFreezeContent,
-            buttonLabel: 'Unfreeze',
-            onAction: onUnfreeze
+            buttonLabel: authorityUnfreezePending ? 'Unfreezing…' : 'Unfreeze',
+            onAction: onUnfreeze,
+            buttonDisabled: authorityUnfreezePending,
+            buttonLoading: authorityUnfreezePending
           },
           {
             label: 'Seize',
             content: seizeContent,
-            buttonLabel: 'Seize',
-            onAction: onSeize
+            buttonLabel: authoritySeizePending ? 'Seizing…' : 'Seize',
+            onAction: onSeize,
+            buttonDisabled: authoritySeizePending,
+            buttonLoading: authoritySeizePending
           }
         ]}></WalletCard>
             <WalletCard tabs={[
               {
                 label: 'Send',
                 content: sendContent,
-                buttonLabel: 'Send',
-                onAction: onSend
+                buttonLabel: authoritySendPending ? 'Sending…' : 'Send',
+                onAction: onSend,
+                buttonDisabled: authoritySendPending,
+                buttonLoading: authoritySendPending
               },
               {
                 label: 'Receive',
@@ -474,7 +566,7 @@ maxRows={3}
           <Box sx={{marginBottom: '16px'}}>
             <Typography variant='h1'>Addresses</Typography>
           </Box> 
-          <WSTTable />
+          <WSTTable rows={addressRows} />
         </>;
       default:
         return renderInactiveState();

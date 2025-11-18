@@ -17,10 +17,12 @@ export type Accounts = {
 };
 export type Severity = 'success' | 'error' | 'info' | 'warning';
 export type AlertInfo = {
-    open: boolean | undefined,
-    severity: Severity,
-    message: string,
-    link?: string,
+    id: number;
+    open: boolean;
+    severity: Severity;
+    message: string;
+    link?: string;
+    actionText?: string;
 };
 export type WalletBalance = { wst: number, ada: number, adaOnlyOutputs: number }
 
