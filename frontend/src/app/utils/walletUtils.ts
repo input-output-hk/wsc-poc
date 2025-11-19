@@ -5,6 +5,7 @@ import axios, { AxiosResponse } from 'axios';
 import { Address, Assets, Blockfrost, CML, credentialToAddress, credentialToRewardAddress, Lucid, LucidEvolution, makeTxSignBuilder, Network, paymentCredentialOf, scriptHashToCredential, toText, toUnit, TxSignBuilder, Unit, valueToAssets, walletFromSeed } from "@lucid-evolution/lucid";
 import type { Credential as LucidCredential, ScriptHash } from "@lucid-evolution/core-types";
 import { WalletBalance, DemoEnvironment } from '../store/types';
+import { getApiUrl } from './apiConfig';
 
 export async function makeLucid(demoEnvironment: DemoEnvironment) {
   const API_KEY_ENV = process.env.NEXT_PUBLIC_BLOCKFROST_API_KEY;
@@ -38,10 +39,10 @@ export type UserBalanceResponse =
 export async function getWalletBalance(demoEnv: DemoEnvironment, address: string): Promise<WalletBalance> {
   try {
     const response = await axios.get<UserBalanceResponse>(
-      `/api/v1/query/user-funds/${address}`,  
+      getApiUrl(`/api/v1/query/user-funds/${address}`),
       {
         headers: {
-          'Content-Type': 'application/json;charset=utf-8', 
+          'Content-Type': 'application/json;charset=utf-8',
         },
       }
     );
@@ -62,10 +63,10 @@ export async function getWalletBalance(demoEnv: DemoEnvironment, address: string
 export async function getBlacklist(address: string){
   try {
     const response = await axios.get(
-      `/api/v1/query/blacklist/${address}`,  
+      getApiUrl(`/api/v1/query/blacklist/${address}`),
       {
         headers: {
-          'Content-Type': 'application/json;charset=utf-8', 
+          'Content-Type': 'application/json;charset=utf-8',
         },
       }
     );
@@ -78,7 +79,7 @@ export async function getBlacklist(address: string){
 }
 
 export async function getProgrammableTokenAddress(address: string): Promise<string> {
-  const response = await axios.get<string>(`/api/v1/query/address/${address}`,
+  const response = await axios.get<string>(getApiUrl(`/api/v1/query/address/${address}`),
     {
       headers: {
         'Content-Type': 'application/json;charset=utf-8',
@@ -88,7 +89,7 @@ export async function getProgrammableTokenAddress(address: string): Promise<stri
 }
 
 export async function getFreezePolicyId(address: string): Promise<string> {
-  const response = await axios.get<string>(`/api/v1/query/freeze-policy-id/${address}`,
+  const response = await axios.get<string>(getApiUrl(`/api/v1/query/freeze-policy-id/${address}`),
     {
       headers: {
         'Content-Type': 'application/json;charset=utf-8',
@@ -98,7 +99,7 @@ export async function getFreezePolicyId(address: string): Promise<string> {
 }
 
 export async function getPolicyIssuer(policyId: string): Promise<string> {
-  const response = await axios.get<string>(`/api/v1/query/policy-issuer/${policyId}`, {
+  const response = await axios.get<string>(getApiUrl(`/api/v1/query/policy-issuer/${policyId}`), {
     headers: {
       'Content-Type': 'application/json;charset=utf-8',
     },
@@ -113,7 +114,7 @@ const trimTrailingSlash = (url: string) => url.replace(/\/+$/, '');
 
 export async function getStakeScriptHashes(address: string): Promise<ScriptHash[]> {
   try {
-    const response = await axios.get<ScriptHash[]>(`/api/v1/query/stake-scripts/${address}`, {
+    const response = await axios.get<ScriptHash[]>(getApiUrl(`/api/v1/query/stake-scripts/${address}`), {
       headers: {
         'Content-Type': 'application/json;charset=utf-8',
       },
@@ -237,7 +238,7 @@ export async function getUserTotalProgrammableValue(address: string): Promise<Po
   }
   try {
     const response = await axios.get<UserProgrammableValueResponse>(
-      `/api/v1/query/user-total-programmable-value/${address}`,
+      getApiUrl(`/api/v1/query/user-total-programmable-value/${address}`),
       {
         headers: {
           'Content-Type': 'application/json;charset=utf-8',
@@ -331,7 +332,7 @@ export async function fetchPolicyHolders(
 
 export async function submitTx(tx: string): Promise<AxiosResponse<any, any>> {
   return axios.post(
-      '/api/v1/tx/submit',
+      getApiUrl('/api/v1/tx/submit'),
       {
         description: "",
         type: "Tx ConwayEra",
@@ -339,7 +340,7 @@ export async function submitTx(tx: string): Promise<AxiosResponse<any, any>> {
       },
       {
         headers: {
-          'Content-Type': 'application/json;charset=utf-8', 
+          'Content-Type': 'application/json;charset=utf-8',
         },
       }
     );

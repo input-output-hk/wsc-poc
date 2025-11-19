@@ -1,0 +1,17 @@
+node_modules
+.next
+out
+.git
+.gitignore
+README.md
+.env
+.env.local
+.env.development
+.env.production
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+*.pem
+.idea
+.vscode

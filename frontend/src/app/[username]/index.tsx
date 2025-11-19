@@ -4,6 +4,7 @@ import React, { useContext, useEffect, useState, useMemo } from 'react';
 
 //Axios imports
 import axios from 'axios';
+import { getApiUrl } from '../utils/apiConfig';
 
 //Mui imports
 import { Box, Checkbox, CircularProgress, FormControl, FormControlLabel, InputLabel, MenuItem, Paper, Select, Typography } from '@mui/material';
@@ -365,7 +366,7 @@ export default function Profile() {
     };
     try {
       const response = await axios.post(
-        '/api/v1/tx/programmable-token/transfer', 
+        getApiUrl('/api/v1/tx/programmable-token/transfer'),
         requestData, 
         {
           headers: {
@@ -448,7 +449,7 @@ export default function Profile() {
       setIsRegistering(true);
       changeAlertInfo({ severity: 'info', message: 'Preparing registration transaction…', open: true, link: '' });
       const response = await axios.post(
-        '/api/v1/tx/programmable-token/register-transfer-scripts',
+        getApiUrl('/api/v1/tx/programmable-token/register-transfer-scripts'),
         { issuer: issuerAddress },
         { headers: { 'Content-Type': 'application/json;charset=utf-8' } }
       );
@@ -502,7 +503,7 @@ export default function Profile() {
       setIsInitializingBlacklist(true);
       changeAlertInfo({ severity: 'info', message: 'Preparing blacklist initialisation transaction…', open: true, link: '' });
       const response = await axios.post(
-        '/api/v1/tx/programmable-token/blacklist-init',
+        getApiUrl('/api/v1/tx/programmable-token/blacklist-init'),
         { issuer: issuerAddress },
         { headers: { 'Content-Type': 'application/json;charset=utf-8' } }
       );
@@ -595,7 +596,7 @@ export default function Profile() {
     setIsUserMinting(true);
     try {
       const response = await axios.post(
-        '/api/v1/tx/programmable-token/issue',
+        getApiUrl('/api/v1/tx/programmable-token/issue'),
         requestData,
         {
           headers: {'Content-Type': 'application/json;charset=utf-8'}
@@ -641,7 +642,7 @@ export default function Profile() {
     setIsUserFreezing(true);
     try {
       const response = await axios.post(
-        '/api/v1/tx/programmable-token/blacklist',
+        getApiUrl('/api/v1/tx/programmable-token/blacklist'),
         requestData,
         { headers: {'Content-Type': 'application/json;charset=utf-8'} }
       );
@@ -694,7 +695,7 @@ export default function Profile() {
     setIsUserUnfreezing(true);
     try {
       const response = await axios.post(
-        '/api/v1/tx/programmable-token/unblacklist',
+        getApiUrl('/api/v1/tx/programmable-token/unblacklist'),
         requestData,
         { headers: {'Content-Type': 'application/json;charset=utf-8'} }
       );
@@ -747,7 +748,7 @@ export default function Profile() {
     setIsUserSeizing(true);
     try {
       const response = await axios.post(
-        '/api/v1/tx/programmable-token/seize',
+        getApiUrl('/api/v1/tx/programmable-token/seize'),
         requestData,
         { headers: {'Content-Type': 'application/json;charset=utf-8'} }
       );

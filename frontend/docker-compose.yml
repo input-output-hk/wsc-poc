@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost:8080
+        - NEXT_PUBLIC_BLOCKFROST_API_KEY=preview63R2hq5OToB1PRYyxDQ1NpmS23rbyS88
+        - NETWORK=Preview
+    ports:
+      - "3000:80"
+    environment:
+      - NODE_ENV=production

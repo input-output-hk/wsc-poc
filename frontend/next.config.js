@@ -52,10 +52,11 @@ module.exports = (phase, {defaultConfig}) => {
         ]
       },
       async rewrites() {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
         return [
           {
             source: '/api/v1/:path*', // Match all routes starting with /api/v1/
-            destination: 'http://localhost:8080/api/v1/:path*', // Proxy to backend server
+            destination: `${apiUrl}/api/v1/:path*`, // Proxy to backend server
           },
         ];
       },
