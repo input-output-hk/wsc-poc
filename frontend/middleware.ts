@@ -14,12 +14,8 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname === '/') {
+  if (pathname === '/' || pathname === '/mint-authority') {
     return NextResponse.redirect(new URL('/connected-wallet', request.url));
-  }
-
-  if (pathname === '/mint-authority') {
-    return NextResponse.next();
   }
 
   const segments = pathname.split('/').filter(Boolean);

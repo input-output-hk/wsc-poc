@@ -32,10 +32,10 @@ export default function ProfileSwitcher() {
   const demoContext = React.useContext(DemoEnvironmentContext);
 
   const getRouteForUser = React.useCallback((user: UserName) => {
-    if (user === 'Mint Authority') {
-      return '/mint-authority';
-    }
     if (user === 'Not Connected') {
+      return '/connected-wallet';
+    }
+    if (user === 'Mint Authority') {
       return '/connected-wallet';
     }
     return `/${user.toLowerCase().replace(/\s+/g, '-')}`;

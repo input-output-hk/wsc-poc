@@ -76,38 +76,44 @@ const createAccountsSlice: StateCreator<
   [],
   [],
   AccountsSlice
-> = (set) => ({
-  mintAccount: {
-    name: 'Mint Authority',
-    regular_address: '',
-    programmable_token_address: '',
-    balance: { ada: 0, wst: 0, adaOnlyOutputs: 0 },
-  },
-  accounts: initialAccounts(),
-  blacklistAddresses: [],
+> = (set, _get, _api) => {
+  void _get;
+  void _api;
+  return {
+    mintAccount: {
+      name: 'Mint Authority',
+      regular_address: '',
+      programmable_token_address: '',
+      balance: { ada: 0, wst: 0, adaOnlyOutputs: 0 },
+    },
+    accounts: initialAccounts(),
+    blacklistAddresses: [],
 
-  changeMintAccountDetails: (newAccountInfo) => {
-    set(() => ({
-      mintAccount: newAccountInfo,
-    }));
-  },
+    changeMintAccountDetails: (newAccountInfo) => {
+      set(() => ({
+        mintAccount: newAccountInfo,
+      }));
+    },
 
-  changeWalletAccountDetails: (accountKey, newAccountInfo) => {
-    set((state) => ({
-      accounts: {
-        ...state.accounts,
-        [accountKey]: newAccountInfo,
-      },
-    }));
-  },
-});
+    changeWalletAccountDetails: (accountKey, newAccountInfo) => {
+      set((state) => ({
+        accounts: {
+          ...state.accounts,
+          [accountKey]: newAccountInfo,
+        },
+      }));
+    },
+  };
+};
 
 const createUiSlice: StateCreator<
   StoreState,
   [],
   [],
   UiSlice
-> = (set, get) => ({
+> = (set, get, _api) => {
+  void _api;
+  return {
   currentUser: 'Not Connected',
   selectedTab: null,
   alertInfo: initialAlertInfo(),
@@ -141,22 +147,27 @@ const createUiSlice: StateCreator<
   },
 
   setHasHydrated: (value) => set({ hasHydrated: value }),
-});
+  };
+};
 
 const createLucidSlice: StateCreator<
   StoreState,
   [],
   [],
   LucidSlice
-> = (set) => ({
+> = (set, _get, _api) => {
+  void _get;
+  void _api;
+  return {
   lucid: {} as LucidEvolution,
   setLucidInstance: (lucid) => set({ lucid }),
-});
+  };
+};
 
-const createStore: StateCreator<StoreState, [], []> = (set, get) => ({
-  ...createAccountsSlice(set, get),
-  ...createUiSlice(set, get),
-  ...createLucidSlice(set, get),
+const createStore = (set: any, get: any, api: any) => ({
+  ...createAccountsSlice(set, get, api),
+  ...createUiSlice(set, get, api),
+  ...createLucidSlice(set, get, api),
 });
 
 const mergePersistedState = (persisted: any, currentState: StoreState): StoreState => {
@@ -191,7 +202,14 @@ const useStoreBase = createWithEqualityFn<StoreState>()(
     }),
     merge: (persistedState, currentState) => mergePersistedState(persistedState, currentState),
     onRehydrateStorage: () => (state) => {
-      state?.setHasHydrated(true);
+      if (!state) {
+        return;
+      }
+      const walletConnected = Boolean(state.accounts.walletUser.regular_address);
+      if (!walletConnected) {
+        state.changeUserAccount('Not Connected');
+      }
+      state.setHasHydrated(true);
     },
   }),
   shallow
