@@ -10,7 +10,7 @@ module ProgrammableTokens.OffChain.Env.TransferLogic(
 ) where
 
 import Cardano.Api (PlutusScript, PlutusScriptV3)
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api qualified as C
 import Control.Monad.Reader (MonadReader (..), asks)
 import Convex.PlutusLedger.V1 (unTransCredential)
 import Data.Either (fromRight)

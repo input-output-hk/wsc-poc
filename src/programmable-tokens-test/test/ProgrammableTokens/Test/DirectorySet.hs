@@ -3,7 +3,7 @@ module ProgrammableTokens.Test.DirectorySet(
   tests
 ) where
 
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api qualified as C
 import Control.Monad.Except (MonadError)
 import Convex.BuildTx qualified as BuildTx
 import Convex.Class (MonadMockchain, MonadUtxoQuery, sendTx)
@@ -48,7 +48,7 @@ issueAlwaysSucceedsValidator scriptRoot = do
   runAs' registerAlwaysSucceedsStakingCert
 
   runAs' $ do
-    Test.issueProgrammableTokenTx "dummy asset" 100 ()
+    Test.issueProgrammableTokenTx (C.UnsafeAssetName "dummy asset") 100 ()
       >>= void . sendTx . signTxOperator Test.admin
     Query.registryNodes @C.ConwayEra
       >>= void . Test.expectN 2 "registry outputs"

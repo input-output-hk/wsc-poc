@@ -13,17 +13,17 @@ import Plutarch.Internal.Other (printTerm)
 import Plutarch.Internal.Term
 import PlutusCore.Evaluation.Machine.ExBudget (ExBudget)
 
-getTracesExUnits :: ClosedTerm a -> [Text]
+getTracesExUnits :: (forall s. Term s a) -> [Text]
 getTracesExUnits term =
   let (_, _, traces) = fromRight (error "") (evalTerm (Tracing LogInfo DoTracingAndBinds) term)
   in traces
 
-getExUnits :: ClosedTerm a -> ExBudget
+getExUnits :: (forall s. Term s a) -> ExBudget
 getExUnits term =
   let (_, budget, _) = fromRight (error "") (evalTerm NoTracing term)
   in budget
 
-getShowTerm :: ClosedTerm a -> String
+getShowTerm :: (forall s. Term s a) -> String
 getShowTerm term =
   let (t, _, _) = fromRight (error "") (evalTerm NoTracing term)
   in

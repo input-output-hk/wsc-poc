@@ -7,7 +7,7 @@ module Wst.Offchain.ExampleTransfer (
   where
 
 import Cardano.Api qualified as C
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api.Plutus qualified as C
 import Control.Lens (over)
 import Convex.BuildTx (MonadBuildTx, addBtx, addReference,
                        addStakeScriptWitness, addWithdrawalWithTxBody,

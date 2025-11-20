@@ -5,7 +5,6 @@ module ProgrammableTokens.OffChain.BuildTx.Utils
 
 
 import Cardano.Api qualified as C
-import Cardano.Api.Shelley qualified as C
 import Cardano.Ledger.Shelley.TxCert qualified as TxCert
 import Convex.BuildTx (MonadBuildTx, addCertificate)
 

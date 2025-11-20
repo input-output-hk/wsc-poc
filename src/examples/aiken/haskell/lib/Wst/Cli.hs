@@ -5,7 +5,7 @@ module Wst.Cli(runMain) where
 import Blammo.Logging.Logger (flushLogger)
 import Blammo.Logging.Simple (Message ((:#)), MonadLogger, logError, logInfo,
                               runLoggerLoggingT, (.=))
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api qualified as C
 import Control.Lens qualified as L
 import Control.Monad.Error.Lens (throwing, throwing_)
 import Control.Monad.Except (MonadError)

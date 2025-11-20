@@ -93,7 +93,7 @@ Each programmable token entry is represented in a directory with the following a
 @mintingLogicCred@ Script Credential for the script which must be invoked to perform minting/burning operations
 @ctx@ Script context containing transaction details
 -}
-mkProgrammableLogicMinting :: ClosedTerm (PAsData PCredential :--> PAsData PScriptHash :--> PScriptContext :--> PUnit)
+mkProgrammableLogicMinting :: Term s (PAsData PCredential :--> PAsData PScriptHash :--> PScriptContext :--> PUnit)
 mkProgrammableLogicMinting = plam $ \(pfromData -> programmableLogicBase) mintingLogicCred' ctx -> P.do
   let mintingLogicCred = pdata $ pcon $ PScriptCredential mintingLogicCred'
   PScriptContext {pscriptContext'txInfo, pscriptContext'redeemer, pscriptContext'scriptInfo} <- pmatch ctx

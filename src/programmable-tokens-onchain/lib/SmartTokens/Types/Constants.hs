@@ -17,34 +17,34 @@ module SmartTokens.Types.Constants(
 ) where
 
 import Plutarch.LedgerApi.V1 (PTokenName (..))
-import Plutarch.Prelude (ClosedTerm, PAsData, pconstant)
+import Plutarch.Prelude (PAsData, Term, pconstant)
 import PlutusLedgerApi.V1 (TokenName (..))
 import PlutusTx.Builtins.HasOpaque (stringToBuiltinByteString)
 
 protocolParamsToken :: TokenName
 protocolParamsToken = TokenName (stringToBuiltinByteString "ProtocolParams")
 
-pprotocolParamsToken :: ClosedTerm PTokenName
+pprotocolParamsToken :: Term s PTokenName
 pprotocolParamsToken = pconstant protocolParamsToken
 
-pprotocolParamsTokenData :: ClosedTerm (PAsData PTokenName)
+pprotocolParamsTokenData :: Term s (PAsData PTokenName)
 pprotocolParamsTokenData = pconstant protocolParamsToken
 
 directoryNodeToken :: TokenName
 directoryNodeToken = TokenName ""
 
-pdirectoryNodeToken :: ClosedTerm PTokenName
+pdirectoryNodeToken :: Term s PTokenName
 pdirectoryNodeToken = pconstant directoryNodeToken
 
-pdirectoryNodeTokenData :: ClosedTerm (PAsData PTokenName)
+pdirectoryNodeTokenData :: Term s (PAsData PTokenName)
 pdirectoryNodeTokenData = pconstant directoryNodeToken
 
 issuanceCborHexToken :: TokenName
 issuanceCborHexToken = TokenName (stringToBuiltinByteString "IssuanceCborHex")
 
-pissuanceCborHexToken :: ClosedTerm PTokenName
+pissuanceCborHexToken :: Term s PTokenName
 pissuanceCborHexToken = pconstant issuanceCborHexToken
 
-pissuanceCborHexTokenData :: ClosedTerm (PAsData PTokenName)
+pissuanceCborHexTokenData :: Term s (PAsData PTokenName)
 pissuanceCborHexTokenData = pconstant issuanceCborHexToken
 
