@@ -3,7 +3,7 @@
 -}
 module Main (main) where
 
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api qualified as C
 import Cardano.Ledger.BaseTypes qualified as Ledger
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as BSL
@@ -29,7 +29,7 @@ main = System.Environment.getArgs >>= \case
     let transferLogicEnv = Env.mkTransferLogicEnv scriptRoot
         blacklistEnv     = Env.mkBlacklistEnv scriptRoot
 
-    printAssetId dirEnv transferLogicEnv "WST"
+    printAssetId dirEnv transferLogicEnv (C.UnsafeAssetName "WST")
     printTransferLogicAddress nid blacklistEnv
     printBaseCredential dirEnv
   _ -> do

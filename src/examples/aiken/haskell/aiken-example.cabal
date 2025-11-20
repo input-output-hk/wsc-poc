@@ -55,8 +55,6 @@ common lang
 library
   import:          lang
   exposed-modules:
-    Wst.Aiken.Blueprint
-    Wst.Aiken.BlueprintKey
     Wst.Aiken.Error
     Wst.Aiken.Offchain
     Wst.Cli
@@ -69,21 +67,17 @@ library
     , base
     , base16-bytestring
     , Blammo
-    , blockfrost-api
     , blockfrost-client-core
     , bytestring
     , cardano-api
-    , containers
     , convex-base
     , convex-blockfrost
     , convex-coin-selection
     , convex-optics
     , convex-wallet
-    , hset
     , lens
     , mtl
     , optparse-applicative
-    , plutus-core
     , plutus-ledger-api
     , programmable-tokens-offchain
     , programmable-tokens-onchain
@@ -99,7 +93,6 @@ test-suite aiken-example-test
     , aiken-example
     , base                          >=4.14.0
     , cardano-api
-    , containers
     , convex-base
     , convex-coin-selection
     , convex-wallet

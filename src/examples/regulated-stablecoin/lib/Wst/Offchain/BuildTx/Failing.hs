@@ -11,8 +11,8 @@ module Wst.Offchain.BuildTx.Failing(
   balanceTxEnvFailing
 ) where
 
+import Cardano.Api qualified as C
 import Cardano.Api.Experimental (IsEra)
-import Cardano.Api.Shelley qualified as C
 import Control.Lens (set)
 import Control.Monad.Error.Lens (throwing, throwing_)
 import Control.Monad.Except (MonadError)

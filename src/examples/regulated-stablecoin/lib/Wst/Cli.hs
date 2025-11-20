@@ -17,7 +17,6 @@ import Convex.Wallet.Operator (Operator (Operator, oPaymentKey),
                                verificationKey)
 import Convex.Wallet.Operator qualified as Operator
 import Data.Maybe (fromMaybe)
-import Data.Proxy (Proxy (..))
 import Data.String (IsString (..))
 import Options.Applicative (customExecParser, disambiguate, helper, idm, info,
                             prefs, showHelpOnEmpty, showHelpOnError)
@@ -68,7 +67,7 @@ deploy config = do
   -- _operator <- liftIO (Operator.loadOperatorFiles config)
 
   signingKey <- liftIO
-    $ C.readFileTextEnvelope (C.proxyToAsType $ Proxy @(C.SigningKey C.PaymentExtendedKey)) (C.File $ Operator.ocSigningKeyFile config)
+    $ C.readFileTextEnvelope (C.File $ Operator.ocSigningKeyFile config)
     >>= either (error . show) pure
 
   let operator = Operator (PESigningEx signingKey) Nothing

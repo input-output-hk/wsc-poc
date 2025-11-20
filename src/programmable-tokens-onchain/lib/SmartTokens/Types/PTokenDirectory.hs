@@ -53,7 +53,7 @@ import PlutusTx.Prelude qualified as PlutusTx
 -- >>> import Plutarch.Internal.Other (printScript)
 -- >>> import qualified Data.Text as T
 -- >>> import qualified Plutarch.Internal as PI
--- >>> let printTerm :: HasCallStack => Config -> ClosedTerm a -> String ; printTerm config term = printScript $ either (error . T.unpack) id $ PI.compile config term
+-- >>> let printTerm :: HasCallStack => Config -> (forall s. Term s a) -> String ; printTerm config term = printScript $ either (error . T.unpack) id $ PI.compile config term
 --
 -- Setup for doctest / HLS. Everything in this block is available for each test. Function
 -- definitions are a bit annoying but we probably should introduce printTerm somewhere anyway and
@@ -109,27 +109,27 @@ deriving via DeriveDataPLiftable (PAsData PBlacklistNode) BlacklistNode
 -- >>> printTerm NoTracing (pconstant $ BlacklistNode { blnKey = "a hi", blnNext = "a" })
 -- "program 1.0.0 (List [B #61206869, B #61])"
 
-pmkBlacklistNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PBlacklistNode)
+pmkBlacklistNode :: Term s (PAsData PByteString :--> PAsData PByteString :--> PAsData PBlacklistNode)
 pmkBlacklistNode = phoistAcyclic $
   plam $ \key_ next_ ->
     punsafeCoerce $ plistData # pmkBuiltinList [pforgetData key_, pforgetData next_]
 
-pisInsertedOnBlacklistNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PBlacklistNode :--> PBool)
+pisInsertedOnBlacklistNode :: Term s (PAsData PByteString :--> PAsData PByteString :--> PAsData PBlacklistNode :--> PBool)
 pisInsertedOnBlacklistNode = phoistAcyclic $
   plam $ \insertedKey coveringKey outputNode ->
     let expectedDirectoryNode = pmkBlacklistNode # coveringKey # insertedKey
      in outputNode #== expectedDirectoryNode
 
-pisInsertedBlacklistNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PBlacklistNode :--> PBool)
+pisInsertedBlacklistNode :: Term s (PAsData PByteString :--> PAsData PByteString :--> PAsData PBlacklistNode :--> PBool)
 pisInsertedBlacklistNode = phoistAcyclic $
   plam $ \insertedKey coveringNext outputNode ->
     let expectedDirectoryNode = pmkBlacklistNode # insertedKey # coveringNext
     in outputNode #== expectedDirectoryNode
 
-pemptyBlacklistNode :: ClosedTerm (PAsData PBlacklistNode)
+pemptyBlacklistNode :: Term s (PAsData PBlacklistNode)
 pemptyBlacklistNode = punsafeCoerce $ plistData # pmkBuiltinList [pforgetData pemptyBSData, pforgetData ptailBlackListNext]
 
-ptailBlackListNext  :: ClosedTerm (PAsData PByteString)
+ptailBlackListNext  :: Term s (PAsData PByteString)
 ptailBlackListNext = unsafeEvalTerm NoTracing (punsafeCoerce $ pdata (phexByteStr "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"))
 
 pisBlacklistTailNode :: Term s (PAsData PBlacklistNode) -> Term s PBool
@@ -203,7 +203,7 @@ isTailNode node =
 >>> _printTerm $ unsafeEvalTerm NoTracing emptyNode
 "program\n  1.0.0\n  (List\n     [ B #\n     , B #ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\n     , Constr 0 [B #]\n     , Constr 0 [B #] ])"
 -}
-emptyNode :: ClosedTerm (PAsData PDirectorySetNode)
+emptyNode :: Term s (PAsData PDirectorySetNode)
 emptyNode =
   let nullTransferLogicCred = pconstant (Constr 0 [PlutusTx.B ""])
       nullIssuerLogicCred = pconstant (Constr 0 [PlutusTx.B ""])
@@ -213,27 +213,27 @@ pisEmptyNode :: Term s (PAsData PDirectorySetNode) -> Term s PBool
 pisEmptyNode node =
   node #== emptyNode
 
-pemptyBSData :: ClosedTerm (PAsData PByteString)
+pemptyBSData :: Term s (PAsData PByteString)
 pemptyBSData = unsafeEvalTerm NoTracing (punsafeCoerce (pconstant @PData $ PlutusTx.B ""))
 
-pemptyCSData :: ClosedTerm (PAsData PCurrencySymbol)
+pemptyCSData :: Term s (PAsData PCurrencySymbol)
 pemptyCSData = unsafeEvalTerm NoTracing (punsafeCoerce (pconstant @PData $ PlutusTx.B ""))
 
-ptailNextData  :: ClosedTerm (PAsData PCurrencySymbol)
+ptailNextData  :: Term s (PAsData PCurrencySymbol)
 ptailNextData = unsafeEvalTerm NoTracing (punsafeCoerce $ pdata (phexByteStr "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"))
 
-pmkDirectorySetNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PCredential :--> PAsData PCredential :--> PAsData PCurrencySymbol :--> PAsData PDirectorySetNode)
+pmkDirectorySetNode :: Term s (PAsData PByteString :--> PAsData PByteString :--> PAsData PCredential :--> PAsData PCredential :--> PAsData PCurrencySymbol :--> PAsData PDirectorySetNode)
 pmkDirectorySetNode = phoistAcyclic $
   plam $ \key_ next_ transferLogicCred issuerLogicCred globalStateCS_ ->
     punsafeCoerce $ plistData # pmkBuiltinList [pforgetData key_, pforgetData next_, pforgetData transferLogicCred, pforgetData issuerLogicCred, pforgetData globalStateCS_]
 
-pisInsertedOnNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PCredential :--> PAsData PCredential :--> PAsData PCurrencySymbol :--> PAsData PDirectorySetNode :--> PBool)
+pisInsertedOnNode :: Term s (PAsData PByteString :--> PAsData PByteString :--> PAsData PCredential :--> PAsData PCredential :--> PAsData PCurrencySymbol :--> PAsData PDirectorySetNode :--> PBool)
 pisInsertedOnNode = phoistAcyclic $
   plam $ \insertedKey coveringKey transferLogicCred issuerLogicCred globalCS outputNode ->
     let expectedDirectoryNode = pmkDirectorySetNode # coveringKey # insertedKey # transferLogicCred # issuerLogicCred # globalCS
      in outputNode #== expectedDirectoryNode
 
-pisInsertedNode :: ClosedTerm (PAsData PByteString :--> PAsData PByteString :--> PAsData PDirectorySetNode :--> PBool)
+pisInsertedNode :: Term s (PAsData PByteString :--> PAsData PByteString :--> PAsData PDirectorySetNode :--> PBool)
 pisInsertedNode = phoistAcyclic $
   plam $ \insertedKey coveringNext outputNode ->
     pmatch (pfromData outputNode) $ \(PDirectorySetNode {ptransferLogicScript, pissuerLogicScript, pglobalStateCS}) ->

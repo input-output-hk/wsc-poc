@@ -4,7 +4,6 @@ module Wst.Test.UnitTest(
 ) where
 
 import Cardano.Api qualified as C
-import Cardano.Api.Shelley qualified as C
 import Control.Monad (void)
 import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader (ask), ReaderT (runReaderT), asks)
@@ -90,7 +89,7 @@ issueTransferLogicProgrammableToken scriptRoot = Env.withEnv $ do
   asAdmin @C.ConwayEra $ Env.withDirectoryFor scriptRoot $ Env.withTransferFromOperator @C.ConwayEra $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv @C.ConwayEra)
 
-    (balTx, aid) <- Endpoints.issueSmartTokensTx "dummy asset" 100 (C.PaymentCredentialByKey opPkh)
+    (balTx, aid) <- Endpoints.issueSmartTokensTx (C.UnsafeAssetName "dummy asset") 100 (C.PaymentCredentialByKey opPkh)
     void $ sendTx $ signTxOperator admin balTx
 
     Query.registryNodes @C.ConwayEra

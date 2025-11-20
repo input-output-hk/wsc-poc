@@ -61,7 +61,7 @@ instance C.HasTextEnvelope a => ToJSON (TextEnvelopeJSON a) where
   toJSON = toJSON . C.serialiseToTextEnvelope Nothing . unTextEnvelopeJSON
 
 instance C.HasTextEnvelope a => FromJSON (TextEnvelopeJSON a) where
-  parseJSON val = parseJSON val >>= either (fail . show) (pure . TextEnvelopeJSON) . C.deserialiseFromTextEnvelope (C.proxyToAsType Proxy)
+  parseJSON val = parseJSON val >>= either (fail . show) (pure . TextEnvelopeJSON) . C.deserialiseFromTextEnvelope
 
 instance C.HasTextEnvelope a => ToSchema (TextEnvelopeJSON a) where
   declareNamedSchema _ = pure

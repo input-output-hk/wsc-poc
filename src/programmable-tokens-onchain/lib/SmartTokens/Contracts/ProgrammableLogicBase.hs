@@ -82,7 +82,7 @@ deriving via DeriveDataPLiftable PTokenProof TokenProof
 emptyValue :: Value
 emptyValue = mempty
 
-pemptyLedgerValue :: ClosedTerm (PValue 'Sorted 'Positive)
+pemptyLedgerValue :: Term s (PValue 'Sorted 'Positive)
 pemptyLedgerValue = punsafeCoerce $ pconstant @(PValue 'Unsorted 'NoGuarantees) emptyValue
 
 pvalueFromCred :: Term s (PCredential :--> PBuiltinList (PAsData PPubKeyHash) :--> PBuiltinList (PAsData PByteString) :--> PBuiltinList (PAsData PTxInInfo) :--> PValue 'Sorted 'Positive)
@@ -140,7 +140,7 @@ pvalueToCred = phoistAcyclic $ plam $ \cred inputs ->
 -- | Programmable logic base
 -- This validator forwards its validation logic to the programmable logic stake script
 -- using the withdraw-zero design pattern.
-mkProgrammableLogicBase :: ClosedTerm (PAsData PCredential :--> PScriptContext :--> PUnit)
+mkProgrammableLogicBase :: Term s (PAsData PCredential :--> PScriptContext :--> PUnit)
 mkProgrammableLogicBase = plam $ \stakeCred ctx ->
   pmatch (pscriptContextTxInfo ctx) $ \txInfo ->
     let wdrls :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace)))
@@ -249,7 +249,7 @@ data PProgrammableLogicGlobalRedeemer (s :: S)
 deriving via DeriveDataPLiftable PProgrammableLogicGlobalRedeemer ProgrammableLogicGlobalRedeemer
   instance PLiftable PProgrammableLogicGlobalRedeemer
 
-mkProgrammableLogicGlobal :: ClosedTerm (PAsData PCurrencySymbol :--> PScriptContext :--> PUnit)
+mkProgrammableLogicGlobal :: Term s (PAsData PCurrencySymbol :--> PScriptContext :--> PUnit)
 mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
   PScriptContext {pscriptContext'txInfo, pscriptContext'redeemer, pscriptContext'scriptInfo} <- pmatch ctx
   PTxInfo {ptxInfo'inputs, ptxInfo'referenceInputs, ptxInfo'outputs, ptxInfo'signatories, ptxInfo'wdrl} <- pmatch pscriptContext'txInfo

@@ -23,7 +23,7 @@ module ProgrammableTokens.OffChain.Env.Directory(
 ) where
 
 import Cardano.Api (PlutusScript, PlutusScriptV3)
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api qualified as C
 import Control.Lens qualified as L
 import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader, asks)

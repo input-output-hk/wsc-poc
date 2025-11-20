@@ -21,7 +21,7 @@ module ProgrammableTokens.Test(
 ) where
 
 import Cardano.Api (Quantity)
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api qualified as C
 import Cardano.Ledger.Api qualified as Ledger
 import Cardano.Ledger.Plutus.ExUnits (ExUnits (..))
 import Control.Lens ((%~), (&))

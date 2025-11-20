@@ -6,14 +6,16 @@ module Wst.Cli.Command(
   ManageCommand(..),
 
   -- * Other parsers
-  parseTxIn
+  parseTxIn,
+  txInReader,
 ) where
 
-import Cardano.Api (TxIn (..), TxIx (..))
+import Cardano.Api (TxIn (..), TxIx (..), parseTxId)
+import Cardano.Api.Parser.Text qualified as Parser
 import Control.Monad (when)
 import Convex.Wallet.Operator (OperatorConfigSigning,
                                parseOperatorConfigSigning)
-import Data.String (IsString (..))
+import Data.Text qualified as Text
 import Options.Applicative (CommandFields, Mod, Parser, ReadM, argument, auto,
                             command, eitherReader, fullDesc, help, info, long,
                             metavar, option, optional, progDesc, short,
@@ -86,4 +88,5 @@ txInReader = eitherReader $ \str -> do
   ix <- case readMaybe @Word txIx of
           Nothing -> Left "Expected tx index"
           Just n -> Right (TxIx n)
-  return $ TxIn (fromString txId) ix
+  txId' <- Parser.runParser parseTxId (Text.pack txId)
+  return $ TxIn txId' ix

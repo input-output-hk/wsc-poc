@@ -18,8 +18,7 @@ module Wst.Offchain.BuildTx.TransferLogic
 where
 
 import Cardano.Api qualified as C
-import Cardano.Api.Shelley qualified as C
-import Control.Lens (at, over, set, (&), (?~), (^.))
+import Control.Lens (_1, at, over, set, (&), (?~), (^.))
 import Control.Monad (when)
 import Control.Monad.Error.Lens (throwing_)
 import Control.Monad.Except (MonadError)
@@ -84,7 +83,7 @@ initBlacklist = Utils.inBabbage @era $ do
 
   -- mint blacklist policy token
   mintingScript <- asks (Env.bleMintingScript . Env.blacklistEnv)
-  let assetName = C.AssetName ""
+  let assetName = C.UnsafeAssetName ""
       quantity = 1
 
   mintPlutus mintingScript () assetName quantity
@@ -125,7 +124,7 @@ insertBlacklistNode :: forall era env err m. (MonadReader env m, Env.HasOperator
 insertBlacklistNode reason cred blacklistNodes = Utils.inBabbage @era $ do
   -- mint new blacklist token
   mintingScript <- asks (Env.bleMintingScript . Env.blacklistEnv)
-  let newAssetName = C.AssetName $  case transCredential cred of
+  let newAssetName = C.UnsafeAssetName $  case transCredential cred of
                         PubKeyCredential (PubKeyHash s) -> PlutusTx.fromBuiltin s
                         ScriptCredential (ScriptHash s) -> PlutusTx.fromBuiltin s
       quantity = 1
@@ -177,7 +176,7 @@ removeBlacklistNode cred blacklistNodes = Utils.inBabbage @era $ do
     <- maybe (throwing_ _BlacklistNodeNotFound) pure $ find ((== unwrapCredential (transCredential cred)) . blnKey . uDatum) blacklistNodes
 
 
-  let expectedAssetName = C.AssetName $  case transCredential cred of
+  let expectedAssetName = C.UnsafeAssetName $  case transCredential cred of
         PubKeyCredential (PubKeyHash s) -> PlutusTx.fromBuiltin s
         ScriptCredential (ScriptHash s) -> PlutusTx.fromBuiltin s
 
@@ -388,7 +387,7 @@ addTransferWitness blacklistNodes = Utils.inBabbage @era $ do
 
 addReferencesWithTxBody :: (MonadBuildTx era m, C.IsBabbageBasedEra era) => (C.TxBodyContent C.BuildTx era -> [C.TxIn]) -> m ()
 addReferencesWithTxBody f =
-  addTxBuilder (TxBuilder $ \body -> over (L.txInsReference . L._TxInsReferenceIso) (nub . (f body <>)))
+  addTxBuilder (TxBuilder $ \body -> over (L.txInsReference . L._TxInsReferenceIso . _1) (nub . (f body <>)))
 
 addSeizeWitness :: forall env era m. (MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => m ()
 addSeizeWitness = Utils.inBabbage @era $ do

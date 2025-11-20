@@ -21,7 +21,7 @@ module ProgrammableTokens.OffChain.Env.Operator(
 ) where
 
 import Cardano.Api (UTxO)
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api qualified as C
 import Control.Monad.Error.Lens (throwing_)
 import Control.Monad.Except (MonadError)
 import Control.Monad.Reader (MonadReader, ReaderT, asks)

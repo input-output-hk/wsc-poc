@@ -15,7 +15,7 @@ import PlutusLedgerApi.V1 (TokenName (..))
 pnodeKeyTN :: Term s PByteString -> Term s PTokenName
 pnodeKeyTN nodeKey = pcon $ PTokenName $ nodeKey
 
-poriginNodeTN :: ClosedTerm PTokenName
+poriginNodeTN :: Term s PTokenName
 poriginNodeTN =
   let tn :: TokenName
       tn = TokenName ""

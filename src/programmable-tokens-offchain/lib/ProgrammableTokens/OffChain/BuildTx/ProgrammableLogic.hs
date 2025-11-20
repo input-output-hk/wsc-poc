@@ -9,7 +9,7 @@ module ProgrammableTokens.OffChain.BuildTx.ProgrammableLogic(
   transferProgrammableToken
 ) where
 
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api qualified as C
 import Control.Monad (unless)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx, mintPlutus, payToAddress)

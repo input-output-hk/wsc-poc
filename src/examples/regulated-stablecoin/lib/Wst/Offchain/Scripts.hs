@@ -16,7 +16,7 @@ module Wst.Offchain.Scripts (
   where
 
 import Cardano.Api qualified as C
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api.Plutus qualified as C
 import Convex.PlutusLedger.V1 (transCredential, transPolicyId, transPubKeyHash)
 import Convex.PlutusLedger.V3 (transTxOutRef)
 import Plutarch.Prelude
@@ -41,7 +41,7 @@ issuanceCborHexMintingScript target txIn =
 -- | The spending script for the issuance cbor hex NFT parameterized by the nonce "deadbeef"
 issuanceCborHexSpendingScript :: ScriptTarget -> C.PlutusScript C.PlutusScriptV3
 issuanceCborHexSpendingScript target =
-  let script = Scripts.tryCompile target $ alwaysFailScript # pforgetData (pdata (pconstant "deadbeef" :: ClosedTerm PByteString))
+  let script = Scripts.tryCompile target $ alwaysFailScript # pforgetData (pdata (pconstant "deadbeef" :: Term s PByteString))
   in C.PlutusScriptSerialised $ serialiseScript script
 
 freezeTransferScript :: ScriptTarget -> C.PaymentCredential -> C.PolicyId -> C.PlutusScript C.PlutusScriptV3
@@ -59,20 +59,20 @@ alwaysSucceedsScript target =
 
 permissionedMintingScript :: ScriptTarget -> C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
 permissionedMintingScript target cred =
-  let script = Scripts.tryCompile target $ mkPermissionedMinting # pforgetData (pdata (pconstant "permissioned minting" :: ClosedTerm PByteString)) # pdata (pconstant $ transPubKeyHash cred)
+  let script = Scripts.tryCompile target $ mkPermissionedMinting # pforgetData (pdata (pconstant "permissioned minting" :: Term s PByteString)) # pdata (pconstant $ transPubKeyHash cred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 permissionedSpendingScript :: ScriptTarget -> C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
 permissionedSpendingScript target cred =
-  let script = Scripts.tryCompile target $ mkPermissionedTransfer # pforgetData (pdata (pconstant "permissioned spending" :: ClosedTerm PByteString)) # pdata (pconstant $ transPubKeyHash cred)
+  let script = Scripts.tryCompile target $ mkPermissionedTransfer # pforgetData (pdata (pconstant "permissioned spending" :: Term s PByteString)) # pdata (pconstant $ transPubKeyHash cred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 blacklistMintingScript :: ScriptTarget -> C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
 blacklistMintingScript target cred =
-  let script = Scripts.tryCompile target $ mkPermissionedMinting # pforgetData (pdata (pconstant "blacklist minting" :: ClosedTerm PByteString)) # pdata (pconstant $ transPubKeyHash cred)
+  let script = Scripts.tryCompile target $ mkPermissionedMinting # pforgetData (pdata (pconstant "blacklist minting" :: Term s PByteString)) # pdata (pconstant $ transPubKeyHash cred)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 blacklistSpendingScript :: ScriptTarget -> C.Hash C.PaymentKey -> C.PlutusScript C.PlutusScriptV3
 blacklistSpendingScript target cred =
-  let script = Scripts.tryCompile target $ mkPermissionedTransfer # pforgetData (pdata (pconstant "blacklist spending" :: ClosedTerm PByteString)) # pdata (pconstant $ transPubKeyHash cred)
+  let script = Scripts.tryCompile target $ mkPermissionedTransfer # pforgetData (pdata (pconstant "blacklist spending" :: Term s PByteString)) # pdata (pconstant $ transPubKeyHash cred)
   in C.PlutusScriptSerialised $ serialiseScript script

@@ -10,9 +10,10 @@ module Wst.Cli.Command(
 
 import Blammo.Logging.Simple (MonadLogger, logInfo)
 import Cardano.Api (AssetName, Quantity)
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api qualified as C
 import Control.Monad.Except (MonadError (..))
 import Control.Monad.IO.Class (MonadIO (..))
+import Convex.Aiken.Blueprint qualified as Blueprint
 import Convex.Class qualified as Convex
 import Convex.Wallet.Operator (OperatorConfigSigning,
                                parseOperatorConfigSigning)
@@ -29,7 +30,6 @@ import Options.Applicative (CommandFields, Mod, Parser, argument, auto, command,
 import PlutusLedgerApi.V1 qualified as PV1
 import ProgrammableTokens.OffChain.Env.TransferLogic (TransferLogicEnv)
 import Text.Read (readEither)
-import Wst.Aiken.Blueprint qualified as Blueprint
 import Wst.Aiken.Error (AsBlueprintError, AsLookupScriptFailure)
 import Wst.Aiken.Offchain qualified as OffChain
 

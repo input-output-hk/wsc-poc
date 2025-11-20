@@ -3,7 +3,7 @@
 module Main (main) where
 
 import Cardano.Api qualified as C
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api.Plutus qualified as C
 import Cardano.Binary qualified as CBOR
 import Control.Monad (when)
 import Control.Monad.IO.Class
@@ -67,17 +67,17 @@ import Wst.Server.Types (SerialiseAddress (..))
 encodeSerialiseCBOR :: Script -> Text
 encodeSerialiseCBOR = Text.decodeUtf8 . Base16.encode . CBOR.serialize' . serialiseScript
 
-evalT :: Config -> ClosedTerm a -> Either Text (Script, ExBudget, [Text])
+evalT :: Config -> (forall s. Term s a) -> Either Text (Script, ExBudget, [Text])
 evalT cfg x = evalWithArgsT cfg x []
 
-evalWithArgsT :: Config -> ClosedTerm a -> [Data] -> Either Text (Script, ExBudget, [Text])
+evalWithArgsT :: Config -> (forall s. Term s a) -> [Data] -> Either Text (Script, ExBudget, [Text])
 evalWithArgsT cfg x args = do
   cmp <- compile cfg x
   let (escr, budg, trc) = evalScript $ applyArguments cmp args
   scr <- first (pack . show) escr
   pure (scr, budg, trc)
 
-writePlutusScript :: Config -> String -> FilePath -> ClosedTerm a -> IO ()
+writePlutusScript :: Config -> String -> FilePath -> (forall s. Term s a) -> IO ()
 writePlutusScript cfg title filepath term = do
   case evalT cfg term of
     Left e -> print e
@@ -96,13 +96,13 @@ _writePlutusScriptWithArgs title filepath args compiledScript = do
       content = encodePretty plutusJson
   LBS.writeFile filepath content
 
-writePlutusScriptTraceBind :: String -> FilePath -> ClosedTerm a -> IO ()
+writePlutusScriptTraceBind :: String -> FilePath -> (forall s. Term s a) -> IO ()
 writePlutusScriptTraceBind = writePlutusScript (Tracing LogInfo DoTracingAndBinds)
 
-writePlutusScriptTrace :: String -> FilePath -> ClosedTerm a -> IO ()
+writePlutusScriptTrace :: String -> FilePath -> (forall s. Term s a) -> IO ()
 writePlutusScriptTrace = writePlutusScript (Tracing LogInfo DoTracing)
 
-writePlutusScriptNoTrace :: String -> FilePath -> ClosedTerm a -> IO ()
+writePlutusScriptNoTrace :: String -> FilePath -> (forall s. Term s a) -> IO ()
 writePlutusScriptNoTrace = writePlutusScript NoTracing
 
 issuerPrefixPostfixBytes :: V3.Credential -> (Text, Text)
@@ -286,16 +286,5 @@ parseAddress = argument (eitherReader (eitherDecode . LBS8.pack)) (help "The add
 parseIssuerTxIn :: Parser C.TxIn
 parseIssuerTxIn =
   argument
-    txInReader
+    Cli.Command.txInReader
     (help "The reference utxo with the prefix and postfix cborhex of the issuance script. Format: <tx-id>.<index>" <> metavar "ISSUER_TX_IN")
-
-txInReader :: ReadM C.TxIn
-txInReader = eitherReader $ \str -> do
-  (txId, txIx) <- case break (== '.') str of
-    (txId, _:txIx) -> Right (txId, txIx)
-    _ -> Left "Expected <tx-id>.<index>"
-  when (length txId /= 64) $ Left "Expected tx ID with 64 characters"
-  ix <- case readMaybe @Word txIx of
-          Nothing -> Left "Expected tx index"
-          Just n -> Right (C.TxIx n)
-  return $ C.TxIn (fromString txId) ix

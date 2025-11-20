@@ -7,7 +7,8 @@ module ProgrammableTokens.OffChain.BuildTx.Directory
   )
 where
 
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api qualified as C
+import Cardano.Api.Value qualified as C
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx, addReference, mintPlutus, prependTxOut,
                        spendPlutusInlineDatum)
@@ -88,7 +89,7 @@ insertDirectoryNode UTxODat {uIn = paramsRef} UTxODat {uIn = issuanceCborHexRef}
 
       newTokenName =
         let CurrencySymbol s = inaNewKey
-         in C.AssetName $ PlutusTx.fromBuiltin s
+         in C.UnsafeAssetName $ PlutusTx.fromBuiltin s
 
       newVal =
         C.TxOutValueShelleyBased C.shelleyBasedEra $

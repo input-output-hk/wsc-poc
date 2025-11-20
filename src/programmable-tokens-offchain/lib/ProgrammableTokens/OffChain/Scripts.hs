@@ -21,13 +21,12 @@ module ProgrammableTokens.OffChain.Scripts(
   scriptPolicyIdV3
 ) where
 
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api qualified as C
 import Convex.PlutusLedger.V1 (transCredential, transPolicyId,
                                transStakeCredential)
 import Convex.PlutusLedger.V3 (transTxOutRef)
 import Plutarch.Evaluate (applyArguments)
-import Plutarch.Prelude (ClosedTerm, PByteString, pconstant, pdata, pforgetData,
-                         (#))
+import Plutarch.Prelude (PByteString, Term, pconstant, pdata, pforgetData, (#))
 import Plutarch.Script (serialiseScript)
 import PlutusLedgerApi.V3 (Credential (..), ScriptHash, toData)
 import SmartTokens.Contracts.AlwaysYields (palwaysSucceed)
@@ -53,7 +52,7 @@ protocolParamsMintingScript target txIn =
 -- nonce
 protocolParamsSpendingScript :: ScriptTarget -> C.PlutusScript C.PlutusScriptV3
 protocolParamsSpendingScript target =
-  let script = Scripts.tryCompile target $ alwaysFailScript # pforgetData (pdata (pconstant "" :: ClosedTerm PByteString))
+  let script = Scripts.tryCompile target $ alwaysFailScript # pforgetData (pdata (pconstant "" :: Term s PByteString))
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- | The minting script for the issuance cbor hex NFT, takes initial TxIn for
@@ -66,7 +65,7 @@ issuanceCborHexMintingScript target txIn =
 -- | The spending script for the issuance cbor hex NFT parameterized by the nonce "deadbeef"
 issuanceCborHexSpendingScript :: ScriptTarget -> C.PlutusScript C.PlutusScriptV3
 issuanceCborHexSpendingScript target =
-  let script = Scripts.tryCompile target $ alwaysFailScript # pforgetData (pdata (pconstant "deadbeef" :: ClosedTerm PByteString))
+  let script = Scripts.tryCompile target $ alwaysFailScript # pforgetData (pdata (pconstant "deadbeef" :: Term s PByteString))
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- | The minting script for the directory node tokens, takes initial TxIn for

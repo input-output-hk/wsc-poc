@@ -19,7 +19,7 @@ import Blammo.Logging.Logger (HasLogger (..), newLogger)
 import Blammo.Logging.LogSettings.Env qualified as LogSettingsEnv
 import Blockfrost.Auth (mkProject)
 import Blockfrost.Client.Auth qualified as Blockfrost
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api qualified as C
 import Control.Lens (makeLensesFor)
 import Control.Lens qualified as L
 import Data.HSet.Get (HGettable)
