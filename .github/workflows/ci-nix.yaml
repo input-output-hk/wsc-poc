@@ -52,9 +52,9 @@ jobs:
     # We currently do not have a default target
     - name: nix build command-line apps
       run: |
-        nix build --accept-flake-config .#cip-143-cli
-        nix build --accept-flake-config .#regulated-stablecoin-cli
+        nix build --accept-flake-config .#aiken-example:exe:cip-143-cli
+        nix build --accept-flake-config .#regulated-stablecoin:exe:regulated-stablecoin-cli
     - name: nix flake check
-      run: nix flake --accept-flake-config check
+      run: nix flake check --accept-flake-config --override-input systems github:nix-systems/$(nix eval --impure --raw --expr 'builtins.currentSystem')
     - name: Check aiken
       run: nix develop --accept-flake-config --command bash -c "cd src/examples/aiken/aiken && aiken build && aiken check"
