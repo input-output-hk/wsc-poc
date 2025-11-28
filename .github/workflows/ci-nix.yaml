@@ -57,4 +57,8 @@ jobs:
     - name: nix flake check
       run: nix flake check --accept-flake-config --override-input systems github:nix-systems/$(nix eval --impure --raw --expr 'builtins.currentSystem')
     - name: Check aiken
-      run: nix develop --accept-flake-config --command bash -c "cd src/examples/aiken/aiken && aiken build && aiken check"
+      run: |
+        cd src/examples/aiken/aiken
+        nix run github:aiken-lang/aiken/v1.1.19#aiken -- build
+        nix run github:aiken-lang/aiken/v1.1.19#aiken -- check
+
