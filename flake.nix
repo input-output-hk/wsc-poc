@@ -2,18 +2,7 @@
   description = "Smart Tokens";
 
   inputs = {
-    iogx = {
-      url = "github:input-output-hk/iogx";
-      inputs.hackage.follows = "hackage";
-      inputs.CHaP.follows = "CHaP";
-      inputs.haskell-nix.follows = "haskell-nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
     nixpkgs.follows = "haskell-nix/nixpkgs";
-
-    # iohk-nix.url = "github:input-output-hk/iohk-nix";
-    # iohk-nix.inputs.nixpkgs.follows = "haskell-nix/nixpkgs";
 
     hackage = {
       url = "github:input-output-hk/hackage.nix";
@@ -43,14 +32,26 @@
       url = "github:aiken-lang/aiken/v1.1.16";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    systems.url = "github:nix-systems/default";
+
+    flake-utils = {
+      url = "github:numtide/flake-utils";
+      inputs.systems.follows = "systems";
+    };
+
+    iohk-nix = {
+      url = "github:input-output-hk/iohk-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    pre-commit-hooks.url = "github:cachix/pre-commit-hooks.nix";
+
   };
 
-  outputs = inputs: inputs.iogx.lib.mkFlake {
-    inherit inputs;
-    repoRoot = ./.;
-    outputs = import ./nix/outputs.nix;
-    systems = [ "x86_64-linux" ]; # "x86_64-darwin" ];
-  };
+  outputs = inputs: inputs.flake-utils.lib.eachDefaultSystem (system:
+    import ./nix/outputs.nix { inherit inputs system; }
+  );
 
   nixConfig = {
     extra-substituters = [

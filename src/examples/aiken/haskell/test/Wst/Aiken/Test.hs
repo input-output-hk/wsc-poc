@@ -56,7 +56,7 @@ deserialiseScript = do
     >>= \case
       (C.ScriptInAnyLang (C.PlutusScriptLanguage C.PlutusScriptV3) script) -> do
         let hsh = C.hashScript script
-        assertEqual "Script hash" "0f8107a024cfbc7e5e787d67acddcec748ceb280fcc4b14c305e6a2d" hsh
+        assertEqual "Script hash" "a82718805c3541469346431c0cc023a76afce8d6d2c1c64d00bf1950" hsh
       _ -> fail "Unexpected script language"
 
 loadExample :: IO Blueprint

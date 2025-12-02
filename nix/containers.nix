@@ -1,4 +1,6 @@
-{ repoRoot, inputs, pkgs, lib, system }: let
+{ inputs, pkgs, lib, system, project }: let
+
+nix2container = inputs.n2c.packages."${system}".nix2container;
 
 frontendNpm = pkgs.buildNpmPackage rec {
   name = "frontend";
@@ -41,13 +43,13 @@ in rec {
   #
   #$ ./result/bin/copy-to oci-archive:oci.tar
   #
-  wst = inputs.n2c.packages.nix2container.buildImage {
+  wst = nix2container.buildImage {
     name = "wst";
     config = {
       Env = [
         "WST_STATIC_FILES=${frontend}/frontend"
       ];
-      Entrypoint = lib.singleton (lib.getExe inputs.self.packages.regulated-stablecoin-cli);
+      Entrypoint = lib.singleton ( (project.projectVariants.ghc966.flake {}).packages."regulated-stablecoin:exe:regulated-stablecoin-cli" );
       Labels = {
         "org.opencontainers.image.source"      = "https://github.com/input-output-hk/wsc-poc";
         "org.opencontainers.image.description" = "Programmable token and regulated stablecoin proof-of-concept";
@@ -55,22 +57,22 @@ in rec {
     };
     layers = [
       # npm-created data for frontend
-      (inputs.n2c.packages.nix2container.buildLayer {
+      (nix2container.buildLayer {
         copyToRoot = [frontend];
       })
       # CA certificates for SSL (required for calling blockfrost API)
-      (inputs.n2c.packages.nix2container.buildLayer {
+      (nix2container.buildLayer {
         copyToRoot = [pkgs.dockerTools.caCertificates];
       })
     ];
   };
 
-  cip-143-cli = inputs.n2c.packages.nix2container.buildImage {
+  cip-143-cli = nix2container.buildImage {
     name = "cip-143-cli";
     config = {
       Env = [
       ];
-      Entrypoint = lib.singleton (lib.getExe inputs.self.packages.cip-143-cli);
+      Entrypoint = lib.singleton ( (project.projectVariants.ghc966.flake {}).packages."aiken-example:exe:cip-143-cli" );
       Labels = {
         "org.opencontainers.image.source"      = "https://github.com/input-output-hk/wsc-poc";
         "org.opencontainers.image.description" = "CIP-143 command-line interface";
@@ -78,7 +80,7 @@ in rec {
     };
     layers = [
       # CA certificates for SSL (required for calling blockfrost API)
-      (inputs.n2c.packages.nix2container.buildLayer {
+      (nix2container.buildLayer {
         copyToRoot = [pkgs.dockerTools.caCertificates];
       })
     ];
