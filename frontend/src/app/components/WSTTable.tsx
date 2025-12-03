@@ -1,10 +1,6 @@
 'use client'
-//Lucid imports
-import type { Address, Credential as LucidCredential, Unit, UTxO } from "@lucid-evolution/core-types";
-import { toUnit } from "@lucid-evolution/lucid";
 
-//Mui imports
-import { Box } from "@mui/material";
+import { Box, CircularProgress, Typography } from "@mui/material";
 import TableContainer from "@mui/material/TableContainer";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
@@ -14,42 +10,41 @@ import TableRow from "@mui/material/TableRow";
 import Paper from "@mui/material/Paper";
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 
-//Local Imports
-import useStore from '../store/store'; 
-import { useContext, useEffect } from "react";
 import IconButton from './WSTIconButton';
-import DemoEnvironmentContext from "../context/demoEnvironmentContext";
 
+export type WSTTableRow = {
+  regularAddress: string;
+  programmableAddress?: string;
+  status?: string;
+  balanceText?: string;
+  assets?: Array<{ unit: string; quantity: string; assetName?: string }>;
+};
 
+interface WSTTableProps {
+  rows: WSTTableRow[];
+  loading?: boolean;
+  emptyMessage?: string;
+}
 
-export default function WSTTable() {
-  const { lucid, accounts } = useStore();
-  const accountArray = Object.values(accounts);
-  const demoEnv = useContext(DemoEnvironmentContext);
-  const stableCoin : Unit = toUnit(demoEnv.minting_policy, demoEnv.token_name);
-  
-  const progLogicBase : LucidCredential = {
-    type: "Script",
-    hash: demoEnv.prog_logic_base_hash
+const formatAddress = (address?: string) => {
+  if (!address) return '—';
+  if (address.length <= 20) return address;
+  return `${address.slice(0, 15)}...${address.slice(-4)}`;
+};
+
+const formatAssets = (assets?: Array<{ unit: string; quantity: string; assetName?: string }>) => {
+  if (!assets || assets.length === 0) {
+    return null;
   }
+  return assets
+    .map(({ assetName, unit, quantity }) => `${assetName ?? unit}: ${quantity}`)
+    .join(', ');
+};
 
-  const getAccounts = async () => {
-    const progUTxOs : UTxO[] = await lucid.utxosAtWithUnit(progLogicBase, stableCoin);
-    const addresses = new Set<string>();
-    const valueMap = new Map<Address, number>();
-    progUTxOs.forEach(utxo => {
-      addresses.add(utxo.address)
-      valueMap.set(utxo.address, Number(utxo.assets[stableCoin]))
-    });
-  }
-  
-  useEffect(() => {
-    getAccounts();
-  }, []);
-
+export default function WSTTable({ rows, loading = false, emptyMessage = 'No addresses to display.' }: WSTTableProps) {
   const copyToClipboard = (str: string) => {
     navigator.clipboard.writeText(str);
-  }
+  };
 
   return (
     <Box className="tableContainerBox">
@@ -64,37 +59,47 @@ export default function WSTTable() {
         </TableRow>
       </TableHead>
       <TableBody>
-        {
-          accountArray.filter((acct) => acct.regular_address !== "").map((acct, i) => (
-            <TableRow key={i}>
-              <TableCell>
-                  {`${acct?.regular_address.slice(0,15)}...${acct?.regular_address.slice(104,108)}`}
-                  <IconButton onClick={() => copyToClipboard(acct.regular_address)} icon={<ContentCopyIcon />}/>
-              </TableCell>
-              <TableCell>
-                  {`${acct?.programmable_token_address.slice(0,15)}...${acct?.programmable_token_address.slice(104,108)}`}
-                  <IconButton onClick={() => copyToClipboard(acct.programmable_token_address)} icon={<ContentCopyIcon />}/>
-              </TableCell>
-              <TableCell sx={{color: acct.status === 'Frozen' ? 'error.main' : 'success.main', fontWeight: '500'}}>
-                  {acct.status}
-              </TableCell>
-              <TableCell align="right">
-                  {`${acct?.balance.wst} WST`}
-              </TableCell>
-            </TableRow>
-          ))
-        }
-        {/* {[...uniqueAddresses].map((address, index) => (
-            <TableRow key={index}>
-              <TableCell>{`${address.slice(0,15)}...${address.slice(104,108)}`}</TableCell>
-              <TableCell sx={{color: 'success.main', fontWeight: '500'}}>
-                Active
-              </TableCell>
-              <TableCell align="right">
-                {`${balanceMap.get(address)} WST`}
-              </TableCell>
-            </TableRow>
-          ))} */}
+        {loading ? (
+          <TableRow>
+            <TableCell colSpan={4} align="center">
+              <CircularProgress size={24} />
+            </TableCell>
+          </TableRow>
+        ) : rows.length === 0 ? (
+          <TableRow>
+            <TableCell colSpan={4} align="center">
+              <Typography variant="body2" color="text.secondary">
+                {emptyMessage}
+              </Typography>
+            </TableCell>
+          </TableRow>
+        ) : (
+          rows.map((row, i) => {
+            const balanceDisplay = formatAssets(row.assets) ?? row.balanceText ?? '—';
+            return (
+              <TableRow key={`${row.regularAddress}-${i}`}>
+                <TableCell>
+                  {formatAddress(row.regularAddress)}
+                  {row.regularAddress && (
+                    <IconButton onClick={() => copyToClipboard(row.regularAddress)} icon={<ContentCopyIcon />} />
+                  )}
+                </TableCell>
+                <TableCell>
+                  {formatAddress(row.programmableAddress)}
+                  {row.programmableAddress && (
+                    <IconButton onClick={() => copyToClipboard(row.programmableAddress!)} icon={<ContentCopyIcon />} />
+                  )}
+                </TableCell>
+                <TableCell sx={{ color: row.status === 'Frozen' ? 'error.main' : 'success.main', fontWeight: '500' }}>
+                  {row.status ?? 'Active'}
+                </TableCell>
+                <TableCell align="right">
+                  {balanceDisplay}
+                </TableCell>
+              </TableRow>
+            );
+          })
+        )}
       </TableBody>    
     </Table>
     </TableContainer>

@@ -134,12 +134,10 @@ deployDirectorySet op = do
       >>= void . sendTx . signTxOperator op
 
   operatorEnv_ <- Env.loadConvexOperatorEnv @_ @era op
-  dirScriptRoot <- flip runReaderT operatorEnv_ $ do
+  flip runReaderT operatorEnv_ $ do
     (tx, scriptRoot) <- Endpoints.deployCip143RegistryTx target
     void $ sendTx $ signTxOperator op tx
     pure scriptRoot
-
-  pure dirScriptRoot
 
 {-| Build a transaction that issues a progammable token
 -}

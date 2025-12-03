@@ -40,7 +40,7 @@ a {
   border: 1px solid #C9C6C6;
   flex-basis: 50%;
   flex-grow: 1;
-  height: 365px;
+  min-height: 365px;
   display: flex;
   flex-direction: column;
 }
@@ -87,5 +87,32 @@ a {
         transform: scale(1);
         opacity: 0;
     }
+}
+
+.statusScreen {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  width: 100%;
+  padding: 24px;
+}
+
+.statusContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  max-width: 360px;
+}
+
+.statusContent .mainLoader {
+  margin-bottom: 8px;
+}
+
+.statusError {
+  color: #B32A00;
+  font-size: 0.9rem;
 }
 

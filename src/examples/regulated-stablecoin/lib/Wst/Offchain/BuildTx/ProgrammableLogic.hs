@@ -11,19 +11,23 @@ module Wst.Offchain.BuildTx.ProgrammableLogic
 where
 
 import Cardano.Api qualified as C
+import Cardano.Api.Internal.Tx.Body qualified as C
 import Cardano.Api.Shelley qualified as C
 import Control.Lens ((^.))
+import Control.Lens qualified as L
+import Control.Monad (forM_)
 import Control.Monad.Reader (MonadReader, asks)
-import Convex.BuildTx (MonadBuildTx, addReference, addWithdrawalWithTxBody,
-                       buildScriptWitness, findIndexReference,
-                       findIndexSpending, prependTxOut, spendPlutusInlineDatum)
+import Convex.BuildTx (MonadBuildTx, addOutput, addReference,
+                       addWithdrawalWithTxBody, buildScriptWitness,
+                       findIndexReference, findIndexSpending,
+                       spendPlutusInlineDatum)
 import Convex.CardanoApi.Lenses as L
 import Convex.Class (MonadBlockchain (queryNetworkId))
 import Convex.PlutusLedger.V1 (transPolicyId)
 import Convex.Utils qualified as Utils
 import Data.Foldable (find)
-import Data.List (partition)
-import Data.Maybe (fromJust)
+import Data.List (findIndex, partition)
+import Data.Maybe (fromMaybe)
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (CurrencySymbol (..))
 import ProgrammableTokens.OffChain.Env qualified as Env
@@ -41,16 +45,40 @@ import Wst.Offchain.Query (UTxODat (..))
    ensure that the specific issuer logic stake script witness is included in the
    final transaction.
 
-   NOTE: Seems the issuer is only able to seize 1 UTxO at a time.
-   In the future we should allow multiple UTxOs in 1 Tx.
+  * @UTxODat era ProgrammableLogicGlobalParams@: The reference input
+    containing the global programmable-logic parameters. Used to anchor the
+    global stake script during the seize.
+  * @[UTxODat era a]@: The input UTxOs to be seized. Each entry is a
+    programmable-token UTxO that will be spent and redirected.
+  * @C.PolicyId@: The policy ID of the programmable token being seized. This is
+    used to locate the corresponding directory node and to filter the value
+    being removed from each seized UTxO.
+  * @[UTxODat era DirectorySetNode]@: The directory entries that map programmable
+    policies to the relevant transfer / issuer logic scripts. The function searches this list to find the node
+    for the supplied policy ID so it can include the correct reference input.
+
 -}
-seizeProgrammableToken :: forall a env era m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> UTxODat era a -> C.PolicyId -> [UTxODat era DirectorySetNode] -> m ()
-seizeProgrammableToken UTxODat{uIn = paramsTxIn} UTxODat{uIn = seizingTxIn, uOut = seizingTxOut} seizingTokenPolicyId directoryList = Utils.inBabbage @era $ do
+seizeProgrammableToken ::
+  forall a env era m.
+  ( MonadReader env m,
+    Env.HasDirectoryEnv env,
+    C.IsBabbageBasedEra era,
+    MonadBlockchain era m,
+    C.HasScriptLanguageInEra C.PlutusScriptV3 era,
+    MonadBuildTx era m
+  ) =>
+  UTxODat era ProgrammableLogicGlobalParams ->
+  [UTxODat era a] ->
+  C.PolicyId ->
+  [UTxODat era DirectorySetNode] ->
+  m ()
+seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicyId directoryList = Utils.inBabbage @era $ do
   nid <- queryNetworkId
   globalStakeScript <- asks (Env.dsProgrammableLogicGlobalScript . Env.directoryEnv)
   baseSpendingScript <- asks (Env.dsProgrammableLogicBaseScript . Env.directoryEnv)
 
   let globalStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 globalStakeScript
+      programmableLogicBaseCredential = C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 baseSpendingScript
 
   -- Finds the directory node entry that references the programmable token symbol
   dirNodeRef <-
@@ -58,24 +86,24 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} UTxODat{uIn = seizingTxIn, uOut
       find (isNodeWithProgrammableSymbol (transPolicyId seizingTokenPolicyId)) directoryList
 
   -- destStakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential seizeDestinationCred
+
+  forM_ seizingUTxOs $ \UTxODat{uIn = seizingTxIn, uOut = seizingTxOut} -> do
+    spendPlutusInlineDatum seizingTxIn baseSpendingScript ()
+    let (seizedAddr, remainingValue, seizedDatum, referenceScript) = case seizingTxOut of
+          (C.TxOut a v dat refScript) ->
+            let (_seized, other) =
+                    partition
+                      ( \case
+                          (C.AdaAssetId, _q) -> False
+                          (C.AssetId a_ _, _q) -> a_ == seizingTokenPolicyId
+                      )
+                      $ toList $ C.txOutValueToValue v
+            in (a, fromList other, dat, refScript)
+        remainingTxOutValue = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra remainingValue
+        seizedOutput = C.TxOut seizedAddr remainingTxOutValue seizedDatum referenceScript
+    addOutput (C.fromCtxUTxOTxOut seizedOutput)
+
   let
-      -- issuerDestinationAddress = C.makeShelleyAddressInEra C.shelleyBasedEra nid progLogicBaseCred (C.StakeAddressByValue destStakeCred)
-
-      (seizedAddr, remainingValue) = case seizingTxOut of
-        (C.TxOut a v _ _) ->
-          let (_seized, other) =
-                  partition
-                    ( \case
-                        (C.AdaAssetId, _q) -> False
-                        (C.AssetId a_ _, _q) -> a_ == seizingTokenPolicyId
-                    )
-                    $ toList $ C.txOutValueToValue v
-          in (a, fromList other)
-
-      remainingTxOutValue = C.TxOutValueShelleyBased C.shelleyBasedEra $ C.toLedgerValue @era C.maryBasedEra remainingValue
-
-      seizedOutput = C.TxOut seizedAddr remainingTxOutValue C.TxOutDatumNone C.ReferenceScriptNone
-
       -- Finds the index of the directory node reference in the transaction ref
       -- inputs
       directoryNodeReferenceIndex txBody =
@@ -83,26 +111,31 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} UTxODat{uIn = seizingTxIn, uOut
 
       -- Finds the index of the issuer input in the transaction body
       seizingInputIndex txBody =
-        fromIntegral @Int @Integer $ findIndexSpending seizingTxIn txBody
+        map (\UTxODat{uIn = seizingTxIn} -> fromIntegral @Int @Integer $ findIndexSpending seizingTxIn txBody) seizingUTxOs
 
-      -- Finds the index of the issuer seized output in the transaction body
-      seizingOutputIndex txBody =
-        fromIntegral @Int @Integer $ fst $ fromJust (find ((== seizedOutput) . snd ) $ zip [0 ..] $ txBody ^. L.txOuts)
+      -- Finds the index of the first output to the programmable logic base credential
+      firstSeizeContinuationOutputIndex txBody =
+        fromIntegral @Int @Integer $
+          fromMaybe (error "firstSeizeContinuationOutputIndex: No output to programmable logic base credential found") $
+            findIndex
+              ( maybe False ((== programmableLogicBaseCredential) . C.fromShelleyPaymentCredential)
+                  . L.preview (L._TxOut . L._1 . L._AddressInEra . L._Address . L._2)
+              )
+              (txBody ^. L.txOuts)
 
       -- The seizing redeemer for the global script
       programmableLogicGlobalRedeemer txBody =
         SeizeAct
-          { plgrSeizeInputIdx = seizingInputIndex txBody,
-            plgrSeizeOutputIdx = seizingOutputIndex txBody,
-            plgrDirectoryNodeIdx = directoryNodeReferenceIndex txBody
+          { plgrDirectoryNodeIdx = directoryNodeReferenceIndex txBody,
+            plgrInputIdxs = seizingInputIndex txBody,
+            plgrOutputsStartIdx = firstSeizeContinuationOutputIndex txBody,
+            plgrLengthInputIdxs = fromIntegral @Int @Integer $ length seizingUTxOs
           }
 
       programmableGlobalWitness txBody = buildScriptWitness globalStakeScript C.NoScriptDatumForStake (programmableLogicGlobalRedeemer txBody)
 
-  prependTxOut seizedOutput
   addReference paramsTxIn -- Protocol Params TxIn
   addReference dirNodeRef -- Directory Node TxIn
-  spendPlutusInlineDatum seizingTxIn baseSpendingScript () -- Redeemer is ignored in programmableLogicBase
   addWithdrawalWithTxBody -- Add the global script witness to the transaction
     (C.makeStakeAddress nid globalStakeCred)
     (C.Quantity 0)

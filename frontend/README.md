@@ -4,6 +4,13 @@ This is a front-end web application for the Cardano Wyoming stable token poc tha
 
 ## Getting Started
 
+Make sure to set the environmental variable:
+```
+export NEXT_PUBLIC_BLOCKFROST_API_KEY=your_blockfrost_key_here
+```
+
+Before running `npm run dev`
+
 ### Running the Application
 
 To get the application running, follow these steps:

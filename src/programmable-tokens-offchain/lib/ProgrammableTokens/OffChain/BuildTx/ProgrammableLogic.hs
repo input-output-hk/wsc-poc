@@ -157,7 +157,6 @@ registerTransferScripts = do
       hshSeizeSpending = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferSeizeSpendingScript
       credSeizeSpending = C.StakeCredentialByScript hshSeizeSpending
 
-
   Utils.addConwayStakeCredentialCertificate credSpending
   Utils.addConwayStakeCredentialCertificate credMinting
   Utils.addConwayStakeCredentialCertificate credSeizeSpending

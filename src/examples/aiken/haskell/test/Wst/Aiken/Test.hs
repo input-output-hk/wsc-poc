@@ -133,7 +133,7 @@ transferAikenPolicy = do
   let paymentCred = C.PaymentCredentialByKey (Wallet.verificationKeyHash Wallet.w2)
 
   runAsAdmin $
-    Query.userProgrammableOutputs paymentCred
+    Query.userProgrammableOutputs (paymentCred, Nothing)
       >>= void . Test.expectN 0 "user programmable outputs"
 
   runAsAdmin $ do
@@ -141,7 +141,7 @@ transferAikenPolicy = do
       >>= void . sendTx . signTxOperator Test.admin
 
   runAsAdmin $
-    Query.userProgrammableOutputs paymentCred
+    Query.userProgrammableOutputs (paymentCred, Nothing)
       >>= void . Test.expectN 1 "user programmable outputs"
 
   runAsAdmin $ do
@@ -149,6 +149,6 @@ transferAikenPolicy = do
       >>= void . sendTx . signTxOperator Test.admin
 
   runAsAdmin $
-    Query.userProgrammableOutputs paymentCred
+    Query.userProgrammableOutputs (paymentCred, Nothing)
       >>= void . Test.expectN 2 "user programmable outputs"
 

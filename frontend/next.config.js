@@ -63,7 +63,7 @@ module.exports = (phase, {defaultConfig}) => {
         return [
           {
             source: '/',
-            destination: '/mint-authority',
+            destination: '/connected-wallet',
             permanent: true, // Use true for a 301 redirect, false for 302
           },
         ];

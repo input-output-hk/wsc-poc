@@ -19,6 +19,9 @@ main = System.Environment.getArgs >>= \case
   [fp, addr] -> do
     putStrLn $ "Calculating hashes using " <> fp <> " with adddress " <> addr
     operator <- decodeAddress addr
+    let stakeCred = case operator of
+          (C.ShelleyAddress _ntw _pmt (C.fromShelleyStakeReference -> C.StakeAddressByValue sCred)) -> Just sCred
+          _ -> Nothing
     (nid, pkh) <- paymentHashAndNetworkId operator
     dirEnv <- Env.mkDirectoryEnv <$> loadFromFile fp
     let scriptRoot =
@@ -26,6 +29,7 @@ main = System.Environment.getArgs >>= \case
             (srTarget $ Env.dsScriptRoot dirEnv)
             dirEnv
             pkh
+            stakeCred
     let transferLogicEnv = Env.mkTransferLogicEnv scriptRoot
         blacklistEnv     = Env.mkBlacklistEnv scriptRoot
 

@@ -64,6 +64,7 @@ library
     Wst.Offchain.Scripts
     Wst.Server
     Wst.Server.DemoEnvironment
+    Wst.Server.PolicyIssuerStore
     Wst.Server.Types
 
   hs-source-dirs:  lib
@@ -96,6 +97,7 @@ library
     , servant-client
     , servant-client-core
     , servant-server
+    , sqlite-simple
     , text
     , wai-cors
     , warp

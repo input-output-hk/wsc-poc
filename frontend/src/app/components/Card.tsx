@@ -1,6 +1,6 @@
 'use client'
 //React imports
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 //MUI imports
 import {Box} from '@mui/material';
@@ -10,10 +10,12 @@ import ContentTabs from './ContentTabs';
 import WSTCommonButton from './WSTCommonButton';
 
 interface TabContent {
-  label: string
-  content: React.ReactNode
-  buttonLabel?: string
-  onAction?: () => void
+  label: string;
+  content: React.ReactNode;
+  buttonLabel?: string;
+  onAction?: () => void;
+  buttonDisabled?: boolean;
+  buttonLoading?: boolean;
 }
 
 interface WalletCardProps {
@@ -23,11 +25,25 @@ interface WalletCardProps {
 export default function WalletCard({ tabs }: WalletCardProps) {
     const [tabValue, setTabValue] = useState(0);
 
+    useEffect(() => {
+      setTabValue((prev) => {
+        if (tabs.length === 0) {
+          return 0;
+        }
+        return Math.min(prev, tabs.length - 1);
+      });
+    }, [tabs]);
+
     const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
         setTabValue(newValue);
     };
 
-    const { content, buttonLabel, onAction } = tabs[tabValue]
+    if (tabs.length === 0) {
+      return null;
+    }
+
+    const safeTabIndex = Math.min(tabValue, tabs.length - 1);
+    const { content, buttonLabel, onAction, buttonDisabled, buttonLoading } = tabs[safeTabIndex]
 
   return (
     <div className="cardWrapper">
@@ -35,7 +51,7 @@ export default function WalletCard({ tabs }: WalletCardProps) {
         <Box sx={{marginBottom: '36px'}}>
         <ContentTabs
             tabLabels={tabs.map((tab) => tab.label)}
-            value={tabValue}
+            value={safeTabIndex}
             onChange={handleTabChange}
           />
         </Box>
@@ -45,10 +61,12 @@ export default function WalletCard({ tabs }: WalletCardProps) {
       <Box sx={{ marginTop: 'auto', alignSelf: 'end' }}>
         {buttonLabel && (
           <WSTCommonButton
+            disabled={buttonDisabled}
             text={buttonLabel}
             onClick={onAction}
             variant="outlined"
             size="small"
+            loading={buttonLoading}
           />
         )}
       </Box>

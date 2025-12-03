@@ -9,18 +9,20 @@ module Wst.Server(
   ServerArgs(..),
   staticFilesFromEnv,
   demoFileFromEnv,
+  policyIssuerStoreFromEnv,
   CombinedAPI,
-  defaultServerArgs
+  defaultServerArgs,
   ) where
 
 import Blammo.Logging.Simple (HasLogger, Message ((:#)), MonadLogger, logInfo,
                               (.=))
+import Blockfrost.Client.Core (BlockfrostError (..))
 import Blockfrost.Client.Types qualified as Blockfrost
 import Cardano.Api.Shelley qualified as C
 import Control.Lens qualified as L
 import Control.Monad.Error.Class (MonadError (throwError))
 import Control.Monad.IO.Class (MonadIO (..))
-import Control.Monad.Reader (MonadReader, asks)
+import Control.Monad.Reader (MonadReader, ask, asks)
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain (sendTx), MonadUtxoQuery,
                      utxosByPaymentCredential)
@@ -33,8 +35,10 @@ import Data.Maybe (fromMaybe)
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Cors
 import PlutusTx.Prelude qualified as P
+import ProgrammableTokens.OffChain.Endpoints (registerCip143PolicyTransferScripts)
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
 import ProgrammableTokens.OffChain.Env.Runtime qualified as Env
+import ProgrammableTokens.OffChain.Env.TransferLogic (programmableTokenPolicyId)
 import ProgrammableTokens.OffChain.Query qualified as Query
 import Servant (Server, ServerT)
 import Servant.API (NoContent (..), Raw, (:<|>) (..))
@@ -42,8 +46,8 @@ import Servant.Server (hoistServer, serve)
 import Servant.Server.StaticFiles (serveDirectoryWebApp)
 import SmartTokens.Types.PTokenDirectory (blnKey)
 import System.Environment qualified
-import Wst.App (WstApp, runWstAppServant)
-import Wst.AppError (AppError (..))
+import Wst.App (WstApp, runWstApp, runWstAppServant)
+import Wst.AppError (AppError (..), RegulatedStablecoinError (..))
 import Wst.Offchain.BuildTx.Failing (BlacklistedTransferPolicy (..))
 import Wst.Offchain.Endpoints.Deployment qualified as Endpoints
 import Wst.Offchain.Env qualified as Env
@@ -51,9 +55,13 @@ import Wst.Offchain.Query (UTxODat (uDatum))
 import Wst.Offchain.Query qualified as Query
 import Wst.Server.DemoEnvironment (DemoEnvRoute, runDemoEnvRoute)
 import Wst.Server.DemoEnvironment qualified as DemoEnvironment
+import Wst.Server.PolicyIssuerStore (HasPolicyIssuerStore (..), getPolicyIssuer,
+                                     insertPolicyIssuer)
 import Wst.Server.Types (APIInEra, AddVKeyWitnessArgs (..),
-                         BlacklistNodeArgs (..), BuildTxAPI,
-                         IssueProgrammableTokenArgs (..), QueryAPI,
+                         BlacklistInitArgs (..), BlacklistNodeArgs (..),
+                         BuildTxAPI, IssueProgrammableTokenArgs (..),
+                         MultiSeizeAssetsArgs (..), PolicyIdHex (..), QueryAPI,
+                         RegisterTransferScriptsArgs (RegisterTransferScriptsArgs, rsaIssuer),
                          SeizeAssetsArgs (..), SerialiseAddress (..),
                          TextEnvelopeJSON (..),
                          TransferProgrammableTokenArgs (..),
@@ -71,6 +79,7 @@ data ServerArgs =
     { saPort :: !Int
     , saStaticFiles         :: Maybe FilePath
     , saDemoEnvironmentFile :: Maybe FilePath
+    , saPolicyIssuerStore   :: FilePath
     }
     deriving stock (Eq, Show)
 
@@ -91,15 +100,21 @@ demoFileFromEnv sa@ServerArgs{saDemoEnvironmentFile} = case saDemoEnvironmentFil
     files' <- liftIO (System.Environment.lookupEnv "WST_DEMO_ENV")
     pure sa{saDemoEnvironmentFile = files'}
 
+policyIssuerStoreFromEnv :: MonadIO m => ServerArgs -> m ServerArgs
+policyIssuerStoreFromEnv sa = do
+  maybeOverride <- liftIO (System.Environment.lookupEnv "WST_POLICY_ISSUER_STORE")
+  pure $ maybe sa (\path -> sa{saPolicyIssuerStore = path}) maybeOverride
+
 defaultServerArgs :: ServerArgs
 defaultServerArgs =
   ServerArgs
     { saPort = 8080
     , saStaticFiles = Nothing
     , saDemoEnvironmentFile = Nothing
+    , saPolicyIssuerStore = "policy-issuers.sqlite"
     }
 
-runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env, HasLogger env) => env -> ServerArgs -> IO ()
+runServer :: (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env, HasLogger env, HasPolicyIssuerStore env) => env -> ServerArgs -> IO ()
 runServer env ServerArgs{saPort, saStaticFiles, saDemoEnvironmentFile} = do
   let bf   = Blockfrost.projectId $ Env.ceBlockfrost $ Env.runtimeEnv env
   demoEnv <-
@@ -112,7 +127,7 @@ runServer env ServerArgs{saPort, saStaticFiles, saDemoEnvironmentFile} = do
       port = saPort
   Warp.run port app
 
-server :: forall env. (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env, HasLogger env) => env -> Server APIInEra
+server :: forall env. (Env.HasRuntimeEnv env, Env.HasDirectoryEnv env, HasLogger env, HasPolicyIssuerStore env) => env -> Server APIInEra
 server env = hoistServer (Proxy @APIInEra) (runWstAppServant env) $
   healthcheck
   :<|> queryApi @env
@@ -121,21 +136,28 @@ server env = hoistServer (Proxy @APIInEra) (runWstAppServant env) $
 healthcheck :: Applicative m => m NoContent
 healthcheck = pure NoContent
 
-queryApi :: forall env. (Env.HasDirectoryEnv env) => ServerT (QueryAPI C.ConwayEra) (WstApp env C.ConwayEra)
+queryApi :: forall env. (Env.HasDirectoryEnv env, Env.HasRuntimeEnv env, HasPolicyIssuerStore env) => ServerT (QueryAPI C.ConwayEra) (WstApp env C.ConwayEra)
 queryApi =
   Query.globalParamsNode
   :<|> queryBlacklistedNodes (Proxy @C.ConwayEra)
   :<|> queryUserFunds @C.ConwayEra @env (Proxy @C.ConwayEra)
   :<|> queryAllFunds @C.ConwayEra @env (Proxy @C.ConwayEra)
   :<|> computeUserAddress (Proxy @C.ConwayEra)
+  :<|> getFreezeAndSeizeProgrammableTokenPolicyId @C.ConwayEra @env (Proxy @C.ConwayEra)
+  :<|> getProgrammableTokenStakeScripts @C.ConwayEra @env (Proxy @C.ConwayEra)
+  :<|> queryUserTotalProgrammableValue @C.ConwayEra @env (Proxy @C.ConwayEra)
+  :<|> queryPolicyIssuerAddress @C.ConwayEra @env
 
-txApi :: forall env. (Env.HasDirectoryEnv env, HasLogger env) => ServerT (BuildTxAPI C.ConwayEra) (WstApp env C.ConwayEra)
+txApi :: forall env. (Env.HasDirectoryEnv env, HasLogger env, HasPolicyIssuerStore env) => ServerT (BuildTxAPI C.ConwayEra) (WstApp env C.ConwayEra)
 txApi =
   (issueProgrammableTokenEndpoint @C.ConwayEra @env
   :<|> transferProgrammableTokenEndpoint @C.ConwayEra @env
   :<|> addToBlacklistEndpoint
   :<|> removeFromBlacklistEndpoint
   :<|> seizeAssetsEndpoint
+  :<|> seizeMultiAssetsEndpoint
+  :<|> registerTransferScriptsEndpoint
+  :<|> blacklistInitEndpoint @C.ConwayEra @env
   )
   :<|> pure . addWitnessEndpoint
   :<|> submitTxEndpoint
@@ -169,7 +191,7 @@ queryBlacklistedNodes :: forall era env m.
   -> SerialiseAddress (C.Address C.ShelleyAddr)
   -> m [C.Hash C.PaymentKey]
 queryBlacklistedNodes _ (SerialiseAddress addr) = do
-  (transferLogic, ble) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress addr)
+  (transferLogic, ble) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress addr) (stakeCredentialFromAddress addr)
   let getHash =
         either (error "deserialiseFromRawBytes failed") id
         . C.deserialiseFromRawBytes (C.proxyToAsType $ Proxy @(C.Hash C.PaymentKey))
@@ -187,15 +209,24 @@ queryUserFunds :: forall era env m.
   , C.IsBabbageBasedEra era
   , MonadReader env m
   , Env.HasDirectoryEnv env
+  , Env.HasRuntimeEnv env
   , MonadBlockchain era m
+  , MonadError (AppError era) m
+  , MonadIO m
   )
   => Proxy era
   -> SerialiseAddress (C.Address C.ShelleyAddr)
   -> m UserBalanceResponse
 queryUserFunds _ (SerialiseAddress addr) = do
   let credential = paymentCredentialFromAddress addr
-  ubrProgrammableTokens <- foldMap (txOutValue . Query.uOut) <$> Query.userProgrammableOutputs @era @env credential
-  otherUTxOs <- utxosByPaymentCredential credential
+      stakeCredential = stakeCredentialFromAddress addr
+  ubrProgrammableTokens <- foldMap (txOutValue . Query.uOut) <$> Query.userProgrammableOutputs @era @env (credential, stakeCredential)
+  env <- ask
+  result <- liftIO $ runWstApp env (utxosByPaymentCredential credential)
+  otherUTxOs <- case result of
+    Left (BlockfrostErr BlockfrostNotFound) -> pure mempty
+    Left err -> throwError err
+    Right utxos -> pure utxos
   let userBalance = C.selectLovelace (Utxos.totalBalance otherUTxOs)
       adaOnly     = Map.size $ Utxos._utxos $ Utxos.onlyAda otherUTxOs
   pure
@@ -204,6 +235,52 @@ queryUserFunds _ (SerialiseAddress addr) = do
       , ubrUserLovelace   = C.lovelaceToQuantity userBalance
       , ubrAdaOnlyOutputs = adaOnly
       }
+
+queryUserTotalProgrammableValue :: forall era env m.
+  ( MonadReader env m
+  , Env.HasDirectoryEnv env
+  , MonadUtxoQuery m
+  , C.IsBabbageBasedEra era
+  , MonadBlockchain era m
+  )
+  => Proxy era
+  -> SerialiseAddress (C.Address C.ShelleyAddr) -> m C.Value
+queryUserTotalProgrammableValue _ (SerialiseAddress userAddress) = do
+  let credential = paymentCredentialFromAddress userAddress
+      stakeCredential = stakeCredentialFromAddress userAddress
+  Query.userTotalProgrammableValue @era @env (credential, stakeCredential)
+
+getFreezeAndSeizeProgrammableTokenPolicyId :: forall era env m.
+  ( MonadReader env m
+  , Env.HasDirectoryEnv env
+  )
+  => Proxy era
+  -> SerialiseAddress (C.Address C.ShelleyAddr)
+  -> m C.PolicyId
+getFreezeAndSeizeProgrammableTokenPolicyId _ (SerialiseAddress userAddress) = do
+  dirEnv <- asks Env.directoryEnv
+  (logic, _) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress userAddress) (stakeCredentialFromAddress userAddress)
+  Env.withEnv $ Env.withDirectory dirEnv $ Env.withTransfer logic $ do
+    programmableTokenPolicyId
+
+getProgrammableTokenStakeScripts :: forall era env m.
+  ( MonadReader env m
+  , Env.HasDirectoryEnv env
+  )
+  => Proxy era
+  -> SerialiseAddress (C.Address C.ShelleyAddr)
+  -> m [C.ScriptHash]
+getProgrammableTokenStakeScripts _ (SerialiseAddress userAddress) = do
+  dirEnv <- asks Env.directoryEnv
+  (logic, _) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress userAddress) (stakeCredentialFromAddress userAddress)
+  Env.withEnv $ Env.withDirectory dirEnv $ Env.withTransfer logic $ do
+    transferMintingScript <- asks (Env.tleMintingScript . Env.transferLogicEnv)
+    transferSpendingScript <- asks (Env.tleTransferScript . Env.transferLogicEnv)
+    transferSeizeSpendingScript <- asks (Env.tleIssuerScript . Env.transferLogicEnv)
+    let hshMinting = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferMintingScript
+        hshSpending = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferSpendingScript
+        hshSeizeSpending = C.hashScript $ C.PlutusScript C.plutusScriptVersion transferSeizeSpendingScript
+    pure [hshMinting, hshSpending, hshSeizeSpending]
 
 queryAllFunds :: forall era env m.
   ( MonadUtxoQuery m
@@ -215,7 +292,65 @@ queryAllFunds :: forall era env m.
   -> m C.Value
 queryAllFunds _ = foldMap (txOutValue . Query.uOut) <$> Query.programmableLogicOutputs @era @env
 
+queryPolicyIssuerAddress :: forall era env m.
+  ( MonadReader env m
+  , HasPolicyIssuerStore env
+  , MonadError (AppError era) m
+  , MonadIO m
+  )
+  => PolicyIdHex
+  -> m (SerialiseAddress (C.Address C.ShelleyAddr))
+queryPolicyIssuerAddress (PolicyIdHex policyId) = do
+  store <- asks policyIssuerStore
+  result <- liftIO $ getPolicyIssuer store policyId
+  case result of
+    Just addr -> pure (SerialiseAddress addr)
+    Nothing -> throwError (RegStablecoinError (PolicyIssuerNotFound policyId))
+
+registerTransferScriptsEndpoint :: forall era env m.
+  ( MonadReader env m
+  , Env.HasDirectoryEnv env
+  , MonadBlockchain era m
+  , MonadError (AppError era) m
+  , MonadUtxoQuery m
+  , C.IsConwayBasedEra era
+  )
+  => RegisterTransferScriptsArgs -> m (TextEnvelopeJSON (C.Tx era))
+registerTransferScriptsEndpoint RegisterTransferScriptsArgs{rsaIssuer} = do
+  operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era rsaIssuer
+  dirEnv <- asks Env.directoryEnv
+  (logic, _) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress rsaIssuer) (stakeCredentialFromAddress rsaIssuer)
+  Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer logic $ do
+    TextEnvelopeJSON <$> registerCip143PolicyTransferScripts
+
 issueProgrammableTokenEndpoint :: forall era env m.
+  ( MonadReader env m
+  , Env.HasDirectoryEnv env
+  , HasPolicyIssuerStore env
+  , MonadBlockchain era m
+  , MonadError (AppError era) m
+  , C.IsBabbageBasedEra era
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , MonadUtxoQuery m
+  , MonadIO m
+  )
+  => IssueProgrammableTokenArgs -> m (TextEnvelopeJSON (C.Tx era))
+issueProgrammableTokenEndpoint IssueProgrammableTokenArgs{itaAssetName, itaQuantity, itaIssuer, itaRecipient} = do
+  store <- asks policyIssuerStore
+  let C.ShelleyAddress _network cred _stake = itaRecipient
+      destinationCredential = C.fromShelleyPaymentCredential cred
+  operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era itaIssuer
+  dirEnv <- asks Env.directoryEnv
+  (logic, _) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress itaIssuer) (stakeCredentialFromAddress itaIssuer)
+  (policyId, envelope) <-
+    Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer logic $ do
+      pid <- programmableTokenPolicyId
+      tx <- Endpoints.issueSmartTokensTx itaAssetName itaQuantity destinationCredential
+      pure (pid, TextEnvelopeJSON (fst tx))
+  liftIO $ insertPolicyIssuer store policyId itaIssuer
+  pure envelope
+
+blacklistInitEndpoint :: forall era env m.
   ( MonadReader env m
   , Env.HasDirectoryEnv env
   , MonadBlockchain era m
@@ -224,19 +359,25 @@ issueProgrammableTokenEndpoint :: forall era env m.
   , C.HasScriptLanguageInEra C.PlutusScriptV3 era
   , MonadUtxoQuery m
   )
-  => IssueProgrammableTokenArgs -> m (TextEnvelopeJSON (C.Tx era))
-issueProgrammableTokenEndpoint IssueProgrammableTokenArgs{itaAssetName, itaQuantity, itaIssuer, itaRecipient} = do
-  let C.ShelleyAddress _network cred _stake = itaRecipient
-      destinationCredential = C.fromShelleyPaymentCredential cred
-  operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era itaIssuer
+  => BlacklistInitArgs -> m (TextEnvelopeJSON (C.Tx era))
+blacklistInitEndpoint BlacklistInitArgs{biaIssuer} = do
+  operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era biaIssuer
   dirEnv <- asks Env.directoryEnv
-  (logic, _) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress itaIssuer)
+  (logic, _) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress biaIssuer) (stakeCredentialFromAddress biaIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer logic $ do
-    TextEnvelopeJSON . fst <$> Endpoints.issueSmartTokensTx itaAssetName itaQuantity destinationCredential
+    TextEnvelopeJSON <$> Endpoints.deployBlacklistTx
 
 paymentCredentialFromAddress :: C.Address C.ShelleyAddr -> C.PaymentCredential
 paymentCredentialFromAddress = \case
   C.ShelleyAddress _ cred _ -> C.fromShelleyPaymentCredential cred
+
+stakeCredentialFromAddress :: C.Address C.ShelleyAddr -> Maybe C.StakeCredential
+stakeCredentialFromAddress = \case
+  C.ShelleyAddress _ _ (C.fromShelleyStakeReference -> cred) ->
+    case cred of
+      C.StakeAddressByValue stakeCred -> Just stakeCred
+      C.StakeAddressByPointer _ -> Nothing
+      C.NoStakeAddress -> Nothing
 
 paymentKeyHashFromAddress :: C.Address C.ShelleyAddr -> C.Hash C.PaymentKey
 paymentKeyHashFromAddress = \case
@@ -257,7 +398,7 @@ transferProgrammableTokenEndpoint :: forall era env m.
 transferProgrammableTokenEndpoint TransferProgrammableTokenArgs{ttaSender, ttaRecipient, ttaAssetName, ttaQuantity, ttaIssuer, ttaSubmitFailingTx} = do
   operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era ttaSender
   dirEnv <- asks Env.directoryEnv
-  (logic, ble) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress ttaIssuer)
+  (logic, ble) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress ttaIssuer) (stakeCredentialFromAddress ttaIssuer)
   let assetId = Env.programmableTokenAssetId dirEnv logic ttaAssetName
   let policy = if ttaSubmitFailingTx then SubmitFailingTx else DontSubmitFailingTx
   logInfo $ "Transfer programmable tokens" :# [logPolicy policy, logSender ttaSender, logRecipient ttaRecipient]
@@ -278,7 +419,7 @@ addToBlacklistEndpoint BlacklistNodeArgs{bnaIssuer, bnaBlacklistAddress, bnaReas
   let badCred = paymentCredentialFromAddress bnaBlacklistAddress
   operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era bnaIssuer
   dirEnv <- asks Env.directoryEnv
-  (transferLogic, ble) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress bnaIssuer)
+  (transferLogic, ble) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress bnaIssuer) (stakeCredentialFromAddress bnaIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withBlacklist ble $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
     TextEnvelopeJSON <$> Endpoints.insertBlacklistNodeTx bnaReason badCred
 
@@ -296,7 +437,7 @@ removeFromBlacklistEndpoint BlacklistNodeArgs{bnaIssuer, bnaBlacklistAddress} = 
   let badCred = paymentCredentialFromAddress bnaBlacklistAddress
   operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era bnaIssuer
   dirEnv <- asks Env.directoryEnv
-  (transferLogic, ble) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress bnaIssuer)
+  (transferLogic, ble) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress bnaIssuer) (stakeCredentialFromAddress bnaIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withBlacklist ble $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
     TextEnvelopeJSON <$> Endpoints.removeBlacklistNodeTx badCred
 
@@ -314,9 +455,27 @@ seizeAssetsEndpoint SeizeAssetsArgs{saIssuer, saTarget, saReason} = do
   let badCred = paymentCredentialFromAddress saTarget
   operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era saIssuer
   dirEnv <- asks Env.directoryEnv
-  (transferLogic, _) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress saIssuer)
+  (transferLogic, _) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress saIssuer) (stakeCredentialFromAddress saIssuer)
   Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
     TextEnvelopeJSON <$> Endpoints.seizeCredentialAssetsTx saReason badCred
+
+seizeMultiAssetsEndpoint :: forall era env m.
+  ( MonadReader env m
+  , Env.HasDirectoryEnv env
+  , MonadBlockchain era m
+  , MonadError (AppError era) m
+  , C.IsBabbageBasedEra era
+  , C.HasScriptLanguageInEra C.PlutusScriptV3 era
+  , MonadUtxoQuery m
+  )
+  => MultiSeizeAssetsArgs -> m (TextEnvelopeJSON (C.Tx era))
+seizeMultiAssetsEndpoint MultiSeizeAssetsArgs{msaIssuer, msaTarget, msaReason, msaNumUTxOsToSeize} = do
+  let badCreds = map paymentCredentialFromAddress msaTarget
+  operatorEnv <- Env.loadOperatorEnvFromAddress @_ @era msaIssuer
+  dirEnv <- asks Env.directoryEnv
+  (transferLogic, _) <- Env.transferLogicForDirectory (paymentKeyHashFromAddress msaIssuer) (stakeCredentialFromAddress msaIssuer)
+  Env.withEnv $ Env.withOperator operatorEnv $ Env.withDirectory dirEnv $ Env.withTransfer transferLogic $ do
+    TextEnvelopeJSON <$> Endpoints.seizeMultiCredentialAssetsTx msaReason msaNumUTxOsToSeize badCreds
 
 addWitnessEndpoint :: forall era. AddVKeyWitnessArgs era -> TextEnvelopeJSON (C.Tx era)
 addWitnessEndpoint AddVKeyWitnessArgs{avwTx, avwVKeyWitness} =

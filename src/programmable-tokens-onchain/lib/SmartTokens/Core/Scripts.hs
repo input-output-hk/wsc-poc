@@ -26,7 +26,7 @@ data ScriptTarget
 -}
 targetConfig :: ScriptTarget -> Config
 targetConfig = \case
-  Debug      -> _tracingConfig
+  Debug      -> _tracingAndBindsConfig
   Production -> prodConfig
 
 tryCompile :: ScriptTarget -> ClosedTerm a -> Script

@@ -1,0 +1,4 @@
+export CIP_143_BLOCKFROST_TOKEN=preprod...
+export WST_STATIC_FILES=frontend/out
+export WST_DEMO_ENV=preprod-network/preprod-env.json
+export WST_POLICY_ISSUER_STORE=preprod-network/policy-issuers.sqlite 

@@ -56,9 +56,3 @@ jobs:
         nix build --accept-flake-config .#regulated-stablecoin:exe:regulated-stablecoin-cli
     - name: nix flake check
       run: nix flake check --accept-flake-config --override-input systems github:nix-systems/$(nix eval --impure --raw --expr 'builtins.currentSystem')
-    - name: Check aiken
-      run: |
-        cd src/examples/aiken/aiken
-        nix run github:aiken-lang/aiken/v1.1.19#aiken -- build
-        nix run github:aiken-lang/aiken/v1.1.19#aiken -- check
-

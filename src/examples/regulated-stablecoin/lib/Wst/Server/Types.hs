@@ -4,6 +4,8 @@
 {-# LANGUAGE OverloadedLists    #-}
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE TypeOperators      #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use newtype instead of data" #-}
 
 
 {- | This module contains the relevant types for the server.
@@ -19,14 +21,18 @@ module Wst.Server.Types (
   TransferProgrammableTokenArgs(..),
   BlacklistNodeArgs(..),
   SeizeAssetsArgs(..),
+  MultiSeizeAssetsArgs(..),
   AddVKeyWitnessArgs(..),
+  RegisterTransferScriptsArgs(..),
+  BlacklistInitArgs(..),
 
   -- * Response types
   UserBalanceResponse(..),
 
   -- * Newtypes
   TextEnvelopeJSON(..),
-  SerialiseAddress(..)
+  SerialiseAddress(..),
+  PolicyIdHex(..)
 ) where
 
 import Cardano.Api (AssetName, Quantity)
@@ -43,6 +49,8 @@ import Data.OpenApi.ParamSchema (ToParamSchema (..))
 import Data.OpenApi.Schema qualified as Schema
 import Data.OpenApi.SchemaOptions qualified as SchemaOptions
 import Data.Proxy (Proxy (..))
+import Data.Text qualified as Text
+import Data.Text.Encoding qualified as TextEncoding
 import GHC.Generics (Generic)
 import ProgrammableTokens.JSON.Utils qualified as JSON
 import Servant (FromHttpApiData (..), ToHttpApiData (toUrlPiece))
@@ -96,6 +104,25 @@ instance C.SerialiseAddress a => FromHttpApiData (SerialiseAddress a) where
 instance C.SerialiseAddress a => ToHttpApiData (SerialiseAddress a) where
   toUrlPiece = C.serialiseAddress . unSerialiseAddress
 
+instance ToParamSchema PolicyIdHex where
+  toParamSchema _ =
+    mempty
+      & L.type_ ?~ OpenApiString
+      & L.description ?~ "hex-encoded policy identifier"
+      & L.example ?~ "4cfd5e2b0c534b4e0cda0f5d84df7e0d3d3c6a74c0e5f3d823a58a38"
+
+newtype PolicyIdHex = PolicyIdHex { unPolicyIdHex :: C.PolicyId }
+  deriving stock (Eq, Show)
+
+instance FromHttpApiData PolicyIdHex where
+  parseUrlPiece txt =
+    case C.deserialiseFromRawBytesHex C.AsPolicyId (TextEncoding.encodeUtf8 txt) of
+      Left err -> Left ("Failed to parse policy id: " <> Text.pack (show err))
+      Right pid -> Right (PolicyIdHex pid)
+
+instance ToHttpApiData PolicyIdHex where
+  toUrlPiece (PolicyIdHex pid) = C.serialiseToRawBytesHexText pid
+
 type API era =
   "healthcheck" :> Description "Is the server alive?" :> Get '[JSON] NoContent
   :<|> "query" :> QueryAPI era
@@ -107,6 +134,26 @@ type QueryAPI era =
   :<|> "user-funds" :> Description "Total value locked in programmable token outputs addressed to the user" :> Capture "address" (SerialiseAddress (C.Address C.ShelleyAddr)) :> Get '[JSON] UserBalanceResponse
   :<|> "all-funds" :> Description "Total value of all programmable tokens" :> Get '[JSON] C.Value
   :<|> "address" :> Description "The user's receiving address for programmable tokens" :> Capture "address" (SerialiseAddress (C.Address C.ShelleyAddr)) :> Get '[JSON] (C.Address C.ShelleyAddr)
+  :<|> "freeze-policy-id" :> Description "The policy ID for the freeze and seize programmable token policy associated with this user" :> Capture "address" (SerialiseAddress (C.Address C.ShelleyAddr)) :> Get '[JSON] C.PolicyId
+  :<|> "stake-scripts" :> Description "The stake scripts for the programmable token" :> Capture "address" (SerialiseAddress (C.Address C.ShelleyAddr)) :> Get '[JSON] [C.ScriptHash]
+  :<|> "user-total-programmable-value" :> Description "Total value of all programmable tokens addressed to the user" :> Capture "address" (SerialiseAddress (C.Address C.ShelleyAddr)) :> Get '[JSON] C.Value
+  :<|> "policy-issuer" :> Description "Issuer address associated with a freeze/seize policy id" :> Capture "policy_id" PolicyIdHex :> Get '[JSON] (SerialiseAddress (C.Address C.ShelleyAddr))
+
+data RegisterTransferScriptsArgs =
+  RegisterTransferScriptsArgs
+    { rsaIssuer :: C.Address C.ShelleyAddr
+    }
+    deriving stock (Eq, Show, Generic)
+
+instance ToJSON RegisterTransferScriptsArgs where
+  toJSON = JSON.genericToJSON jsonOptions3
+  toEncoding = JSON.genericToEncoding jsonOptions3
+
+instance ToSchema RegisterTransferScriptsArgs where
+  declareNamedSchema = Schema.genericDeclareNamedSchema (SchemaOptions.fromAesonOptions jsonOptions3)
+
+instance FromJSON RegisterTransferScriptsArgs where
+  parseJSON = JSON.genericParseJSON jsonOptions3
 
 {-| Arguments for the programmable-token endpoint. The asset name can be something like "USDW" for the regulated stablecoin.
 -}
@@ -192,6 +239,25 @@ instance FromJSON SeizeAssetsArgs where
 instance ToSchema SeizeAssetsArgs where
   declareNamedSchema = Schema.genericDeclareNamedSchema (SchemaOptions.fromAesonOptions jsonOptions2)
 
+data MultiSeizeAssetsArgs =
+  MultiSeizeAssetsArgs
+    { msaIssuer  :: C.Address C.ShelleyAddr
+    , msaTarget  :: [C.Address C.ShelleyAddr]
+    , msaReason  :: SeizeReason
+    , msaNumUTxOsToSeize :: Int
+    }
+    deriving stock (Eq, Show, Generic)
+
+instance ToJSON MultiSeizeAssetsArgs where
+  toJSON = JSON.genericToJSON jsonOptions2
+  toEncoding = JSON.genericToEncoding jsonOptions2
+
+instance FromJSON MultiSeizeAssetsArgs where
+  parseJSON = JSON.genericParseJSON jsonOptions2
+
+instance ToSchema MultiSeizeAssetsArgs where
+  declareNamedSchema = Schema.genericDeclareNamedSchema (SchemaOptions.fromAesonOptions jsonOptions2)
+
 data AddVKeyWitnessArgs era =
   AddVKeyWitnessArgs
     { avwTx :: TextEnvelopeJSON (C.Tx era)
@@ -216,11 +282,32 @@ type BuildTxAPI era =
       :<|> "blacklist" :> Description "Add a credential to the blacklist" :> ReqBody '[JSON] BlacklistNodeArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
       :<|> "unblacklist" :> Description "Remove a credential from the blacklist" :> ReqBody '[JSON] BlacklistNodeArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
       :<|> "seize" :> Description "Seize a user's funds" :> ReqBody '[JSON] SeizeAssetsArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
+      :<|> "seize-multi" :> Description "Seize multiple user's funds" :> ReqBody '[JSON] MultiSeizeAssetsArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
+      :<|> "register-transfer-scripts" :> Description "Register the transfer scripts" :> ReqBody '[JSON] RegisterTransferScriptsArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
+      :<|> "blacklist-init" :> Description "Initialize the blacklist" :> ReqBody '[JSON] BlacklistInitArgs :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
     )
   :<|>
   "add-vkey-witness" :> Description "Add a VKey witness to a transaction" :> ReqBody '[JSON] (AddVKeyWitnessArgs era) :> Post '[JSON] (TextEnvelopeJSON (C.Tx era))
   :<|>
   "submit" :> Description "Submit a transaction to the blockchain" :> ReqBody '[JSON] (TextEnvelopeJSON (C.Tx era)) :> Post '[JSON] C.TxId
+
+{-| Arguments for the blacklist-init endpoint.
+-}
+data BlacklistInitArgs =
+  BlacklistInitArgs
+    { biaIssuer :: C.Address C.ShelleyAddr
+    }
+    deriving stock (Eq, Show, Generic)
+
+instance ToJSON BlacklistInitArgs where
+  toJSON = JSON.genericToJSON jsonOptions3
+  toEncoding = JSON.genericToEncoding jsonOptions3
+
+instance FromJSON BlacklistInitArgs where
+  parseJSON = JSON.genericParseJSON jsonOptions3
+
+instance ToSchema BlacklistInitArgs where
+  declareNamedSchema = Schema.genericDeclareNamedSchema (SchemaOptions.fromAesonOptions jsonOptions3)
 
 {-| Response to the user-balance query
 -}

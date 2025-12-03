@@ -24,6 +24,17 @@
             "Asset name": {
                 "type": "string"
             },
+            "BlacklistInitArgs": {
+                "properties": {
+                    "issuer": {
+                        "$ref": "#/components/schemas/Address"
+                    }
+                },
+                "required": [
+                    "issuer"
+                ],
+                "type": "object"
+            },
             "BlacklistNodeArgs": {
                 "properties": {
                     "blacklist_address": {
@@ -75,6 +86,39 @@
                 ],
                 "type": "object"
             },
+            "MultiSeizeAssetsArgs": {
+                "properties": {
+                    "a_issuer": {
+                        "$ref": "#/components/schemas/Address"
+                    },
+                    "a_num_u_tx_os_to_seize": {
+                        "maximum": 9223372036854775807,
+                        "minimum": -9223372036854775808,
+                        "type": "integer"
+                    },
+                    "a_reason": {
+                        "$ref": "#/components/schemas/SeizeReason"
+                    },
+                    "a_target": {
+                        "items": {
+                            "$ref": "#/components/schemas/Address"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "a_issuer",
+                    "a_target",
+                    "a_reason",
+                    "a_num_u_tx_os_to_seize"
+                ],
+                "type": "object"
+            },
+            "PolicyId": {
+                "description": "Policy ID",
+                "example": "01f4b788593d4f70de2a45c2e1e87088bfbdfa29577ae1b62aba60e095e3ab53",
+                "type": "string"
+            },
             "ProgrammableLogicGlobalParams": {
                 "description": "Global parameters of the programmable token directory",
                 "properties": {
@@ -98,6 +142,22 @@
             },
             "Quantity": {
                 "type": "integer"
+            },
+            "RegisterTransferScriptsArgs": {
+                "properties": {
+                    "issuer": {
+                        "$ref": "#/components/schemas/Address"
+                    }
+                },
+                "required": [
+                    "issuer"
+                ],
+                "type": "object"
+            },
+            "ScriptHash": {
+                "description": "Script hash",
+                "example": "01f4b788593d4f70de2a45c2e1e87088bfbdfa29577ae1b62aba60e095e3ab53",
+                "type": "string"
             },
             "SeizeAssetsArgs": {
                 "properties": {
@@ -370,6 +430,38 @@
                 }
             }
         },
+        "/api/v1/query/freeze-policy-id/{address}": {
+            "get": {
+                "description": "The policy ID for the freeze and seize programmable token policy associated with this user",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "address",
+                        "required": true,
+                        "schema": {
+                            "description": "bech32-serialised cardano address",
+                            "example": "addr1q9d42egme33z960rr8vlnt69lpmythdpm7ydk2e6k5nj5ghay9rg60vw49kejfah76sqeh4yshlsntgg007y0wgjlfwju6eksr",
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PolicyId"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "description": "`address` not found"
+                    }
+                }
+            }
+        },
         "/api/v1/query/global-params": {
             "get": {
                 "description": "The UTxO with the global parameters",
@@ -383,6 +475,73 @@
                             }
                         },
                         "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/query/policy-issuer/{policy_id}": {
+            "get": {
+                "description": "Issuer address associated with a freeze/seize policy id",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "policy_id",
+                        "required": true,
+                        "schema": {
+                            "description": "hex-encoded policy identifier",
+                            "example": "4cfd5e2b0c534b4e0cda0f5d84df7e0d3d3c6a74c0e5f3d823a58a38",
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Address"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "description": "`policy_id` not found"
+                    }
+                }
+            }
+        },
+        "/api/v1/query/stake-scripts/{address}": {
+            "get": {
+                "description": "The stake scripts for the programmable token",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "address",
+                        "required": true,
+                        "schema": {
+                            "description": "bech32-serialised cardano address",
+                            "example": "addr1q9d42egme33z960rr8vlnt69lpmythdpm7ydk2e6k5nj5ghay9rg60vw49kejfah76sqeh4yshlsntgg007y0wgjlfwju6eksr",
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/ScriptHash"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "description": "`address` not found"
                     }
                 }
             }
@@ -408,6 +567,38 @@
                             "application/json;charset=utf-8": {
                                 "schema": {
                                     "$ref": "#/components/schemas/UserBalanceResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "description": "`address` not found"
+                    }
+                }
+            }
+        },
+        "/api/v1/query/user-total-programmable-value/{address}": {
+            "get": {
+                "description": "Total value of all programmable tokens addressed to the user",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "address",
+                        "required": true,
+                        "schema": {
+                            "description": "bech32-serialised cardano address",
+                            "example": "addr1q9d42egme33z960rr8vlnt69lpmythdpm7ydk2e6k5nj5ghay9rg60vw49kejfah76sqeh4yshlsntgg007y0wgjlfwju6eksr",
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Value"
                                 }
                             }
                         },
@@ -477,6 +668,35 @@
                 }
             }
         },
+        "/api/v1/tx/programmable-token/blacklist-init": {
+            "post": {
+                "description": "Initialize the blacklist",
+                "requestBody": {
+                    "content": {
+                        "application/json;charset=utf-8": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BlacklistInitArgs"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TextEnvelopeJSON"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
         "/api/v1/tx/programmable-token/issue": {
             "post": {
                 "description": "Create some programmable tokens",
@@ -506,6 +726,35 @@
                 }
             }
         },
+        "/api/v1/tx/programmable-token/register-transfer-scripts": {
+            "post": {
+                "description": "Register the transfer scripts",
+                "requestBody": {
+                    "content": {
+                        "application/json;charset=utf-8": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RegisterTransferScriptsArgs"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TextEnvelopeJSON"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
         "/api/v1/tx/programmable-token/seize": {
             "post": {
                 "description": "Seize a user's funds",
@@ -514,6 +763,35 @@
                         "application/json;charset=utf-8": {
                             "schema": {
                                 "$ref": "#/components/schemas/SeizeAssetsArgs"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TextEnvelopeJSON"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/api/v1/tx/programmable-token/seize-multi": {
+            "post": {
+                "description": "Seize multiple user's funds",
+                "requestBody": {
+                    "content": {
+                        "application/json;charset=utf-8": {
+                            "schema": {
+                                "$ref": "#/components/schemas/MultiSeizeAssetsArgs"
                             }
                         }
                     }

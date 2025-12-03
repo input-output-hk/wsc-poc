@@ -22,7 +22,15 @@ import Servant.Server qualified as S
 import Wst.AppError (AppError (..))
 
 newtype WstApp env era a = WstApp { unWstApp :: ReaderT env (ExceptT (AppError era) (BlockfrostT IO)) a }
-  deriving newtype (Monad, Applicative, Functor, MonadIO, MonadReader env, MonadError (AppError era), MonadUtxoQuery, MonadBlockchain C.ConwayEra)
+  deriving newtype ( Monad
+                  , Applicative
+                  , Functor
+                  , MonadIO
+                  , MonadReader env
+                  , MonadError (AppError era)
+                  , MonadUtxoQuery
+                  , MonadBlockchain C.ConwayEra
+                  )
   deriving
     (MonadLogger, MonadLoggerIO)
     via (WithLogger env (ExceptT (AppError era) (BlockfrostT IO)))

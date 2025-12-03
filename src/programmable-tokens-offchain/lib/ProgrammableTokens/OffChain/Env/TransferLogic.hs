@@ -66,4 +66,4 @@ programmableTokenMintingScript dirEnv@DirectoryEnv{dsScriptRoot} TransferLogicEn
 -- | The minting policy ID of the programmable token
 programmableTokenPolicyId :: (MonadReader env m, HasTransferLogicEnv env, HasDirectoryEnv env) => m C.PolicyId
 programmableTokenPolicyId =
-  fmap Scripts.scriptPolicyIdV3 (programmableTokenMintingScript <$> asks directoryEnv <*> asks transferLogicEnv)
+  fmap Scripts.scriptPolicyIdV3 (asks (programmableTokenMintingScript . directoryEnv) <*> asks transferLogicEnv)

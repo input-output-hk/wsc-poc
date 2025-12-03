@@ -58,6 +58,7 @@ module Wst.Offchain.Env(
   addRuntimeEnv,
   withRuntime,
   addOperatorEnv,
+  replaceOperatorEnv,
   withOperator,
   blacklistNodePolicyId,
   withBlacklist,
@@ -134,6 +135,7 @@ data BlacklistTransferLogicScriptRoot =
     { tlrTarget :: ScriptTarget
     , tlrDirEnv :: DirectoryEnv
     , tlrIssuer :: C.Hash C.PaymentKey
+    , tlrIssuerStakeCredential :: Maybe C.StakeCredential
     }
 
 mkTransferLogicEnv :: BlacklistTransferLogicScriptRoot -> TransferLogicEnv
@@ -186,19 +188,26 @@ withTransferFor = withTransfer . mkTransferLogicEnv
 
 {-| Transfer logic scripts for the blacklist managed by the given 'C.PaymentKey' hash
 -}
-transferLogicForDirectory :: (HasDirectoryEnv env, MonadReader env m) => C.Hash C.PaymentKey -> m (TransferLogicEnv, BlacklistEnv)
-transferLogicForDirectory pkh = do
+transferLogicForDirectory :: (HasDirectoryEnv env, MonadReader env m) => C.Hash C.PaymentKey -> Maybe C.StakeCredential -> m (TransferLogicEnv, BlacklistEnv)
+transferLogicForDirectory pkh stakeCred = do
   env <- ask
   let dirEnv = directoryEnv env
-      sr     = BlacklistTransferLogicScriptRoot (srTarget $ dsScriptRoot dirEnv) dirEnv pkh
+      sr     = BlacklistTransferLogicScriptRoot (srTarget $ dsScriptRoot dirEnv) dirEnv pkh stakeCred
   pure (mkTransferLogicEnv sr, mkBlacklistEnv sr)
 
 withTransferFromOperator :: forall era els m a. (Utils.NotElem TransferLogicEnv (BlacklistEnv : els), Utils.NotElem BlacklistEnv els, Utils.Elem (OperatorEnv era) els, Utils.Elem DirectoryEnv els, MonadReader (Utils.HSet els) m) => ReaderT (Utils.HSet (TransferLogicEnv : BlacklistEnv : els)) m a -> m a
 withTransferFromOperator action = do
   env <- ask
   let opPkh = fst . bteOperator . operatorEnv @era $ env
-  (transferEnv,  ble) <- transferLogicForDirectory opPkh
+      stakeCred = toStakeCredential $ snd . bteOperator . operatorEnv @era $ env
+  (transferEnv,  ble) <- transferLogicForDirectory opPkh stakeCred
   runReaderT action (addTransferEnv transferEnv $ addBlacklistEnv ble env)
+  where
+    toStakeCredential :: C.StakeAddressReference -> Maybe C.StakeCredential
+    toStakeCredential = \case
+      C.StakeAddressByValue stakeCred -> Just stakeCred
+      _ -> Nothing
+
 
 addBlacklistEnv :: (Utils.NotElem BlacklistEnv els) => BlacklistEnv -> Utils.HSet els -> Utils.HSet (BlacklistEnv ': els)
 addBlacklistEnv = Utils.addEnv
@@ -238,6 +247,11 @@ withRuntime runtime_ action =
 -}
 addOperatorEnv ::  (Utils.NotElem (OperatorEnv era) els) => OperatorEnv era -> Utils.HSet els -> Utils.HSet (OperatorEnv era ': els)
 addOperatorEnv = Utils.addEnv
+
+{-| Replace an existing 'OperatorEnv' inside the environment
+-}
+replaceOperatorEnv :: (Utils.HMonoModifiable els (OperatorEnv era)) => OperatorEnv era -> Utils.HSet els -> Utils.HSet els
+replaceOperatorEnv opEnv = Utils.modifyEnv (const opEnv)
 
 withOperator :: (MonadReader (Utils.HSet els) m, Utils.NotElem (OperatorEnv era) els) => OperatorEnv era -> ReaderT (Utils.HSet (OperatorEnv era ': els)) m a -> m a
 withOperator op action = asks (addOperatorEnv op) >>= runReaderT action

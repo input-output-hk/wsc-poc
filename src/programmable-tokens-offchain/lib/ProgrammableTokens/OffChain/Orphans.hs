@@ -110,3 +110,19 @@ instance ToSchema C.TxId where
     $ NamedSchema (Just "TxId")
     $ mempty
         & L.type_ ?~ OpenApiString
+
+instance ToSchema C.PolicyId where
+  declareNamedSchema _ = pure
+    $ NamedSchema (Just "PolicyId")
+    $ mempty
+        & L.type_ ?~ OpenApiString
+        & L.description ?~ "Policy ID"
+        & L.example ?~ "01f4b788593d4f70de2a45c2e1e87088bfbdfa29577ae1b62aba60e095e3ab53"
+
+instance ToSchema C.ScriptHash where
+  declareNamedSchema _ = pure
+    $ NamedSchema (Just "ScriptHash")
+    $ mempty
+        & L.type_ ?~ OpenApiString
+        & L.description ?~ "Script hash"
+        & L.example ?~ "01f4b788593d4f70de2a45c2e1e87088bfbdfa29577ae1b62aba60e095e3ab53"

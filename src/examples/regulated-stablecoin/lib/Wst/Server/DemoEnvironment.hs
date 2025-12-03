@@ -125,7 +125,7 @@ mkDemoEnv :: C.TxIn -> C.TxIn -> C.Address C.ShelleyAddr -> Either String DemoEn
 mkDemoEnv txIn issuanceCborHexTxIn (C.ShelleyAddress network (C.fromShelleyPaymentCredential -> C.PaymentCredentialByKey pkh) _) = do
   let target           = Production
       dirEnv           = Env.mkDirectoryEnv (Env.DirectoryScriptRoot txIn issuanceCborHexTxIn target)
-      rt               = Env.BlacklistTransferLogicScriptRoot target dirEnv pkh
+      rt               = Env.BlacklistTransferLogicScriptRoot target dirEnv pkh Nothing
       transferLogicEnv = Env.mkTransferLogicEnv rt
       blacklistEnv     = Env.mkBlacklistEnv rt
       dummyText        = "REPLACE ME"
