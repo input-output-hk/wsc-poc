@@ -62,7 +62,7 @@ deriving via DeriveDataPLiftable PBlacklistNodeAction BlacklistNodeAction
   instance PLiftable PBlacklistNodeAction
 
 mkBlacklistNodeMP ::
-  ClosedTerm
+  forall s. Term s
     ( PAsData PTxOutRef
       :--> PAsData PPubKeyHash
       :--> PScriptContext

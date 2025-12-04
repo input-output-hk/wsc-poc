@@ -15,6 +15,7 @@ module SmartTokens.LinkedList.Common (
   nodeInputUtxoDatumUnsafePair,
 ) where
 
+import Data.Kind (Type)
 import GHC.Generics (Generic)
 import Plutarch.Builtin.ByteString (pintegerToByteString, pmostSignificantFirst)
 import Plutarch.Builtin.Crypto (pblake2b_224)
@@ -41,7 +42,7 @@ ppaysToAddress = phoistAcyclic $ plam $ \adr txOut -> adr #== ptxOutAddress (pfr
      tokenName and amount
 -}
 correctNodeTokenMinted ::
-  ClosedTerm
+  forall s. Term s
     ( PCurrencySymbol
         :--> PTokenName
         :--> PInteger
@@ -57,7 +58,7 @@ correctNodeTokenMinted = phoistAcyclic $
 -- Potentially use this in the future if we plan to manage additional
 -- value in the directory nodes.
 nodeInputUtxoDatumUnsafePair ::
-  ClosedTerm
+  forall s. Term s
     ( PAsData PTxOut
         :--> PPair (PValue 'Sorted 'Positive) (PAsData PDirectorySetNode)
     )
@@ -70,12 +71,12 @@ nodeInputUtxoDatumUnsafePair = phoistAcyclic $ plam $ \out ->
       _ -> ptraceInfoError "Expected output datum"
 
 nodeInputUtxoDatumUnsafe
-  :: ClosedTerm (PAsData PTxOut :--> PAsData PDirectorySetNode)
+  :: Term s (PAsData PTxOut :--> PAsData PDirectorySetNode)
 nodeInputUtxoDatumUnsafe = phoistAcyclic $ plam $ \txOut ->
   punsafeCoerce (ptxOutInlineDatumRaw $ pfromData txOut)
 
 parseNodeOutputUtxo ::
-  ClosedTerm
+  forall s. Term s
     ( PAsData PCurrencySymbol
         :--> PAsData PTxOut
         :--> PAsData PDirectorySetNode
@@ -103,7 +104,7 @@ parseNodeOutputUtxo = phoistAcyclic $
     datum
 
 makeCommon ::
-  forall {r :: PType} {s :: S}.
+  forall {r :: S -> Type} {s :: S}.
   Term s PScriptContext ->
   TermCont @r
     s

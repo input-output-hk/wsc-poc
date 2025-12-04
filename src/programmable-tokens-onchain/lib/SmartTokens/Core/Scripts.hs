@@ -11,8 +11,8 @@ module SmartTokens.Core.Scripts (
 
 import Data.Aeson (FromJSON, ToJSON)
 import GHC.Generics (Generic)
-import Plutarch.Internal.Term (ClosedTerm, Config (..), LogLevel (LogInfo),
-                               Script, TracingMode (..), compile)
+import Plutarch.Internal.Term (Config (..), LogLevel (LogInfo), Script, Term,
+                               TracingMode (..), compile)
 
 {-| Script target environment
 -}
@@ -29,15 +29,15 @@ targetConfig = \case
   Debug      -> _tracingAndBindsConfig
   Production -> prodConfig
 
-tryCompile :: ScriptTarget -> ClosedTerm a -> Script
+tryCompile :: ScriptTarget -> (forall s. Term s a) -> Script
 tryCompile tgt x = case compile (targetConfig tgt) x of
   Left e -> error $ "Compilation failed: " <> show e
   Right s -> s
 
-tryCompileTracingAndBinds :: ClosedTerm a -> Script
+tryCompileTracingAndBinds :: (forall s. Term s a) -> Script
 tryCompileTracingAndBinds = tryCompile Debug
 
-tryCompileNoTracing :: ClosedTerm a -> Script
+tryCompileNoTracing :: (forall s. Term s a) -> Script
 tryCompileNoTracing = tryCompile Production
 
 _tracingAndBindsConfig :: Config

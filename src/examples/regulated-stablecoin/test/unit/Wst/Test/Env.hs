@@ -8,7 +8,7 @@ module Wst.Test.Env(
   user,
 ) where
 
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api qualified as C
 import Control.Monad.Reader (MonadReader, ReaderT)
 import Convex.Class (MonadUtxoQuery)
 import Convex.Wallet qualified as Wallet

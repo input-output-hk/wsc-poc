@@ -15,17 +15,8 @@ repository cardano-haskell-packages
     d4a35cd3121aa00d18544bb0ac01c3e1691d618f462c46129271bccf39f7e8ee
 
 index-state:
-  , hackage.haskell.org 2025-04-15T08:13:08Z
-  , cardano-haskell-packages 2025-04-11T16:42:25Z
-
-
-constraints:
-  plutus-core == 1.40.0.0,
-  plutus-ledger-api == 1.40.0.0
-
-allow-newer:
-  *:plutus-core,
-  *:plutus-ledger-api,
+  , hackage.haskell.org 2025-11-22T14:31:31Z
+  , cardano-haskell-packages 2025-11-22T14:31:31Z
 
 with-compiler: ghc-9.6.6
 
@@ -36,11 +27,30 @@ packages:
     src/examples/regulated-stablecoin
     src/examples/aiken/haskell
 
+constraints:
+  cardano-api == 10.17.2.0
+  , plutus-core == 1.51.0.0
+  , plutus-ledger-api == 1.51.0.0
+  , quickcheck-dynamic == 3.4.2
+  , QuickCheck == 2.16.0.0
+
+allow-older:
+  *:cardano-api
+  , *:plutus-core
+  , *:plutus-ledger-api
+  , *:QuickCheck
+
+allow-newer:
+  *:cardano-api
+  , *:plutus-core
+  , *:plutus-ledger-api
+  , *:QuickCheck
+
 source-repository-package
   type: git
   location: https://github.com/j-mueller/sc-tools
-  tag: dd881e1ab29ba10e3e5b0d163dfde00016c70b8f
-  --sha256: sha256-/21xOErXZon3rlYUzSkMRRZkFjxi3CrmkeSpJ7MtGSo=
+  tag: 1240643dbb8af5df075f4b1894a672744e733a7f
+  --sha256: sha256-Jqj4DHEsXBrTSZSWqFiGKCNXwavOd2kAAFb8cPNZdgs=
   subdir:
     src/devnet
     src/coin-selection
@@ -54,9 +64,9 @@ source-repository-package
 
 source-repository-package
     type: git
-    location: https://github.com/Plutonomicon/plutarch-plutus
-    tag: f84a46287b06f36abf8d2d63bec7ff75d32f3e91
-    --sha256: sha256-gKBk9D6DHSEudq7P9+07yXWcgM/QX7NFp0tJXBodopM=
+    location: https://github.com/choener/plutarch-plutus
+    tag: 99315dada86e042bbc1dee5c5ccae158119031eb
+    --sha256: sha256-kgjYtDcqqEsF61QqK5eoxwL4Gbj9A0tAAqw6xH01NB0=
     subdir:
       .
       plutarch-ledger-api
@@ -66,7 +76,7 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/input-output-hk/catalyst-onchain-libs
-    tag: 2d8389099584e2d9735e9374895386c72d90517a
-    --sha256: sha256-sdeDXUiL1MbEtJYbN4URwpQ8CbUKjxxGXUxjj1qqi3E=
+    tag: 6c7156c441c18b2c76066eae1cce1578190c9cfd
+    --sha256: sha256-bGf20nAEeMJ3iajMqRBN88BQSMVTXecXl6CztHiZUtA=
     subdir:
       src/plutarch-onchain-lib

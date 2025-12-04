@@ -21,7 +21,7 @@ import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
 import SmartTokens.Types.ProtocolParams
 
-pmkDirectoryGlobalLogic :: ClosedTerm (PAsData PCurrencySymbol :--> PScriptContext :--> PUnit)
+pmkDirectoryGlobalLogic :: Term s (PAsData PCurrencySymbol :--> PScriptContext :--> PUnit)
 pmkDirectoryGlobalLogic = plam $ \protocolParamsCS ctx -> P.do
   PScriptContext {pscriptContext'txInfo, pscriptContext'scriptInfo} <- pmatch ctx
   PTxInfo {ptxInfo'referenceInputs, ptxInfo'mint} <- pmatch pscriptContext'txInfo
@@ -40,7 +40,7 @@ pmkDirectoryGlobalLogic = plam $ \protocolParamsCS ctx -> P.do
       pvalidateConditions [phasDataCS # pdirectoryNodeCS # pfromData ptxInfo'mint]
     _ -> perror
 
-pmkDirectorySpendingYielding :: ClosedTerm (PAsData PCredential :--> PScriptContext :--> PUnit)
+pmkDirectorySpendingYielding :: Term s (PAsData PCredential :--> PScriptContext :--> PUnit)
 pmkDirectorySpendingYielding = plam $ \globalCred ctx -> P.do
   PScriptContext {pscriptContext'txInfo} <- pmatch ctx
   PTxInfo {ptxInfo'wdrl} <- pmatch pscriptContext'txInfo
@@ -50,7 +50,7 @@ pmkDirectorySpendingYielding = plam $ \globalCred ctx -> P.do
     PJust _ -> (pconstant ())
     PNothing -> perror
 
-pmkDirectorySpending :: ClosedTerm (PAsData PCurrencySymbol :--> PScriptContext :--> PUnit)
+pmkDirectorySpending :: Term s (PAsData PCurrencySymbol :--> PScriptContext :--> PUnit)
 pmkDirectorySpending = plam $ \protocolParamsCS ctx -> P.do
   PScriptContext {pscriptContext'txInfo} <- pmatch ctx
   PTxInfo {ptxInfo'referenceInputs, ptxInfo'mint} <- pmatch pscriptContext'txInfo

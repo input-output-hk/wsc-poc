@@ -17,7 +17,7 @@ module SmartTokens.Types.ProtocolParams (
   PProgrammableLogicGlobalParams (..),
 ) where
 
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api.Plutus qualified as C
 import Control.Lens ((&), (.~), (?~))
 import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, (.:), (.=))
 import Data.Aeson qualified as Aeson

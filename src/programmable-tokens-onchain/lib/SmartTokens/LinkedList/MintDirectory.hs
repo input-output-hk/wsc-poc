@@ -58,7 +58,7 @@ deriving via DeriveDataPLiftable PDirectoryNodeAction DirectoryNodeAction
   instance PLiftable PDirectoryNodeAction
 
 mkDirectoryNodeMP ::
-  ClosedTerm
+  forall s. Term s
     ( PAsData PTxOutRef
       :--> PAsData PCurrencySymbol
       :--> PScriptContext
