@@ -6,7 +6,6 @@ module Main (
 
 import Cardano.Api qualified as C
 import Convex.Wallet.Operator qualified as Operator
-import Data.Proxy (Proxy (..))
 import Data.Text qualified as Text
 import System.Environment qualified
 import System.Exit (exitFailure)
@@ -15,7 +14,7 @@ main :: IO ()
 main = System.Environment.getArgs >>= \case
   [fp] -> do
     putStrLn $ "Reading extended signing key from " <> fp
-    C.readFileTextEnvelope (C.proxyToAsType $ Proxy @(C.SigningKey C.PaymentExtendedKey)) (C.File fp) >>= \case
+    C.readFileTextEnvelope (C.File fp) >>= \case
       Left err -> do
         putStrLn $ show err
         exitFailure

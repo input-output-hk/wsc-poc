@@ -29,7 +29,7 @@
     };
 
     aiken = {
-      url = "github:aiken-lang/aiken/v1.1.16";
+      url = "github:aiken-lang/aiken/v1.1.19";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -58,11 +58,13 @@
       "https://cache.iog.io"
       "https://cache.zw3rk.com"
       "https://cache.ml42.de"
+      "https://sc-tools.cachix.org"
     ];
     extra-trusted-public-keys = [
       "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ="
       "loony-tools:pr9m4BkM/5/eSTZlkQyRt57Jz7OMBxNSUiMC4FkcNfk="
       "cache.ml42.de:RKmSRP9TOc87nh9FZCM/b/pMIE3kBLEeIe71ReCBwRM="
+      "sc-tools.cachix.org-1:DY2+6v0HuMvoCt7wEqZTPqzZBcNk/Lexb72Vixz6n6I="
     ];
     allow-import-from-derivation = true;
   };

@@ -57,7 +57,7 @@ data PIssuanceCborHex (s :: S)
 deriving via DeriveDataPLiftable (PAsData PIssuanceCborHex) IssuanceCborHex
   instance PLiftable PIssuanceCborHex
 
-mkIssuanceCborHexMinting :: ClosedTerm (PAsData PTxOutRef :--> PScriptContext :--> PUnit)
+mkIssuanceCborHexMinting :: Term s (PAsData PTxOutRef :--> PScriptContext :--> PUnit)
 mkIssuanceCborHexMinting = plam $ \oref ctx -> P.do
   PScriptContext {pscriptContext'txInfo, pscriptContext'scriptInfo} <- pmatch ctx
   PTxInfo {ptxInfo'inputs, ptxInfo'mint} <- pmatch pscriptContext'txInfo

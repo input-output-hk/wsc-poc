@@ -5,9 +5,9 @@ module SmartTokens.Contracts.AlwaysYields(
 ) where
 
 import Plutarch.LedgerApi.V3 (PScriptContext)
-import Plutarch.Prelude (ClosedTerm, PUnit, pconstant, plam, (:-->))
+import Plutarch.Prelude (PUnit, Term, pconstant, plam, (:-->))
 
 {-| Validator that always succeeds
 -}
-palwaysSucceed :: ClosedTerm (PScriptContext :--> PUnit)
+palwaysSucceed :: Term s (PScriptContext :--> PUnit)
 palwaysSucceed = plam (const $ pconstant ())

@@ -18,7 +18,7 @@ import Blammo.Logging.Simple (HasLogger, Message ((:#)), MonadLogger, logInfo,
                               (.=))
 import Blockfrost.Client.Core (BlockfrostError (..))
 import Blockfrost.Client.Types qualified as Blockfrost
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api qualified as C
 import Control.Lens qualified as L
 import Control.Monad.Error.Class (MonadError (throwError))
 import Control.Monad.IO.Class (MonadIO (..))

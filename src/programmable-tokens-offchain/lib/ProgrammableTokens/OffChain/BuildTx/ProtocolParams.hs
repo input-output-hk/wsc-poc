@@ -5,7 +5,6 @@ module ProgrammableTokens.OffChain.BuildTx.ProtocolParams(
 ) where
 
 import Cardano.Api qualified as C
-import Cardano.Api.Shelley qualified as C
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx, mintPlutus, prependTxOut,
                        spendPublicKeyOutput)

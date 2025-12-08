@@ -11,33 +11,13 @@ module Wst.Aiken.Error(
 ) where
 
 import Blockfrost.Client.Core (BlockfrostError)
-import Cardano.Api (AnyPlutusScriptVersion, AnyScriptLanguage)
 import Control.Lens (makeClassyPrisms)
+import Convex.Aiken.Error (AsBlueprintError (..), AsLookupScriptFailure (..),
+                           BlueprintError (..), LookupScriptFailure (..))
 import Convex.CoinSelection (AsBalancingError (..), AsCoinSelectionError (..),
                              BalancingError, CoinSelectionError)
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError (..),
                                           ProgrammableTokensError)
-import Wst.Aiken.BlueprintKey (BlueprintKey)
-
-data BlueprintError =
-
-  -- | Failed to convert 'ScriptInAnyLang' to the target script version
-  UnexpectedPlutusVersionError
-    { expectedVersion :: AnyPlutusScriptVersion
-    , actualVersion   :: AnyScriptLanguage
-    }
-
-  | BlueprintJsonError String
-  deriving stock (Show)
-
-makeClassyPrisms ''BlueprintError
-
-data LookupScriptFailure =
-  FailedToFindTransferScript BlueprintKey
-  | FailedToFindIssuanceScript BlueprintKey
-  deriving stock (Eq, Show)
-
-makeClassyPrisms ''LookupScriptFailure
 
 data AikenError era =
   ABlueprintError BlueprintError

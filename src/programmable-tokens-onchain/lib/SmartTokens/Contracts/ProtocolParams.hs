@@ -21,7 +21,7 @@ import SmartTokens.Types.Constants (pprotocolParamsTokenData)
 
 -- | Protocol Parameters minting policy
 -- This validator allows minting of a single token with a single token name.
-mkProtocolParametersMinting :: ClosedTerm (PAsData PTxOutRef :--> PScriptContext :--> PUnit)
+mkProtocolParametersMinting :: Term s (PAsData PTxOutRef :--> PScriptContext :--> PUnit)
 mkProtocolParametersMinting = plam $ \oref ctx -> P.do
   PScriptContext {pscriptContext'txInfo, pscriptContext'scriptInfo} <- pmatch ctx
   PTxInfo {ptxInfo'inputs, ptxInfo'mint} <- pmatch pscriptContext'txInfo
@@ -43,7 +43,7 @@ mkProtocolParametersMinting = plam $ \oref ctx -> P.do
 -- | Permissioned Minting Policy
 -- This minting policy checks for a given permissioned credential in the signatories of the transaction.
 -- It allows minting of any number of tokens with any token name so long as the credential authorizes the transaction.
-mkPermissionedMinting :: ClosedTerm (PData :--> PAsData PPubKeyHash :--> PScriptContext :--> PUnit)
+mkPermissionedMinting :: Term s (PData :--> PAsData PPubKeyHash :--> PScriptContext :--> PUnit)
 mkPermissionedMinting = plam $ \_ permissionedCred ctx ->
   pvalidateConditions
     [ ptxSignedByPkh # permissionedCred # (pfromData . ptxInfoSignatories . pscriptContextTxInfo) ctx
@@ -52,5 +52,5 @@ mkPermissionedMinting = plam $ \_ permissionedCred ctx ->
 -- | A nonced always fails script
 -- The parameter is used to modify the script hash.
 -- This is where the protocol parameters UTxO should reside.
-alwaysFailScript :: ClosedTerm (PData :--> PScriptContext :--> PUnit)
+alwaysFailScript :: Term s (PData :--> PScriptContext :--> PUnit)
 alwaysFailScript = plam $ \_ _ctx -> perror

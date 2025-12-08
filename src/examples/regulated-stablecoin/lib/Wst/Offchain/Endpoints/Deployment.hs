@@ -12,7 +12,7 @@ module Wst.Offchain.Endpoints.Deployment(
 ) where
 
 import Cardano.Api (Quantity)
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api qualified as C
 import Control.Monad (when)
 import Control.Monad.Error.Lens (throwing_)
 import Control.Monad.Except (MonadError (..))

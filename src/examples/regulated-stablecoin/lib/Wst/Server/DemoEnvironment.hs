@@ -13,7 +13,7 @@ module Wst.Server.DemoEnvironment(
   writeToFile,
 ) where
 
-import Cardano.Api.Shelley qualified as C
+import Cardano.Api qualified as C
 import Cardano.Ledger.BaseTypes qualified as Ledger
 import Control.Lens ((&), (?~))
 import Data.Aeson (FromJSON (..), ToJSON (..))
@@ -129,7 +129,7 @@ mkDemoEnv txIn issuanceCborHexTxIn (C.ShelleyAddress network (C.fromShelleyPayme
       transferLogicEnv = Env.mkTransferLogicEnv rt
       blacklistEnv     = Env.mkBlacklistEnv rt
       dummyText        = "REPLACE ME"
-      assetName        = "WST"
+      assetName        = C.UnsafeAssetName "WST"
       dummyBlockfrostUrl = "https://cardano-preview.blockfrost.io/api/v0"
       dummyNetwork     = Preview
       dummyKey = "REPLACE ME"

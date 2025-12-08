@@ -21,5 +21,5 @@ import Plutarch.Internal.Term qualified as PI
 --
 -- >>> _printTerm (pconstant $ BlacklistNode { blnKey = "a hi", blnNext = "a" })
 -- "program 1.0.0 (List [B #61206869, B #61])"
-_printTerm :: HasCallStack => ClosedTerm a -> String
+_printTerm :: HasCallStack => (forall s. Term s a) -> String
 _printTerm term = printScript $ either (error . T.unpack) id $ PI.compile PI.NoTracing term

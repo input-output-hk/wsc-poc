@@ -63,7 +63,7 @@ deriving via DeriveDataPLiftable PBlacklistProof BlacklistProof
 
   This ensures that only transactions signed by the specified permissioned credential can spend the associated programmable tokens.
 -}
-mkPermissionedTransfer :: ClosedTerm (PData :--> PAsData PPubKeyHash :--> PScriptContext :--> PUnit)
+mkPermissionedTransfer :: Term s (PData :--> PAsData PPubKeyHash :--> PScriptContext :--> PUnit)
 mkPermissionedTransfer = plam $ \_ permissionedCred ctx ->
   pvalidateConditions
     [ ptxSignedByPkh # permissionedCred # (pfromData . ptxInfoSignatories . pscriptContextTxInfo) ctx
@@ -165,7 +165,7 @@ pextractRequiredWitnesses = phoistAcyclic $ plam $ \progBaseCred inputs ->
      the blacklist proofs (provided via the redeemer) verifying the correctness of each proof
      (i.e. that the proof really does prove that the associated witness is not in the blacklist).
 -}
-mkFreezeAndSeizeTransfer :: ClosedTerm (PAsData PCredential :--> PAsData PCurrencySymbol :--> PScriptContext :--> PUnit)
+mkFreezeAndSeizeTransfer :: Term s (PAsData PCredential :--> PAsData PCurrencySymbol :--> PScriptContext :--> PUnit)
 mkFreezeAndSeizeTransfer = plam $ \(pfromData -> programmableLogicBaseCred) blacklistNodeCS ctx -> P.do
   PScriptContext {pscriptContext'txInfo, pscriptContext'redeemer, pscriptContext'scriptInfo} <- pmatch ctx
   PTxInfo {ptxInfo'inputs, ptxInfo'referenceInputs} <- pmatch pscriptContext'txInfo
