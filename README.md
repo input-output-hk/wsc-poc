@@ -1,6 +1,6 @@
 # CIP-143 reference implementation and examples
 
-This repository contains a reference implementation of [CIP-143](https://github.com/colll78/CIPs/blob/patch-3/CIP-0143/README.md).
+This repository contains a reference implementation of [CIP-143](https://github.com/cardano-foundation/CIPs/blob/master/CIP-0143/README.md).
 The CIP describes a registry of token standards around programmable assets, and some conventions for Cardano addresses that hold programmable assets.
 
 ## CLI
@@ -24,7 +24,7 @@ The validators will be called as reward withdrawal validators.
 
 ## Freeze-and-seize stablecoin
 
-There is a proof-of-concept for _WST_ a programmable token with freeze and seize capabilities, based on [CIP-0143](https://github.com/colll78/CIPs/blob/patch-3/CIP-0143/README.md). The programmable logic of _WST_ checks whether the target address is blacklisted before allowing a transfer of the programmable token from one owner to another.
+There is a proof-of-concept for _WST_ a programmable token with freeze and seize capabilities, based on [CIP-0143](https://github.com/cardano-foundation/CIPs/blob/master/CIP-0143/README.md). The programmable logic of _WST_ checks whether the target address is blacklisted before allowing a transfer of the programmable token from one owner to another.
 
 ![Screenshot of the UI showing the minting authority.](image-1.png)
 
