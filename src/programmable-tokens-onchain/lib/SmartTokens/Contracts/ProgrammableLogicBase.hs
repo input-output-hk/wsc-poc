@@ -34,11 +34,7 @@ import Plutarch.Core.Integrity (pisRewardingScript)
 import Plutarch.Core.Internal.Builtins (pmapData, ppairDataBuiltinRaw)
 import Plutarch.Core.List
 import Plutarch.Core.Utils
-import Plutarch.Core.ValidationLogic hiding (
-    pemptyLedgerValue,
-    pvalueFromCred,
-    pvalueToCred,
- )
+import Plutarch.Core.ValidationLogic hiding (pemptyLedgerValue, pvalueFromCred, pvalueToCred)
 import Plutarch.Core.Value
 import Plutarch.Internal.Lift
 import Plutarch.LedgerApi.V3
@@ -195,6 +191,123 @@ pvalueToCred cred inputs =
         # pemptyLedgerValue
         # inputs
 
+{- | Check that outputs at the given credential contain at least the expected value.
+This avoids constructing a full aggregated output Value and instead sums only required assets.
+-}
+poutputsContainExpectedValueAtCred ::
+    Term s PCredential ->
+    Term s (PBuiltinList (PAsData PTxOut)) ->
+    Term s (PValue 'Sorted 'Positive) ->
+    Term s PBool
+poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
+    let
+        passetQtyInValue = phoistAcyclic $ plam $ \value cs tn ->
+            let tokenQtyInTokenPairs = pfix #$ plam $ \self remainingTokenPairs ->
+                    pelimList
+                        ( \tokenPair tokenPairsRest ->
+                            let tokenName = pfromData (pfstBuiltin # tokenPair)
+                                tokenQty = pfromData (psndBuiltin # tokenPair)
+                             in pif
+                                    (tokenName #== tn)
+                                    tokenQty
+                                    ( pif
+                                        (tn #< tokenName)
+                                        0
+                                        (self # tokenPairsRest)
+                                    )
+                        )
+                        0
+                        remainingTokenPairs
+                tokenQtyInCurrencyPairs = pfix #$ plam $ \self remainingCurrencyPairs ->
+                    pelimList
+                        ( \currencyPair currencyPairsRest ->
+                            let currencySymbol = pfromData (pfstBuiltin # currencyPair)
+                                tokenPairs = pto (pfromData (psndBuiltin # currencyPair))
+                             in pif
+                                    (currencySymbol #== cs)
+                                    (tokenQtyInTokenPairs # tokenPairs)
+                                    ( pif
+                                        (cs #< currencySymbol)
+                                        0
+                                        (self # currencyPairsRest)
+                                    )
+                        )
+                        0
+                        remainingCurrencyPairs
+             in tokenQtyInCurrencyPairs # pto (pto value)
+        hasAtLeastAssetInProgOutputs = pfix #$ plam $ \self requiredQty currentQty cs tn remainingOutputs ->
+            pif
+                (currentQty #>= requiredQty)
+                (pconstant True)
+                ( pelimList
+                    ( \txOut outputsRest ->
+                        pmatch (pfromData txOut) $ \(PTxOut{ptxOut'address, ptxOut'value}) ->
+                            pif
+                                (paddressCredential ptxOut'address #== progLogicCred)
+                                (self # requiredQty # (currentQty + (passetQtyInValue # (pfromData ptxOut'value) # cs # tn)) # cs # tn # outputsRest)
+                                (self # requiredQty # currentQty # cs # tn # outputsRest)
+                    )
+                    (currentQty #>= requiredQty)
+                    remainingOutputs
+                )
+        checkExpectedTokenPairsAgainstActualValue = pfix #$ plam $ \self actualValue expectedCurrencySymbol remainingExpectedTokenPairs ->
+            pelimList
+                ( \expectedTokenPair expectedTokenPairsRest ->
+                    let expectedTokenName = pfromData (pfstBuiltin # expectedTokenPair)
+                        expectedTokenQty = pfromData (psndBuiltin # expectedTokenPair)
+                     in (passetQtyInValue # actualValue # expectedCurrencySymbol # expectedTokenName #>= expectedTokenQty)
+                            #&& self
+                            # actualValue
+                            # expectedCurrencySymbol
+                            # expectedTokenPairsRest
+                )
+                (pconstant True)
+                remainingExpectedTokenPairs
+        checkExpectedCurrencyPairsAgainstActualValue = pfix #$ plam $ \self actualValue remainingExpectedCurrencyPairs ->
+            pelimList
+                ( \expectedCurrencyPair expectedCurrencyPairsRest ->
+                    let expectedCurrencySymbol = pfromData (pfstBuiltin # expectedCurrencyPair)
+                        expectedTokenPairs = pto (pfromData (psndBuiltin # expectedCurrencyPair))
+                     in checkExpectedTokenPairsAgainstActualValue
+                            # actualValue
+                            # expectedCurrencySymbol
+                            # expectedTokenPairs
+                            #&& self
+                            # actualValue
+                            # expectedCurrencyPairsRest
+                )
+                (pconstant True)
+                remainingExpectedCurrencyPairs
+        expectedCsPairs = pto (pto expectedValue)
+        actualValueAtCred = pvalueToCred progLogicCred txOutputs
+     in
+        pif
+            (pnull # expectedCsPairs)
+            (pconstant True)
+            ( let firstExpectedCsPair = phead # expectedCsPairs
+                  firstExpectedTokenPairs = pto (pfromData (psndBuiltin # firstExpectedCsPair))
+                  singleExpectedAsset =
+                    pand'List
+                        [ pnull # (ptail # expectedCsPairs)
+                        , pnot # (pnull # firstExpectedTokenPairs)
+                        , pnull # (ptail # firstExpectedTokenPairs)
+                        ]
+               in pif
+                    singleExpectedAsset
+                    ( let expectedCurrencySymbol = pfromData (pfstBuiltin # firstExpectedCsPair)
+                          expectedTokenPair = phead # firstExpectedTokenPairs
+                          expectedTokenName = pfromData (pfstBuiltin # expectedTokenPair)
+                          expectedRequiredQty = pfromData (psndBuiltin # expectedTokenPair)
+                       in hasAtLeastAssetInProgOutputs
+                            # expectedRequiredQty
+                            # 0
+                            # expectedCurrencySymbol
+                            # expectedTokenName
+                            # txOutputs
+                    )
+                    (checkExpectedCurrencyPairsAgainstActualValue # actualValueAtCred # expectedCsPairs)
+            )
+
 {- | Programmable logic base
 This validator forwards its validation logic to the programmable logic stake script
 using the withdraw-zero design pattern.
@@ -264,14 +377,15 @@ pcheckTransferLogicAndGetProgrammableValue ::
     Term s (PBuiltinList (PAsData PTxInInfo)) ->
     Term s (PBuiltinList (PAsData PTokenProof)) ->
     Term s (PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace))) ->
+    Term s (PAsData PCredential) ->
     Term s (PValue 'Sorted 'Positive) ->
     Term s (PValue 'Sorted 'Positive)
-pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList withdrawalEntries totalValue =
+pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList withdrawalEntries initialCachedTransferScript totalValue =
     plet (pelemAtFast @PBuiltinList # refInputs) $ \patRefUTxOIdx ->
         let mapInnerList :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
             mapInnerList = pto (pto totalValue)
-            -- go :: Term _ (PBuiltinList (PAsData PTokenProof) :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))) :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))) :--> PValue 'Sorted 'Positive)
-            go = pfix #$ plam $ \self proofs inputInnerValue actualProgrammableTokenValue ->
+            -- Cache transfer-script invocation checks across adjacent TokenExists proofs.
+            go = pfix #$ plam $ \self proofs inputInnerValue actualProgrammableTokenValue cachedTransferScript ->
                 pelimList
                     ( \csPair csPairs ->
                         pmatch (pfromData $ phead # proofs) $ \case
@@ -283,13 +397,20 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
                                 -- and that the associated transfer logic script is executed in the transaction
                                 let checks =
                                         pand'List
-                                            [ ptraceInfoIfFalse "Missing required transfer script" (pisScriptInvokedEntries # directoryNodeDatumFTransferLogicScript # withdrawalEntries)
+                                            [ ptraceInfoIfFalse "Missing required transfer script" $
+                                                (directoryNodeDatumFTransferLogicScript #== cachedTransferScript)
+                                                    #|| (pisScriptInvokedEntries # directoryNodeDatumFTransferLogicScript # withdrawalEntries)
                                             , ptraceInfoIfFalse "directory proof mismatch" (directoryNodeDatumFkey #== (pfstBuiltin # csPair))
                                             , ptraceInfoIfFalse "invalid dir node" (phasCSH directoryNodeCS directoryNodeUTxOFValue)
                                             ]
                                 pif
                                     checks
-                                    (self # (ptail # proofs) # csPairs # (pcons # csPair # actualProgrammableTokenValue))
+                                    ( self
+                                        # (ptail # proofs)
+                                        # csPairs
+                                        # (pcons # csPair # actualProgrammableTokenValue)
+                                        # directoryNodeDatumFTransferLogicScript
+                                    )
                                     perror
                             PTokenDoesNotExist notExistNodeIdx -> P.do
                                 PTxOut{ptxOut'value = prevNodeUTxOValue, ptxOut'datum = prevNodeUTxODatum} <- pmatch $ ptxInInfoResolved (pfromData $ patRefUTxOIdx # pfromData notExistNodeIdx)
@@ -309,12 +430,21 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
                                             ]
                                 pif
                                     checks
-                                    (self # (ptail # proofs) # csPairs # actualProgrammableTokenValue)
+                                    ( self
+                                        # (ptail # proofs)
+                                        # csPairs
+                                        # actualProgrammableTokenValue
+                                        # cachedTransferScript
+                                    )
                                     perror
                     )
                     (pcon $ PValue $ pcon $ PMap actualProgrammableTokenValue)
                     inputInnerValue
-         in go # proofList # mapInnerList # pto (pto pemptyLedgerValue)
+         in go
+                # proofList
+                # mapInnerList
+                # pto (pto pemptyLedgerValue)
+                # initialCachedTransferScript
 
 {- | Traverse the minted value and validate one directory proof per minted currency symbol.
 Returns a signed value containing only programmable currency symbols from the tx mint field.
@@ -471,6 +601,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
 
     pmatch red $ \case
         PTransferAct transferProofs mintProofs -> P.do
+            cachedTransferScript0 <- plet $ pfstBuiltin # (phead @PBuiltinList # withdrawalEntries)
             totalProgTokenValue <-
                 plet $
                     pvalueFromCred
@@ -485,37 +616,31 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                         referenceInputs
                         (pfromData transferProofs)
                         withdrawalEntries
+                        cachedTransferScript0
                         totalProgTokenValue
             mintValueNoGuarantees <- plet $ punsafeCoerce @(PValue 'Sorted 'NoGuarantees) (pfromData ptxInfo'mint)
             expectedProgrammableOutputValue <-
                 plet $
                     pif
                         (pnull # pto (pto mintValueNoGuarantees))
-                        ( pelimList
-                            (\_ _ -> ptraceInfoError "extra mint proof")
-                            totalProgTokenValue_
-                            (pfromData mintProofs)
+                        totalProgTokenValue_
+                        ( punsafeCoerce @(PValue 'Sorted 'Positive) $
+                            punsafeCoerce @(PValue 'Sorted 'NoGuarantees) totalProgTokenValue_
+                                #<> pcheckMintLogicAndGetProgrammableValue
+                                    (pfromData pdirectoryNodeCS)
+                                    referenceInputs
+                                    (pfromData mintProofs)
+                                    withdrawalEntries
+                                    mintValueNoGuarantees
                         )
-                        ( plet
-                            ( pcheckMintLogicAndGetProgrammableValue
-                                (pfromData pdirectoryNodeCS)
-                                referenceInputs
-                                (pfromData mintProofs)
-                                withdrawalEntries
-                                mintValueNoGuarantees
-                            )
-                            ( \programmableMintSignedValue ->
-                                punsafeCoerce @(PValue 'Sorted 'Positive) $
-                                    punsafeCoerce @(PValue 'Sorted 'NoGuarantees) totalProgTokenValue_
-                                        #<> programmableMintSignedValue
-                            )
-                        )
+
             pvalidateConditions
                 [ pisRewardingScript (pdata pscriptContext'scriptInfo)
                 , ptraceInfoIfFalse "prog tokens escape" $
-                    pvalueContains
-                        # pvalueToCred progLogicCred (pfromData ptxInfo'outputs)
-                        # expectedProgrammableOutputValue
+                    poutputsContainExpectedValueAtCred
+                        progLogicCred
+                        (pfromData ptxInfo'outputs)
+                        expectedProgrammableOutputValue
                 ]
         PSeizeAct{pdirectoryNodeIdx, pinputIdxs, poutputsStartIdx, plengthInputIdxs} -> P.do
             inputIdxsLen <- plet $ pfromData plengthInputIdxs
