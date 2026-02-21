@@ -50,6 +50,7 @@ library
   exposed-modules:
     ProgrammableTokens.Gen
     ProgrammableTokens.Test
+    ProgrammableTokens.Test.ScriptContext.Builder
 
   hs-source-dirs:  lib
   build-depends:
@@ -66,6 +67,7 @@ library
     , lens
     , mtl
     , plutus-ledger-api
+    , plutus-tx
     , programmable-tokens-offchain
     , programmable-tokens-onchain
     , QuickCheck
@@ -81,16 +83,37 @@ test-suite programmable-tokens-test
   other-modules:
     ProgrammableTokens.Test.DirectorySet
     ProgrammableTokens.Test.Error
+    ProgrammableTokens.Test.ProgrammableLogicGlobal
 
   build-depends:
     , base                          >=4.14.0
+    , bytestring
     , cardano-api
     , convex-base
     , convex-coin-selection
     , convex-wallet
     , lens
     , mtl
+    , plutarch
+    , plutus-ledger-api
+    , plutus-tx
     , programmable-tokens-offchain
+    , programmable-tokens-onchain
     , programmable-tokens-testlib
+    , QuickCheck
     , tasty
     , tasty-hunit
+    , tasty-quickcheck
+
+executable benchmark-onchain-scripts
+  import:         lang
+  hs-source-dirs: exe
+  main-is:        BenchmarkOnchainScripts.hs
+  build-depends:
+    , base
+    , bytestring
+    , plutarch
+    , plutus-ledger-api
+    , plutus-tx
+    , programmable-tokens-onchain
+    , programmable-tokens-testlib

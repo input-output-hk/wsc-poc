@@ -236,8 +236,8 @@ issueSmartTokens paramsTxOut issuanceCborHexTxOut (an, q) directoryNode destinat
     BuildTx.paySmartTokensToDestination (an, q) issuedPolicyId destinationCred
     pure $ C.AssetId issuedPolicyId an
 
-transferSmartTokens :: forall env era err a m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env, MonadError err m) => UTxODat era ProgrammableLogicGlobalParams -> [UTxODat era BlacklistNode] -> UTxODat era DirectorySetNode -> [UTxODat era a] -> (C.AssetId, C.Quantity) -> C.PaymentCredential -> m (FindProofResult era)
-transferSmartTokens paramsTxIn blacklistNodes directoryNode spendingUserOutputs (assetId, q) destinationCred = Utils.inBabbage @era $ do
+transferSmartTokens :: forall env era err a m. (MonadReader env m, Env.HasTransferLogicEnv env, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m, Env.HasOperatorEnv era env, MonadError err m) => UTxODat era ProgrammableLogicGlobalParams -> [UTxODat era BlacklistNode] -> [UTxODat era DirectorySetNode] -> [UTxODat era a] -> (C.AssetId, C.Quantity) -> C.PaymentCredential -> m (FindProofResult era)
+transferSmartTokens paramsTxIn blacklistNodes directoryNodes spendingUserOutputs (assetId, q) destinationCred = Utils.inBabbage @era $ do
     nid <- queryNetworkId
     userCred <- Env.operatorPaymentCredential @env @era
     progLogicBaseCred <- asks (Env.programmableLogicBaseCredential . Env.directoryEnv)
@@ -251,7 +251,7 @@ transferSmartTokens paramsTxIn blacklistNodes directoryNode spendingUserOutputs 
             C.AssetId policyId _ -> policyId
             C.AdaAssetId -> error "Ada is not programmable"
 
-    transferProgrammableToken paramsTxIn txins (transPolicyId programmablePolicyId) directoryNode -- Invoking the programmableBase and global scripts
+    transferProgrammableToken paramsTxIn txins (transPolicyId programmablePolicyId) directoryNodes -- Invoking the programmableBase and global scripts
     result <- addTransferWitness blacklistNodes -- Proof of non-membership of the blacklist
 
     -- Send outputs to destinationCred

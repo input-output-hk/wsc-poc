@@ -35,7 +35,9 @@ import Data.Maybe (fromMaybe)
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (CurrencySymbol (..))
 import ProgrammableTokens.OffChain.Env qualified as Env
-import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedeemer (..))
+import SmartTokens.Contracts.ProgrammableLogicBase (
+    mkSeizeActRedeemerFromAbsoluteInputIdxs,
+ )
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import SmartTokens.Types.ProtocolParams
 import Wst.Offchain.Query (UTxODat (..))
@@ -115,7 +117,7 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicy
             fromIntegral @Int @Integer $ findIndexReference dirNodeRef txBody
 
         -- Finds the index of the issuer input in the transaction body
-        seizingInputIndex txBody =
+        seizingInputAbsoluteIndexes txBody =
             map (\UTxODat{uIn = seizingTxIn} -> fromIntegral @Int @Integer $ findIndexSpending seizingTxIn txBody) seizingUTxOs
 
         -- Finds the index of the first output to the programmable logic base credential
@@ -130,12 +132,10 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicy
 
         -- The seizing redeemer for the global script
         programmableLogicGlobalRedeemer txBody =
-            SeizeAct
-                { plgrDirectoryNodeIdx = directoryNodeReferenceIndex txBody
-                , plgrInputIdxs = seizingInputIndex txBody
-                , plgrOutputsStartIdx = firstSeizeContinuationOutputIndex txBody
-                , plgrLengthInputIdxs = fromIntegral @Int @Integer $ length seizingUTxOs
-                }
+            mkSeizeActRedeemerFromAbsoluteInputIdxs
+                (directoryNodeReferenceIndex txBody)
+                (seizingInputAbsoluteIndexes txBody)
+                (firstSeizeContinuationOutputIndex txBody)
 
         programmableGlobalWitness txBody = buildScriptWitness globalStakeScript C.NoScriptDatumForStake (programmableLogicGlobalRedeemer txBody)
 

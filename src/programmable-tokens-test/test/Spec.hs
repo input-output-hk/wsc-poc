@@ -1,11 +1,17 @@
-{-| Programmable tokens test
--}
-module Main(
-  main
+-- | Programmable tokens test
+module Main (
+    main,
 ) where
 
 import ProgrammableTokens.Test.DirectorySet qualified as DirectorySet
-import Test.Tasty (defaultMain)
+import ProgrammableTokens.Test.ProgrammableLogicGlobal qualified as ProgrammableLogicGlobal
+import Test.Tasty (defaultMain, testGroup)
 
 main :: IO ()
-main = defaultMain DirectorySet.tests
+main =
+    defaultMain $
+        testGroup
+            "programmable-tokens"
+            [ DirectorySet.tests
+            , ProgrammableLogicGlobal.tests
+            ]
