@@ -84,6 +84,35 @@ Update it whenever a benchmark-backed optimization insight is discovered.
     - Seize paths also changed slightly from global script-size effects (small deltas).
   - Conclusion: materially cheaper in benchmark suite; correctness depends on relying on external invariants for positivity of the signed sum.
 
+### 2026-02-21
+
+- TransferAct no-mint fast path:
+  - Variant tested: when `txInfo.mint` is empty, skip `pcheckMintLogicAndGetProgrammableValue` and require `mintProofs == []` (fail on extra mint proofs).
+  - Why it helped: avoids mint-proof traversal and signed-value merge in the common no-mint transfer path.
+  - Security impact: preserved and slightly tightened in no-mint transactions by rejecting redundant mint proofs.
+  - Keep / revert: keep.
+
+- Strip Ada before accumulation in transfer containment path:
+  - Variant tested:
+    - In `pvalueFromCred`, accumulate `pstripAdaH inputValue` instead of full input value.
+    - In `pvalueToCred`, accumulate `pstripAdaH outputValue` per matched output instead of stripping once at the end.
+    - In transfer proof filtering, stop dropping the first currency-symbol entry (because values are already Ada-stripped).
+  - Why it helped: removes repeated add/remove work for Ada and reduces intermediate value-map size in hot transfer checks.
+  - Security impact: preserved; non-Ada programmable-value containment invariant is unchanged.
+  - Keep / revert: keep.
+
+- Protocol-params reference lookup first-hit specialization:
+  - Variant tested: specialize `pfindReferenceInputByCS` to check the first reference input directly, then fall back to recursive search; also share resolved outputs with `plet`.
+  - Why it helped: many benchmarked contexts place protocol params first, so this removes one recursive step and avoids duplicate resolved-output extraction.
+  - Security impact: preserved; same datum/token validation and same fallback behavior.
+  - Keep / revert: keep.
+
+- Aggregate benchmark deltas from this pass (vs pre-pass baseline):
+  - `programmableLogicGlobal.TransferAct`: CPU `95,211,692 -> 80,851,236` (`-14,360,456`, `-15.08%`), Mem `303,606 -> 246,909` (`-56,697`, `-18.68%`).
+  - `programmableLogicGlobal.TransferAct.MixedMany`: CPU `158,720,713 -> 150,930,949` (`-7,789,764`, `-4.91%`), Mem `480,214 -> 439,167` (`-41,047`, `-8.55%`).
+  - `programmableLogicGlobal.TransferAct.TokenDoesNotExist`: CPU `55,876,604 -> 50,408,335` (`-5,468,269`, `-9.79%`), Mem `183,862 -> 162,699` (`-21,163`, `-11.51%`).
+  - `programmableLogicBase.Tx.d29ce2a9.Stake`: CPU `96,494,338 -> 82,133,882` (`-14,360,456`, `-14.88%`), Mem `307,770 -> 251,073` (`-56,697`, `-18.42%`).
+
 ## Plutus-Core Costing Internals (v1.51.0.0)
 
 - Dependency pins in this repo:
