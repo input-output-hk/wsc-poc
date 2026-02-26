@@ -654,8 +654,10 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                 , pissuerLogicScript = directoryNodeDatumFIssuerLogicScript
                 } <-
                 pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto seizeDat'))
+            mintValueNoGuarantees <- plet $ punsafeCoerce @(PValue 'Sorted 'NoGuarantees) (pfromData ptxInfo'mint)
+            seizeMintedTokens <- plet $ pmintTokensForCurrencySymbol # pfromData directoryNodeDatumFKey # mintValueNoGuarantees
             let conditions =
-                    [ ptraceInfoIfFalse "mini-ledger invariants violated" $ processThirdPartyTransfer directoryNodeDatumFKey progLogicCred (pfromData ptxInfo'inputs) remainingOutputs inputIdxsData
+                    [ ptraceInfoIfFalse "mini-ledger invariants violated" $ processThirdPartyTransfer directoryNodeDatumFKey progLogicCred (pfromData ptxInfo'inputs) remainingOutputs inputIdxsData seizeMintedTokens
                     , ptraceInfoIfFalse "issuer logic script must be invoked" $ pisScriptInvokedEntries # directoryNodeDatumFIssuerLogicScript # withdrawalEntries
                     , -- directory node is valid (presence of state token)
                       ptraceInfoIfFalse "directory node is not valid" $ phasCSH (pfromData pdirectoryNodeCS) seizeDirectoryNodeValue
@@ -688,11 +690,34 @@ punionTokens = pfix #$ plam $ \self tokensA tokensB ->
                                 (pcons # tokenPairB # (self # tokensA # tokensRestB))
                             )
                     )
-                    pnil
+                    tokensA
                     tokensB
         )
-        pnil
+        tokensB
         tokensA
+
+{- | Extract signed minted token pairs for a specific currency symbol from tx mint.
+Returns an empty list when the currency symbol is not minted/burned in the tx.
+-}
+pmintTokensForCurrencySymbol ::
+    Term s (PCurrencySymbol :--> PValue 'Sorted 'NoGuarantees :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
+pmintTokensForCurrencySymbol =
+    phoistAcyclic $
+        plam $ \targetCs mintValue ->
+            let mintedEntries :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
+                mintedEntries = pto (pto mintValue)
+                go = pfix #$ plam $ \self remainingMintEntries ->
+                    pelimList
+                        ( \mintCsPair mintCsPairs ->
+                            let mintCs = pfromData (pfstBuiltin # mintCsPair)
+                             in pif
+                                    (mintCs #== targetCs)
+                                    (pto (pfromData (psndBuiltin # mintCsPair)))
+                                    (pif (targetCs #< mintCs) pnil (self # mintCsPairs))
+                        )
+                        pnil
+                        remainingMintEntries
+             in go # mintedEntries
 
 processThirdPartyTransfer ::
     Term s (PAsData PCurrencySymbol) ->
@@ -700,8 +725,9 @@ processThirdPartyTransfer ::
     Term s (PBuiltinList (PAsData PTxInInfo)) ->
     Term s (PBuiltinList (PAsData PTxOut)) ->
     Term s (PBuiltinList PData) ->
+    Term s (PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))) ->
     Term s PBool
-processThirdPartyTransfer programmableCS progLogicCred inputs progOutputs inputIdxs' =
+processThirdPartyTransfer programmableCS progLogicCred inputs progOutputs inputIdxs' mintedTokens =
     let
         programmableCS' = pfromData programmableCS
         checkBalanceInvariant :: Term _ (PBuiltinList (PAsData PTxOut)) -> Term _ (PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))) -> Term _ PBool
@@ -755,7 +781,7 @@ processThirdPartyTransfer programmableCS progLogicCred inputs progOutputs inputI
                                                     )
                             )
                 )
-                (checkBalanceInvariant programmableOutputs deltaAccumulator)
+                (checkBalanceInvariant programmableOutputs (punionTokens # deltaAccumulator # mintedTokens))
                 relativeInputIdxs
      in
         go # inputIdxs' # inputs # progOutputs # pnil

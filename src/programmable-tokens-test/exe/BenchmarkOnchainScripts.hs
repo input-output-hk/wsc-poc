@@ -527,6 +527,81 @@ globalTransferMixedManyCtx =
                 (PlutusTx.toBuiltinData directoryProgrammableNode3)
         )
 
+transferManyInputAddr :: Address
+transferManyInputAddr = scriptAddressWithSignerStake progLogicBaseHash signerPkh
+
+transferManyInputValue :: Value
+transferManyInputValue =
+    mkAdaValue 3_000_000
+        <> mkValue
+            [ (nonProgrammableCS, TokenName "np", 1)
+            , (programmableTransferCS, TokenName "0c", 1)
+            ]
+
+transferManyInputBuilder :: Integer -> ScriptContextBuilder
+transferManyInputBuilder idx =
+    withScriptInput
+        (PlutusTx.toBuiltinData ())
+        ( withOutRef (TxOutRef "fa11" idx)
+            <> withAddress transferManyInputAddr
+            <> withValue transferManyInputValue
+        )
+
+mkGlobalTransferManyCtx :: Integer -> ScriptContext
+mkGlobalTransferManyCtx inputCount =
+    let inputRefs = [0 .. (inputCount - 1)]
+        scriptInputsBuilder = mconcat (map transferManyInputBuilder inputRefs)
+        qtyInFirstOutput = inputCount `div` 2
+        qtyInSecondOutput = inputCount - qtyInFirstOutput
+     in buildBalancedScriptContext
+            ( withRewardingScript
+                (PlutusTx.toBuiltinData $ TransferAct [TokenDoesNotExist 1, TokenExists 2] [])
+                globalCred
+                0
+                <> withSigner signerPkh
+                <> withWithdrawal (ScriptCredential transferLogicHash) 0
+                <> scriptInputsBuilder
+                <> withOutput
+                    ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
+                        <> withTxOutValue (mkAdaValue 3_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", qtyInFirstOutput)])
+                    )
+                <> withOutput
+                    ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash recipientPkh)
+                        <> withTxOutValue (mkAdaValue 3_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", qtyInSecondOutput)])
+                    )
+                <> withOutput
+                    ( withTxOutAddress (pubKeyAddress signerPkh)
+                        <> withTxOutValue
+                            ( mkAdaValue 2_000_000
+                                <> mkValue [(nonProgrammableCS, TokenName "np", inputCount)]
+                            )
+                    )
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    (PlutusTx.toBuiltinData protocolParamsDatum)
+                <> withRefInputDatumValue
+                    dirNodeRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    (PlutusTx.toBuiltinData directoryCoveringNode)
+                <> withRefInputDatumValue
+                    (TxOutRef "bb10" 0)
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    (PlutusTx.toBuiltinData directoryProgrammableNode)
+            )
+
+globalTransfer5Ctx :: ScriptContext
+globalTransfer5Ctx = mkGlobalTransferManyCtx 5
+
+globalTransfer10Ctx :: ScriptContext
+globalTransfer10Ctx = mkGlobalTransferManyCtx 10
+
+globalTransfer15Ctx :: ScriptContext
+globalTransfer15Ctx = mkGlobalTransferManyCtx 15
+
 mkGlobalSeizeCtx :: Integer -> ScriptContext
 mkGlobalSeizeCtx seizeInputCount =
     let seizeInputIdxs = seizeInputIdxsFor seizeInputCount
@@ -962,6 +1037,9 @@ benchCases =
     , mkCase "programmableLogicGlobal.TransferAct" mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferCtx]
     , mkCase "programmableLogicGlobal.TransferAct.TokenDoesNotExist" mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferDoesNotExistCtx]
     , mkCase "programmableLogicGlobal.TransferAct.MixedMany" mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferMixedManyCtx]
+    , mkCase "programmableLogicGlobal.TransferAct.Spend5Utxos" mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransfer5Ctx]
+    , mkCase "programmableLogicGlobal.TransferAct.Spend10Utxos" mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransfer10Ctx]
+    , mkCase "programmableLogicGlobal.TransferAct.Spend15Utxos" mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransfer15Ctx]
     , mkCase "programmableLogicGlobal.SeizeAct1" mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalSeize1Ctx]
     , mkCase "programmableLogicGlobal.SeizeAct5" mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalSeize5Ctx]
     , mkCase "programmableLogicGlobal.SeizeAct10" mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalSeize10Ctx]

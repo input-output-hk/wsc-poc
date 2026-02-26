@@ -53,6 +53,11 @@ tests =
         [ testCase "unit_seizeAct_complete_indices_succeeds" unit_seizeAct_complete_indices_succeeds
         , testCase "unit_seizeAct_pubkey_index_rejected" unit_seizeAct_pubkey_index_rejected
         , testCase "unit_seizeAct_omitted_index_rejected" unit_seizeAct_omitted_index_rejected
+        , testCase "unit_seizeAct_burn_offsets_delta_succeeds" unit_seizeAct_burn_offsets_delta_succeeds
+        , testCase "unit_seizeAct_mint_with_containment_succeeds" unit_seizeAct_mint_with_containment_succeeds
+        , testCase "unit_seizeAct_mint_smuggle_rejected" unit_seizeAct_mint_smuggle_rejected
+        , testCase "unit_transferAct_burn_with_mint_proof_succeeds" unit_transferAct_burn_with_mint_proof_succeeds
+        , testCase "unit_transferAct_burn_without_mint_proof_rejected" unit_transferAct_burn_without_mint_proof_rejected
         , testCase "unit_transferAct_mint_smuggle_rejected" unit_transferAct_mint_smuggle_rejected
         , testCase "unit_transferAct_mint_with_proof_and_containment_succeeds" unit_transferAct_mint_with_proof_and_containment_succeeds
         , testCase "unit_transferAct_mint_without_mint_proof_rejected" unit_transferAct_mint_without_mint_proof_rejected
@@ -74,6 +79,34 @@ unit_seizeAct_omitted_index_rejected :: Assertion
 unit_seizeAct_omitted_index_rejected =
     assertScriptFails $
         mkGlobalSeizeCtx 3 [0, 0]
+
+unit_seizeAct_burn_offsets_delta_succeeds :: Assertion
+unit_seizeAct_burn_offsets_delta_succeeds =
+    assertScriptSucceeds mkGlobalSeizeBurnCtx
+
+unit_seizeAct_mint_with_containment_succeeds :: Assertion
+unit_seizeAct_mint_with_containment_succeeds =
+    assertScriptSucceeds mkGlobalSeizeMintContainedCtx
+
+unit_seizeAct_mint_smuggle_rejected :: Assertion
+unit_seizeAct_mint_smuggle_rejected =
+    assertScriptFails mkGlobalSeizeMintEscapeCtx
+
+unit_transferAct_burn_with_mint_proof_succeeds :: Assertion
+unit_transferAct_burn_with_mint_proof_succeeds =
+    assertScriptSucceeds $
+        mkGlobalTransferMintCtx
+            (TransferAct [TokenExists 1] [TokenExists 1])
+            (-1)
+            0
+
+unit_transferAct_burn_without_mint_proof_rejected :: Assertion
+unit_transferAct_burn_without_mint_proof_rejected =
+    assertScriptFails $
+        mkGlobalTransferMintCtx
+            (TransferAct [TokenExists 1] [])
+            (-1)
+            0
 
 unit_transferAct_mint_smuggle_rejected :: Assertion
 unit_transferAct_mint_smuggle_rejected =
@@ -320,6 +353,101 @@ mkGlobalSeizeCtxWithLeadingPubKey inputCount providedIdxs =
                 <> leadingPubKeyInput
                 <> seizeInputsBuilder
                 <> correspondingOutputsBuilder
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    (PlutusTx.toBuiltinData protocolParamsDatum)
+                <> withRefInputDatumValue
+                    dirNodeRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    (PlutusTx.toBuiltinData directoryProgrammableNode)
+            )
+
+mkGlobalSeizeBurnCtx :: ScriptContext
+mkGlobalSeizeBurnCtx =
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+     in buildBalancedScriptContext
+            ( withRewardingScript
+                (PlutusTx.toBuiltinData seizeRedeemer)
+                globalCred
+                0
+                <> withWithdrawal issuerCred 0
+                <> seizeInputBuilder 0
+                -- corresponding output removes 1 programmable token from the input
+                -- and tx mint burns exactly 1, so net required residual is zero.
+                <> withOutput
+                    ( withTxOutAddress seizeInputAddr
+                        <> withTxOutValue (mkAdaValue 3_000_000)
+                    )
+                <> withMint (mkValue [(programmableTransferCS, TokenName "0c", -1)]) (PlutusTx.toBuiltinData ())
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    (PlutusTx.toBuiltinData protocolParamsDatum)
+                <> withRefInputDatumValue
+                    dirNodeRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    (PlutusTx.toBuiltinData directoryProgrammableNode)
+            )
+
+mkGlobalSeizeMintContainedCtx :: ScriptContext
+mkGlobalSeizeMintContainedCtx =
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+     in buildBalancedScriptContext
+            ( withRewardingScript
+                (PlutusTx.toBuiltinData seizeRedeemer)
+                globalCred
+                0
+                <> withWithdrawal issuerCred 0
+                <> seizeInputBuilder 0
+                -- output ordering is reversed by the builder; this yields
+                -- [corresponding, residual] in the final tx outputs.
+                <> withOutput
+                    ( withTxOutAddress seizeInputAddr
+                        <> withTxOutValue (mkValue [(programmableTransferCS, TokenName "0c", 1)])
+                    )
+                <> withOutput
+                    ( withTxOutAddress seizeInputAddr
+                        <> withTxOutValue seizeInputValue
+                    )
+                <> withMint (mkValue [(programmableTransferCS, TokenName "0c", 1)]) (PlutusTx.toBuiltinData ())
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    (PlutusTx.toBuiltinData protocolParamsDatum)
+                <> withRefInputDatumValue
+                    dirNodeRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    (PlutusTx.toBuiltinData directoryProgrammableNode)
+            )
+
+mkGlobalSeizeMintEscapeCtx :: ScriptContext
+mkGlobalSeizeMintEscapeCtx =
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 1
+     in buildBalancedScriptContext
+            ( withRewardingScript
+                (PlutusTx.toBuiltinData seizeRedeemer)
+                globalCred
+                0
+                <> withWithdrawal issuerCred 0
+                <> seizeInputBuilder 0
+                -- output ordering is reversed by the builder; this yields
+                -- [pubkey token output, corresponding] in the final tx outputs.
+                <> withOutput
+                    ( withTxOutAddress seizeInputAddr
+                        <> withTxOutValue seizeInputValue
+                    )
+                <> withOutput
+                    ( withTxOutAddress (pubKeyAddress signerPkh)
+                        <> withTxOutValue (mkValue [(programmableTransferCS, TokenName "0c", 1)])
+                    )
+                <> withMint (mkValue [(programmableTransferCS, TokenName "0c", 1)]) (PlutusTx.toBuiltinData ())
                 <> withRefInputDatumValue
                     paramRef
                     (pubKeyAddress signerPkh)
