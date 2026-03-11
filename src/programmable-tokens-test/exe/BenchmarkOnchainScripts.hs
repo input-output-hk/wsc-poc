@@ -6,8 +6,9 @@ module Main (main) where
 import Data.ByteString qualified as BS
 import Data.Char (ord)
 import Data.Either (isRight)
-import Data.List (sortOn)
+import Data.List (intercalate, sortOn)
 import Data.Word (Word8)
+import Numeric (showFFloat)
 import Plutarch.Evaluate (applyArguments, evalScript)
 import Plutarch.Internal.Term (
     Config (NoTracing),
@@ -16,12 +17,13 @@ import Plutarch.Internal.Term (
     compile,
  )
 import PlutusLedgerApi.V1 qualified as PV1
-import PlutusLedgerApi.V1.Value (TokenName (..), assetClass, assetClassValue)
+import PlutusLedgerApi.V1.Value (assetClass, assetClassValue)
 import PlutusLedgerApi.V3
 import PlutusLedgerApi.V3.MintValue (MintValue (UnsafeMintValue))
 import PlutusTx qualified
 import PlutusTx.AssocMap qualified as Map
 import PlutusTx.Builtins qualified as BI
+import ProgrammableTokens.Test (productionMaxTxExBudget)
 import ProgrammableTokens.Test.ScriptContext.Builder (
     ScriptContextBuilder,
     buildBalancedScriptContext,
@@ -71,14 +73,19 @@ import SmartTokens.Types.ProtocolParams (
 
 main :: IO ()
 main = do
+    let ExBudget (ExCPU maxCpu) (ExMemory maxMem) = productionMaxTxExBudget
     putStrLn "Onchain script benchmark (NoTracing, one case per redeemer path)"
-    putStrLn "name,success,budget"
     rows <- traverse runCase benchCases
     let sorted = sortOn caseName rows
-    mapM_ (putStrLn . caseLine) sorted
+    putStrLn $
+        "Max tx ex units: CPU "
+            <> formatUnits maxCpu
+            <> " | Mem "
+            <> formatUnits maxMem
+    putStrLn ""
+    mapM_ putStrLn (renderBenchTable sorted)
   where
-    caseName (BenchRow name _ _ _) = name
-    caseLine (BenchRow _ _ _ line) = line
+    caseName BenchRow{brName = name} = name
 
 data BenchCase = BenchCase
     { bcName :: String
@@ -90,19 +97,112 @@ data BenchRow = BenchRow
     { brName :: String
     , brSuccess :: Bool
     , brBudget :: ExBudget
-    , brLine :: String
     }
 
 runCase :: BenchCase -> IO BenchRow
 runCase bench = do
     let (res, budget, logs) = evalScript (applyArguments (bcScript bench) (bcArgs bench))
         ok = isRight res
-        line = bcName bench <> "," <> show ok <> "," <> show budget
     if ok
-        then pure (BenchRow (bcName bench) ok budget line)
+        then pure (BenchRow (bcName bench) ok budget)
         else do
             putStrLn ("failure logs for " <> bcName bench <> ": " <> show logs)
-            pure (BenchRow (bcName bench) ok budget line)
+            pure (BenchRow (bcName bench) ok budget)
+
+renderBenchTable :: [BenchRow] -> [String]
+renderBenchTable rows =
+    let header =
+            [ "Case"
+            , "Result"
+            , "CPU"
+            , "CPU %"
+            , "Mem"
+            , "Mem %"
+            ]
+        renderedRows = fmap renderBenchRow rows
+        allRows = header : renderedRows
+        widths = fmap maximumColumnWidth (transpose allRows)
+        separator = renderSeparator widths
+     in renderColumns widths header
+            : separator
+            : fmap (renderColumns widths) renderedRows
+
+renderBenchRow :: BenchRow -> [String]
+renderBenchRow BenchRow{brName = name, brSuccess = success, brBudget = budget} =
+    [ name
+    , if success then "PASS" else "FAIL"
+    , budgetCpuText budget
+    , formatPercent (budgetCpuPct budget)
+    , budgetMemText budget
+    , formatPercent (budgetMemPct budget)
+    ]
+
+renderColumns :: [Int] -> [String] -> String
+renderColumns widths cols =
+    intercalate " | " (zipWith renderColumn [0 ..] (zip widths cols))
+  where
+    renderColumn :: Int -> (Int, String) -> String
+    renderColumn idx (width, col)
+        | idx <= 1 = padRight width col
+        | otherwise = padLeft width col
+
+renderSeparator :: [Int] -> String
+renderSeparator widths =
+    intercalate "-+-" (fmap (`replicate` '-') widths)
+
+maximumColumnWidth :: [String] -> Int
+maximumColumnWidth = maximum . fmap length
+
+transpose :: [[a]] -> [[a]]
+transpose [] = []
+transpose ([] : _) = []
+transpose rows = fmap head rows : transpose (fmap tail rows)
+
+padLeft :: Int -> String -> String
+padLeft width s = replicate (width - length s) ' ' <> s
+
+padRight :: Int -> String -> String
+padRight width s = s <> replicate (width - length s) ' '
+
+budgetCpuText :: ExBudget -> String
+budgetCpuText (ExBudget (ExCPU cpu) _) = formatUnits cpu
+
+budgetMemText :: ExBudget -> String
+budgetMemText (ExBudget _ (ExMemory mem)) = formatUnits mem
+
+formatUnits :: (Show a) => a -> String
+formatUnits = formatThousands . show
+
+formatThousands :: String -> String
+formatThousands ('-' : rest) = '-' : formatThousands rest
+formatThousands digits =
+    intercalate "," . reverse . fmap reverse . chunksOf 3 . reverse $ digits
+
+chunksOf :: Int -> [a] -> [[a]]
+chunksOf _ [] = []
+chunksOf n xs =
+    let (prefix, suffix) = splitAt n xs
+     in prefix : chunksOf n suffix
+
+budgetCpuPct :: ExBudget -> Double
+budgetCpuPct (ExBudget (ExCPU cpu) _) =
+    let ExBudget (ExCPU maxCpu) _ = productionMaxTxExBudget
+     in percentage cpu maxCpu
+
+budgetMemPct :: ExBudget -> Double
+budgetMemPct (ExBudget _ (ExMemory mem)) =
+    let ExBudget _ (ExMemory maxMem) = productionMaxTxExBudget
+     in percentage mem maxMem
+
+percentage :: (Show a) => a -> a -> Double
+percentage numerator denominator =
+    (toDouble numerator * 100) / toDouble denominator
+  where
+    toDouble :: (Show a) => a -> Double
+    toDouble = read . show
+
+formatPercent :: Double -> String
+formatPercent pct = showFFloat (Just 2) pct "%"
 
 compileNoTracing :: (forall s. Term s a) -> Script
 compileNoTracing t =

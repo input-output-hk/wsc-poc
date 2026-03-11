@@ -719,6 +719,52 @@ pmintTokensForCurrencySymbol =
                         remainingMintEntries
              in go # mintedEntries
 
+pcheckCorrespondingThirdPartyTransferInputsAndOutputs ::
+    Term s PCurrencySymbol ->
+    Term s PCredential ->
+    Term _ (PBuiltinList PData :--> PBuiltinList (PAsData PTxInInfo) :--> PBuiltinList (PAsData PTxOut) :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)) :--> PBool) ->
+    Term s (PBuiltinList PData) ->
+    Term s (PBuiltinList (PAsData PTxInInfo)) ->
+    Term s (PBuiltinList (PAsData PTxOut)) ->
+    Term s (PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))) ->
+    Term s PTxOut ->
+    Term s PBool
+pcheckCorrespondingThirdPartyTransferInputsAndOutputs programmableCS progLogicCred self remainingRelativeIdxs remainingInputsAfterIdx programmableOutputs deltaAccumulator programmableInputResolved =
+    let inputTxOutConstrPair = pasConstr # pforgetData (pdata programmableInputResolved)
+        correspondingOutput = phead # programmableOutputs
+        outputTxOutConstrPair = pasConstr # pforgetData correspondingOutput
+     in plet (psndBuiltin # inputTxOutConstrPair) $ \inputTxOutFields ->
+            plet (psndBuiltin # outputTxOutConstrPair) $ \outputTxOutFields ->
+                plet (phead # inputTxOutFields) $ \inputTxOutAddress ->
+                    plet (phead # outputTxOutFields) $ \outputTxOutAddress ->
+                        plet (ptail # inputTxOutFields) $ \inputTxOutFieldsRest ->
+                            plet (ptail # outputTxOutFields) $ \outputTxOutFieldsRest ->
+                                plet (phead # (psndBuiltin # (pasConstr # inputTxOutAddress))) $ \inputCredentialData ->
+                                    let programmableInputValue = punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # inputTxOutFieldsRest)
+                                        programmableOutputValue = punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # outputTxOutFieldsRest)
+                                        programmableInputRest = ptail # inputTxOutFieldsRest
+                                        programmableOutputRest = ptail # outputTxOutFieldsRest
+                                     in pif
+                                            (inputCredentialData #== pforgetData (pdata progLogicCred))
+                                            ( pif
+                                                ( pand'List
+                                                    [ ptraceInfoIfFalse "corresponding output: address mismatch" $
+                                                        inputTxOutAddress #== outputTxOutAddress
+                                                    , ptraceInfoIfFalse "corresponding output: datum/reference script mismatch" $
+                                                        programmableInputRest #== programmableOutputRest
+                                                    ]
+                                                )
+                                                ( let delta = pvalueEqualsDeltaCurrencySymbol programmableCS programmableInputValue programmableOutputValue
+                                                   in self # remainingRelativeIdxs # remainingInputsAfterIdx # (ptail # programmableOutputs) # (punionTokens # delta # deltaAccumulator)
+                                                )
+                                                perror
+                                            )
+                                            ( pif
+                                                ((pfstBuiltin # (pasConstr # inputCredentialData)) #== 1)
+                                                (self # remainingRelativeIdxs # remainingInputsAfterIdx # programmableOutputs # deltaAccumulator)
+                                                (ptraceInfoError "input index points to pubkey input")
+                                            )
+
 processThirdPartyTransfer ::
     Term s (PAsData PCurrencySymbol) ->
     Term s PCredential ->
@@ -763,22 +809,16 @@ processThirdPartyTransfer programmableCS progLogicCred inputs progOutputs inputI
                             ( plet (pdropFast # relativeIdx # remainingInputs) $ \remainingInputsAtIdx ->
                                 plet (phead # remainingInputsAtIdx) $ \programmableInput ->
                                     let remainingInputsAfterIdx = ptail # remainingInputsAtIdx
-                                     in pmatch (ptxInInfoResolved $ pfromData programmableInput) $ \(PTxOut{ptxOut'address = programmableInputAddress, ptxOut'value = programmableInputValue}) ->
-                                            let inputCred = paddressCredential programmableInputAddress
-                                             in pif
-                                                    (inputCred #== progLogicCred)
-                                                    ( pmatch (pfromData $ phead # programmableOutputs) $ \(PTxOut{ptxOut'address = programmableOutputAddress, ptxOut'value = programmableOutputValue}) ->
-                                                        pif
-                                                            (ptraceInfoIfFalse "corresponding output: address mismatch" $ programmableOutputAddress #== programmableInputAddress)
-                                                            ( let delta = pvalueEqualsDeltaCurrencySymbol programmableCS' programmableInputValue programmableOutputValue
-                                                               in self # remainingRelativeIdxs # remainingInputsAfterIdx # (ptail # programmableOutputs) # (punionTokens # delta # deltaAccumulator)
-                                                            )
-                                                            perror
-                                                    )
-                                                    ( pmatch inputCred $ \case
-                                                        PScriptCredential _ -> self # remainingRelativeIdxs # remainingInputsAfterIdx # programmableOutputs # deltaAccumulator
-                                                        _ -> ptraceInfoError "input index points to pubkey input"
-                                                    )
+                                     in plet (ptxInInfoResolved $ pfromData programmableInput) $ \programmableInputResolved ->
+                                            pcheckCorrespondingThirdPartyTransferInputsAndOutputs
+                                                programmableCS'
+                                                progLogicCred
+                                                self
+                                                remainingRelativeIdxs
+                                                remainingInputsAfterIdx
+                                                programmableOutputs
+                                                deltaAccumulator
+                                                programmableInputResolved
                             )
                 )
                 (checkBalanceInvariant programmableOutputs (punionTokens # deltaAccumulator # mintedTokens))

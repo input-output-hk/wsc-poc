@@ -93,6 +93,14 @@ The first script output is addressed to `e5muu` and the second to `3cOlj`.
 The addresses have the same payment credential (the programmable logic base validator), but different stake credentials (`3cOlj` has the stake credential that identifies the sender, and `e5muu` has the stake credential that identifies the recipient).
 The sum of 1M `MicroCoin`s has been sent to `e5muu`, which means that they are now under the control of the recipient.
 
+More generally, the programmable logic base behaves like a mini-ledger that lives on Cardano.
+Every programmable-token UTxO uses the same payment credential, and ownership is represented by the staking credential attached to that UTxO.
+When spending from this mini-ledger, the transaction must provide the witnesses associated with that staking credential.
+As a result, the on-chain CIP layer does not try to prove that the destination staking credential is "sensible" or recoverable.
+If a user signs a transaction that sends programmable tokens to a programmable-logic-base address with a random, unusable, or otherwise unwanted staking credential, those funds become self-locked inside the mini-ledger.
+This is intentional and is analogous to sending ordinary Ada to an address whose spending keys nobody controls.
+Wallet and off-chain transaction builders are therefore responsible for deriving the conventional destination staking credential for normal user-to-user transfers.
+
 #### Scripts
 
 Looking at the `Contracts` tab we can see that there were four invocations of Plutus scripts.

@@ -24,10 +24,13 @@ import ProgrammableTokens.Test.ScriptContext.Builder (
     withOutRef,
     withOutput,
     withReferenceInput,
+    withReferenceScript,
     withRewardingScript,
     withScriptInput,
     withSigner,
     withTxOutAddress,
+    withTxOutInlineDatum,
+    withTxOutReferenceScript,
     withTxOutValue,
     withValue,
     withWithdrawal,
@@ -53,6 +56,8 @@ tests =
         [ testCase "unit_seizeAct_complete_indices_succeeds" unit_seizeAct_complete_indices_succeeds
         , testCase "unit_seizeAct_pubkey_index_rejected" unit_seizeAct_pubkey_index_rejected
         , testCase "unit_seizeAct_omitted_index_rejected" unit_seizeAct_omitted_index_rejected
+        , testCase "unit_seizeAct_datum_mismatch_rejected" unit_seizeAct_datum_mismatch_rejected
+        , testCase "unit_seizeAct_reference_script_mismatch_rejected" unit_seizeAct_reference_script_mismatch_rejected
         , testCase "unit_seizeAct_burn_offsets_delta_succeeds" unit_seizeAct_burn_offsets_delta_succeeds
         , testCase "unit_seizeAct_mint_with_containment_succeeds" unit_seizeAct_mint_with_containment_succeeds
         , testCase "unit_seizeAct_mint_smuggle_rejected" unit_seizeAct_mint_smuggle_rejected
@@ -79,6 +84,14 @@ unit_seizeAct_omitted_index_rejected :: Assertion
 unit_seizeAct_omitted_index_rejected =
     assertScriptFails $
         mkGlobalSeizeCtx 3 [0, 0]
+
+unit_seizeAct_datum_mismatch_rejected :: Assertion
+unit_seizeAct_datum_mismatch_rejected =
+    assertScriptFails mkGlobalSeizeDatumMismatchCtx
+
+unit_seizeAct_reference_script_mismatch_rejected :: Assertion
+unit_seizeAct_reference_script_mismatch_rejected =
+    assertScriptFails mkGlobalSeizeReferenceScriptMismatchCtx
 
 unit_seizeAct_burn_offsets_delta_succeeds :: Assertion
 unit_seizeAct_burn_offsets_delta_succeeds =
@@ -250,6 +263,18 @@ transferCred = ScriptCredential transferLogicHash
 seizeInputAddr :: Address
 seizeInputAddr = scriptAddressWithSignerStake progLogicBaseHash signerPkh
 
+metadataDatumA :: BuiltinData
+metadataDatumA = PlutusTx.toBuiltinData (1 :: Integer)
+
+metadataDatumB :: BuiltinData
+metadataDatumB = PlutusTx.toBuiltinData (2 :: Integer)
+
+metadataRefScriptA :: ScriptHash
+metadataRefScriptA = ScriptHash (bs28 0x31)
+
+metadataRefScriptB :: ScriptHash
+metadataRefScriptB = ScriptHash (bs28 0x32)
+
 seizeInputValue :: Value
 seizeInputValue =
     mkAdaValue 3_000_000
@@ -269,6 +294,26 @@ seizeCorrespondingOutputBuilder =
     withOutput
         ( withTxOutAddress seizeInputAddr
             <> withTxOutValue seizeInputValue
+        )
+
+seizeInputWithMetadataBuilder :: BuiltinData -> ScriptHash -> ScriptContextBuilder
+seizeInputWithMetadataBuilder datum refScript =
+    withScriptInput
+        (PlutusTx.toBuiltinData ())
+        ( withOutRef (TxOutRef "5e99" 0)
+            <> withAddress seizeInputAddr
+            <> withValue seizeInputValue
+            <> withInlineDatum datum
+            <> withReferenceScript refScript
+        )
+
+seizeCorrespondingOutputWithMetadataBuilder :: BuiltinData -> ScriptHash -> ScriptContextBuilder
+seizeCorrespondingOutputWithMetadataBuilder datum refScript =
+    withOutput
+        ( withTxOutAddress seizeInputAddr
+            <> withTxOutValue seizeInputValue
+            <> withTxOutInlineDatum datum
+            <> withTxOutReferenceScript refScript
         )
 
 transferInputRef :: TxOutRef
@@ -353,6 +398,52 @@ mkGlobalSeizeCtxWithLeadingPubKey inputCount providedIdxs =
                 <> leadingPubKeyInput
                 <> seizeInputsBuilder
                 <> correspondingOutputsBuilder
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    (PlutusTx.toBuiltinData protocolParamsDatum)
+                <> withRefInputDatumValue
+                    dirNodeRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    (PlutusTx.toBuiltinData directoryProgrammableNode)
+            )
+
+mkGlobalSeizeDatumMismatchCtx :: ScriptContext
+mkGlobalSeizeDatumMismatchCtx =
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+     in buildBalancedScriptContext
+            ( withRewardingScript
+                (PlutusTx.toBuiltinData seizeRedeemer)
+                globalCred
+                0
+                <> withWithdrawal issuerCred 0
+                <> seizeInputWithMetadataBuilder metadataDatumA metadataRefScriptA
+                <> seizeCorrespondingOutputWithMetadataBuilder metadataDatumB metadataRefScriptA
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    (PlutusTx.toBuiltinData protocolParamsDatum)
+                <> withRefInputDatumValue
+                    dirNodeRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    (PlutusTx.toBuiltinData directoryProgrammableNode)
+            )
+
+mkGlobalSeizeReferenceScriptMismatchCtx :: ScriptContext
+mkGlobalSeizeReferenceScriptMismatchCtx =
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+     in buildBalancedScriptContext
+            ( withRewardingScript
+                (PlutusTx.toBuiltinData seizeRedeemer)
+                globalCred
+                0
+                <> withWithdrawal issuerCred 0
+                <> seizeInputWithMetadataBuilder metadataDatumA metadataRefScriptA
+                <> seizeCorrespondingOutputWithMetadataBuilder metadataDatumA metadataRefScriptB
                 <> withRefInputDatumValue
                     paramRef
                     (pubKeyAddress signerPkh)

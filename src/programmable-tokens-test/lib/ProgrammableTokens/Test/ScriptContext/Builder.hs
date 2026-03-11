@@ -158,7 +158,7 @@ mkInput (InputBuilder modify) =
                     { txOutAddress = ibAddress builder
                     , txOutValue = ibValue builder
                     , txOutDatum = ibDatum builder
-                    , txOutReferenceScript = Nothing
+                    , txOutReferenceScript = ibReferenceScript builder
                     }
             }
 
