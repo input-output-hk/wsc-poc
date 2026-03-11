@@ -802,24 +802,20 @@ processThirdPartyTransfer programmableCS progLogicCred inputs progOutputs inputI
         go = pfix #$ plam $ \self relativeInputIdxs remainingInputs programmableOutputs deltaAccumulator ->
             pelimList
                 ( \relativeIdxData remainingRelativeIdxs ->
-                    plet (pasInt # relativeIdxData) $ \relativeIdx ->
-                        pif
-                            (relativeIdx #< 0)
-                            (ptraceInfoError "negative relative input index")
-                            ( plet (pdropFast # relativeIdx # remainingInputs) $ \remainingInputsAtIdx ->
-                                plet (phead # remainingInputsAtIdx) $ \programmableInput ->
-                                    let remainingInputsAfterIdx = ptail # remainingInputsAtIdx
-                                     in plet (ptxInInfoResolved $ pfromData programmableInput) $ \programmableInputResolved ->
-                                            pcheckCorrespondingThirdPartyTransferInputsAndOutputs
-                                                programmableCS'
-                                                progLogicCred
-                                                self
-                                                remainingRelativeIdxs
-                                                remainingInputsAfterIdx
-                                                programmableOutputs
-                                                deltaAccumulator
-                                                programmableInputResolved
-                            )
+                    let relativeIdx = pasInt # relativeIdxData
+                     in plet (pdropFast # relativeIdx # remainingInputs) $ \remainingInputsAtIdx ->
+                            plet (phead # remainingInputsAtIdx) $ \programmableInput ->
+                                let remainingInputsAfterIdx = ptail # remainingInputsAtIdx
+                                 in plet (ptxInInfoResolved $ pfromData programmableInput) $ \programmableInputResolved ->
+                                        pcheckCorrespondingThirdPartyTransferInputsAndOutputs
+                                            programmableCS'
+                                            progLogicCred
+                                            self
+                                            remainingRelativeIdxs
+                                            remainingInputsAfterIdx
+                                            programmableOutputs
+                                            deltaAccumulator
+                                            programmableInputResolved
                 )
                 (checkBalanceInvariant programmableOutputs (punionTokens # deltaAccumulator # mintedTokens))
                 relativeInputIdxs
