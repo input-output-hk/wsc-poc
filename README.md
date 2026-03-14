@@ -37,6 +37,7 @@ There is a proof-of-concept for _WST_ a programmable token with freeze and seize
 # Architecture
 
 See [doc/architecture.md](doc/architecture.md)
+For the core programmable-token mini-ledger contracts only, see [doc/mini-ledger-architecture.md](doc/mini-ledger-architecture.md)
 
 ## Contents of this repository
 

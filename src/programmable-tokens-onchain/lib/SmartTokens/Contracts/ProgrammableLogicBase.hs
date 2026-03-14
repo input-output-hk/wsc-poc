@@ -18,6 +18,10 @@ module SmartTokens.Contracts.ProgrammableLogicBase (
     mkSeizeActRedeemerFromRelativeInputIdxs,
     mkProgrammableLogicBase,
     mkProgrammableLogicGlobal,
+    pisScriptInvokedEntries,
+    pvalueFromCred,
+    pvalueToCred,
+    poutputsContainExpectedValueAtCred,
 ) where
 
 import GHC.Generics (Generic)
@@ -49,11 +53,6 @@ import SmartTokens.Types.ProtocolParams (PProgrammableLogicGlobalParams (..))
 pjustData :: Term s (PMaybeData a) -> Term s a
 pjustData term =
     punsafeCoerce $ phead # (psndBuiltin # (pasConstr # pforgetData (pdata term)))
-
-paddressStakingCredential :: Term s PAddress -> Term s PStakingCredential
-paddressStakingCredential addr =
-    pmatch addr $ \addr' ->
-        pjustData $ paddress'stakingCredential addr'
 
 -- TODO: Replace current corresponding input / output comparison (which compares address, reference script and datum) for multi-seize
 -- with constructing the expected output from the input with this function and comparing it to the actual output.
@@ -110,6 +109,96 @@ pstripAdaH value =
     let nonAdaValueMapInner = ptail # pto (pto value)
      in pcon (PValue $ pcon $ PMap nonAdaValueMapInner)
 
+ptokenPairsUnionFast ::
+    Term
+        s
+        ( PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))
+            :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))
+            :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))
+        )
+ptokenPairsUnionFast = phoistAcyclic $
+    pfix #$ plam $ \self tokensA tokensB ->
+        pelimList
+            ( \tokenPairA tokensARest ->
+                pelimList
+                    ( \tokenPairB tokensBRest ->
+                        let tokenNameA = pfstBuiltin # tokenPairA
+                            tokenNameB = pfstBuiltin # tokenPairB
+                            tokenNameABytes = pasByteStr # pforgetData tokenNameA
+                            tokenNameBBytes = pasByteStr # pforgetData tokenNameB
+                         in pif
+                                (tokenNameABytes #== tokenNameBBytes)
+                                ( let quantityA = pfromData (psndBuiltin # tokenPairA)
+                                      quantityB = pfromData (psndBuiltin # tokenPairB)
+                                   in pcons
+                                        # (ppairDataBuiltin # tokenNameA # pdata (quantityA + quantityB))
+                                        # (self # tokensARest # tokensBRest)
+                                )
+                                ( pif
+                                    (tokenNameABytes #< tokenNameBBytes)
+                                    (pcons # tokenPairA # (self # tokensARest # tokensB))
+                                    (pcons # tokenPairB # (self # tokensA # tokensBRest))
+                                )
+                    )
+                    tokensA
+                    tokensB
+            )
+            tokensB
+            tokensA
+
+pcurrencyPairsUnionFast ::
+    Term
+        s
+        ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
+            :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
+            :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
+        )
+pcurrencyPairsUnionFast = phoistAcyclic $
+    pfix #$ plam $ \self csPairsA csPairsB ->
+        pelimList
+            ( \csPairA csPairsARest ->
+                pelimList
+                    ( \csPairB csPairsBRest ->
+                        let currencySymbolA = pfstBuiltin # csPairA
+                            currencySymbolB = pfstBuiltin # csPairB
+                            currencySymbolABytes = pasByteStr # pforgetData currencySymbolA
+                            currencySymbolBBytes = pasByteStr # pforgetData currencySymbolB
+                         in pif
+                                (currencySymbolABytes #== currencySymbolBBytes)
+                                ( let tokenPairsA = pto (pfromData (psndBuiltin # csPairA))
+                                      tokenPairsB = pto (pfromData (psndBuiltin # csPairB))
+                                      mergedTokenPairs = ptokenPairsUnionFast # tokenPairsA # tokenPairsB
+                                      mergedPair =
+                                        punsafeCoerce $
+                                            ppairDataBuiltinRaw
+                                                # pforgetData currencySymbolA
+                                                # (pmapData # punsafeCoerce mergedTokenPairs)
+                                   in pcons
+                                        # mergedPair
+                                        # (self # csPairsARest # csPairsBRest)
+                                )
+                                ( pif
+                                    (currencySymbolABytes #< currencySymbolBBytes)
+                                    (pcons # csPairA # (self # csPairsARest # csPairsB))
+                                    (pcons # csPairB # (self # csPairsA # csPairsBRest))
+                                )
+                    )
+                    csPairsA
+                    csPairsB
+            )
+            csPairsB
+            csPairsA
+
+pvalueUnionFast :: Term s (PValue 'Sorted 'Positive :--> PValue 'Sorted 'Positive :--> PValue 'Sorted 'Positive)
+pvalueUnionFast = phoistAcyclic $ plam $ \valueA valueB ->
+    pcon $
+        PValue $
+            pcon $
+                PMap $
+                    pcurrencyPairsUnionFast
+                        # pto (pto valueA)
+                        # pto (pto valueB)
+
 pisScriptInvokedEntries :: Term s (PAsData PCredential :--> PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace)) :--> PBool)
 pisScriptInvokedEntries = phoistAcyclic $ plam $ \scriptCredData withdrawalEntries ->
     let go = pfix #$ plam $ \self entries ->
@@ -131,68 +220,89 @@ pvalueFromCred ::
     Term s (PBuiltinList (PAsData PTxInInfo)) ->
     Term s (PValue 'Sorted 'Positive)
 pvalueFromCred cred sigs withdrawalEntries inputs =
-    ( pfix #$ plam $ \self acc ->
-        pelimList
-            ( \txIn xs ->
-                self
-                    # pmatch
-                        (ptxInInfoResolved $ pfromData txIn)
-                        ( \(PTxOut{ptxOut'address, ptxOut'value}) ->
-                            plet ptxOut'address $ \addr ->
-                                pif
-                                    (paddressCredential addr #== cred)
-                                    ( pmatch (paddressStakingCredential addr) $ \case
-                                        PStakingHash ownerCred ->
-                                            pmatch ownerCred $ \case
-                                                PPubKeyCredential pkh ->
-                                                    pif
-                                                        (ptxSignedByPkh # pkh # sigs)
-                                                        (acc <> pstripAdaH (pfromData ptxOut'value))
-                                                        (ptraceInfoError "Missing required pk witness")
-                                                PScriptCredential scriptHash_ ->
-                                                    let scriptCredData = pdata $ pcon (PScriptCredential scriptHash_)
-                                                     in pif
-                                                            (pisScriptInvokedEntries # scriptCredData # withdrawalEntries)
-                                                            (acc <> pstripAdaH (pfromData ptxOut'value))
-                                                            (ptraceInfoError "Missing required script witness")
-                                        _ -> perror
-                                    )
-                                    acc
-                        )
-                    # xs
-            )
-            acc
-    )
-        # pemptyLedgerValue
-        # inputs
+    let credData = pforgetData (pdata cred)
+     in ( pfix #$ plam $ \self acc ->
+            pelimList
+                ( \txIn xs ->
+                    plet (pdata (ptxInInfoResolved $ pfromData txIn)) $ \resolvedOutData ->
+                        plet (psndBuiltin # (pasConstr # pforgetData resolvedOutData)) $ \resolvedOutFields ->
+                            let resolvedOutAddressData = phead # resolvedOutFields
+                                resolvedOutFieldsRest = ptail # resolvedOutFields
+                                resolvedOutValue = punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # resolvedOutFieldsRest)
+                                paymentCredData = phead # (psndBuiltin # (pasConstr # resolvedOutAddressData))
+                                stakingCredMaybe = punsafeCoerce @(PMaybeData PStakingCredential) (phead # (ptail # (psndBuiltin # (pasConstr # resolvedOutAddressData))))
+                             in self
+                                    # pif
+                                        (paymentCredData #== credData)
+                                        ( pmatch (pjustData stakingCredMaybe) $ \case
+                                            PStakingHash ownerCred ->
+                                                pmatch ownerCred $ \case
+                                                    PPubKeyCredential pkh ->
+                                                        pif
+                                                            (ptxSignedByPkh # pkh # sigs)
+                                                            (pvalueUnionFast # acc # pstripAdaH (pfromData resolvedOutValue))
+                                                            (ptraceInfoError "Missing required pk witness")
+                                                    PScriptCredential scriptHash_ ->
+                                                        let scriptCredData = pdata $ pcon (PScriptCredential scriptHash_)
+                                                         in pif
+                                                                (pisScriptInvokedEntries # scriptCredData # withdrawalEntries)
+                                                                (pvalueUnionFast # acc # pstripAdaH (pfromData resolvedOutValue))
+                                                                (ptraceInfoError "Missing required script witness")
+                                            _ -> perror
+                                        )
+                                        acc
+                                    # xs
+                )
+                acc
+        )
+            # pemptyLedgerValue
+            # inputs
 
 pvalueToCred ::
     Term s PCredential ->
     Term s (PBuiltinList (PAsData PTxOut)) ->
     Term s (PValue 'Sorted 'Positive)
 pvalueToCred cred inputs =
-    ( pfix #$ plam $ \self acc ->
-        pelimList
-            ( \txOut xs ->
-                self
-                    # pmatch
-                        (pfromData txOut)
-                        ( \(PTxOut{ptxOut'address, ptxOut'value}) ->
-                            plet ptxOut'address $ \addr ->
-                                pif
-                                    (paddressCredential addr #== cred)
-                                    (acc <> pstripAdaH (pfromData ptxOut'value))
-                                    acc
-                        )
-                    # xs
-            )
-            acc
-    )
-        # pemptyLedgerValue
-        # inputs
+    let credData = pforgetData (pdata cred)
+     in ( pfix #$ plam $ \self acc ->
+            pelimList
+                ( \txOut xs ->
+                    plet (psndBuiltin # (pasConstr # pforgetData txOut)) $ \txOutFields ->
+                        let txOutAddress = phead # txOutFields
+                            txOutFieldsRest = ptail # txOutFields
+                            txOutValue = punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # txOutFieldsRest)
+                            paymentCredData = phead # (psndBuiltin # (pasConstr # txOutAddress))
+                         in self
+                                # pif (paymentCredData #== credData) (pvalueUnionFast # acc # pstripAdaH (pfromData txOutValue)) acc
+                                # xs
+                )
+                acc
+        )
+            # pemptyLedgerValue
+            # inputs
 
-{- | Check that outputs at the given credential contain at least the expected value.
-This avoids constructing a full aggregated output Value and instead sums only required assets.
+{- | Check that outputs whose payment credential equals `progLogicCred` contain at
+least the caller-supplied `expectedValue`.
+
+This is a lower-bound containment check, not an equality check:
+
+- Extra assets at mini-ledger outputs are allowed.
+- Stake credentials, datums and reference scripts are ignored.
+- Outputs are grouped by payment credential only, because mini-ledger ownership is
+  carried by the staking credential while the payment credential is the shared
+  programmable-logic-base script.
+
+The caller is responsible for supplying the correct `expectedValue`. In the
+`TransferAct` path this is the validated programmable input value, adjusted by the
+validated programmable mint/burn value. This helper does /not/ query the registry
+and does /not/ detect pre-existing programmable tokens already outside the
+mini-ledger; it only proves that the specific value passed in still remains at
+`progLogicCred` outputs.
+
+Implementation note: if `expectedValue` contains exactly one non-Ada asset, the
+function takes a single-asset fast path that scans outputs and accumulates only that
+asset quantity. Otherwise it aggregates the full non-Ada value at `progLogicCred`
+outputs and checks each expected asset against that aggregate.
 -}
 poutputsContainExpectedValueAtCred ::
     Term s PCredential ->
@@ -281,32 +391,30 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
         expectedCsPairs = pto (pto expectedValue)
         actualValueAtCred = pvalueToCred progLogicCred txOutputs
      in
-        pif
-            (pnull # expectedCsPairs)
-            (pconstant True)
-            ( let firstExpectedCsPair = phead # expectedCsPairs
-                  firstExpectedTokenPairs = pto (pfromData (psndBuiltin # firstExpectedCsPair))
-                  singleExpectedAsset =
-                    pand'List
-                        [ pnull # (ptail # expectedCsPairs)
-                        , pnot # (pnull # firstExpectedTokenPairs)
-                        , pnull # (ptail # firstExpectedTokenPairs)
-                        ]
-               in pif
-                    singleExpectedAsset
-                    ( let expectedCurrencySymbol = pfromData (pfstBuiltin # firstExpectedCsPair)
-                          expectedTokenPair = phead # firstExpectedTokenPairs
-                          expectedTokenName = pfromData (pfstBuiltin # expectedTokenPair)
-                          expectedRequiredQty = pfromData (psndBuiltin # expectedTokenPair)
-                       in hasAtLeastAssetInProgOutputs
-                            # expectedRequiredQty
-                            # 0
-                            # expectedCurrencySymbol
-                            # expectedTokenName
-                            # txOutputs
-                    )
-                    (checkExpectedCurrencyPairsAgainstActualValue # actualValueAtCred # expectedCsPairs)
+        pelimList
+            ( \firstExpectedCsPair expectedCsPairsRest ->
+                let firstExpectedTokenPairs = pto (pfromData (psndBuiltin # firstExpectedCsPair))
+                 in pelimList
+                        ( \expectedTokenPair firstExpectedTokenPairsRest ->
+                            pif
+                                (pnull # expectedCsPairsRest #&& pnull # firstExpectedTokenPairsRest)
+                                ( let expectedCurrencySymbol = pfromData (pfstBuiltin # firstExpectedCsPair)
+                                      expectedTokenName = pfromData (pfstBuiltin # expectedTokenPair)
+                                      expectedRequiredQty = pfromData (psndBuiltin # expectedTokenPair)
+                                   in hasAtLeastAssetInProgOutputs
+                                        # expectedRequiredQty
+                                        # 0
+                                        # expectedCurrencySymbol
+                                        # expectedTokenName
+                                        # txOutputs
+                                )
+                                (checkExpectedCurrencyPairsAgainstActualValue # actualValueAtCred # expectedCsPairs)
+                        )
+                        (checkExpectedCurrencyPairsAgainstActualValue # actualValueAtCred # expectedCsPairs)
+                        firstExpectedTokenPairs
             )
+            (pconstant True)
+            expectedCsPairs
 
 {- | Programmable logic base
 This validator forwards its validation logic to the programmable logic stake script
@@ -792,7 +900,7 @@ processThirdPartyTransfer programmableCS progLogicCred inputs progOutputs inputI
                     pmatch (pfromData programmableOutput) $ \(PTxOut{ptxOut'address = programmableOutputAddress, ptxOut'value = programmableOutputValue}) ->
                         pif
                             (paddressCredential programmableOutputAddress #== progLogicCred)
-                            (pfromData programmableOutputValue #<> (self # programmableOutputsRest))
+                            (pvalueUnionFast # pfromData programmableOutputValue # (self # programmableOutputsRest))
                             pmempty
                 )
                 pmempty

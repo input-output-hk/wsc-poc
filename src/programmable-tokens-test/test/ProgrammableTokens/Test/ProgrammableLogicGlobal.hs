@@ -7,8 +7,13 @@ module ProgrammableTokens.Test.ProgrammableLogicGlobal (
 import Data.ByteString qualified as BS
 import Data.Either (isLeft, isRight)
 import Data.Word (Word8)
+import Plutarch.Builtin.Integer (pconstantInteger)
+import Plutarch.Core.Context (pscriptContextTxInfo)
 import Plutarch.Evaluate (applyArguments, evalScript)
 import Plutarch.Internal.Term (Config (NoTracing), Script, Term, compile)
+import Plutarch.LedgerApi.V3 qualified as PlutarchV3
+import Plutarch.Prelude (pconstant, perror, pfromData, pif, plam, pmatch)
+import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V1 qualified as PV1
 import PlutusLedgerApi.V1.Value (assetClass, assetClassValue)
 import PlutusLedgerApi.V3
@@ -16,6 +21,7 @@ import PlutusTx qualified
 import ProgrammableTokens.Test.ScriptContext.Builder (
     ScriptContextBuilder,
     buildBalancedScriptContext,
+    buildScriptContext,
     mkAdaValue,
     withAddress,
     withInlineDatum,
@@ -40,6 +46,7 @@ import SmartTokens.Contracts.ProgrammableLogicBase (
     TokenProof (TokenExists),
     mkProgrammableLogicGlobal,
     mkSeizeActRedeemerFromRelativeInputIdxs,
+    poutputsContainExpectedValueAtCred,
  )
 import SmartTokens.Types.Constants (protocolParamsToken)
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (DirectorySetNode))
@@ -63,9 +70,15 @@ tests =
         , testCase "unit_seizeAct_mint_smuggle_rejected" unit_seizeAct_mint_smuggle_rejected
         , testCase "unit_transferAct_burn_with_mint_proof_succeeds" unit_transferAct_burn_with_mint_proof_succeeds
         , testCase "unit_transferAct_burn_without_mint_proof_rejected" unit_transferAct_burn_without_mint_proof_rejected
+        , testCase "unit_transferAct_escape_to_pubkey_rejected" unit_transferAct_escape_to_pubkey_rejected
         , testCase "unit_transferAct_mint_smuggle_rejected" unit_transferAct_mint_smuggle_rejected
         , testCase "unit_transferAct_mint_with_proof_and_containment_succeeds" unit_transferAct_mint_with_proof_and_containment_succeeds
         , testCase "unit_transferAct_mint_without_mint_proof_rejected" unit_transferAct_mint_without_mint_proof_rejected
+        , testCase "unit_seizeAct_escape_to_pubkey_rejected" unit_seizeAct_escape_to_pubkey_rejected
+        , testCase "unit_outputsContain_single_asset_split_across_prog_outputs_succeeds" unit_outputsContain_single_asset_split_across_prog_outputs_succeeds
+        , testCase "unit_outputsContain_single_asset_pubkey_output_ignored" unit_outputsContain_single_asset_pubkey_output_ignored
+        , testCase "unit_outputsContain_multi_asset_succeeds" unit_outputsContain_multi_asset_succeeds
+        , testCase "unit_outputsContain_multi_asset_shortfall_rejected" unit_outputsContain_multi_asset_shortfall_rejected
         , testProperty "prop_seizeAct_complete_indices_succeeds" prop_seizeAct_complete_indices_succeeds
         , testProperty "prop_seizeAct_omitted_index_rejected" prop_seizeAct_omitted_index_rejected
         ]
@@ -121,6 +134,10 @@ unit_transferAct_burn_without_mint_proof_rejected =
             (-1)
             0
 
+unit_transferAct_escape_to_pubkey_rejected :: Assertion
+unit_transferAct_escape_to_pubkey_rejected =
+    assertScriptFails mkGlobalTransferEscapeCtx
+
 unit_transferAct_mint_smuggle_rejected :: Assertion
 unit_transferAct_mint_smuggle_rejected =
     assertScriptFails $
@@ -144,6 +161,49 @@ unit_transferAct_mint_without_mint_proof_rejected =
             (TransferAct [TokenExists 1] [])
             1
             2
+
+unit_seizeAct_escape_to_pubkey_rejected :: Assertion
+unit_seizeAct_escape_to_pubkey_rejected =
+    assertScriptFails mkGlobalSeizeDirectEscapeCtx
+
+unit_outputsContain_single_asset_split_across_prog_outputs_succeeds :: Assertion
+unit_outputsContain_single_asset_split_across_prog_outputs_succeeds =
+    assertOutputsContainSucceeds
+        progLogicBaseCred
+        [ txOutAt progWalletA (mkValue [(programmableTransferCS, TokenName "0c", 2)])
+        , txOutAt progWalletB (mkValue [(programmableTransferCS, TokenName "0c", 3)])
+        , txOutAt (pubKeyAddress signerPkh) (mkValue [(programmableTransferCS, TokenName "0c", 50)])
+        ]
+        (mkValue [(programmableTransferCS, TokenName "0c", 5)])
+
+unit_outputsContain_single_asset_pubkey_output_ignored :: Assertion
+unit_outputsContain_single_asset_pubkey_output_ignored =
+    assertOutputsContainFails
+        progLogicBaseCred
+        [ txOutAt progWalletA (mkValue [(programmableTransferCS, TokenName "0c", 4)])
+        , txOutAt (pubKeyAddress signerPkh) (mkValue [(programmableTransferCS, TokenName "0c", 100)])
+        ]
+        (mkValue [(programmableTransferCS, TokenName "0c", 5)])
+
+unit_outputsContain_multi_asset_succeeds :: Assertion
+unit_outputsContain_multi_asset_succeeds =
+    assertOutputsContainSucceeds
+        progLogicBaseCred
+        [ txOutAt progWalletA (mkValue [(programmableTransferCS, TokenName "0c", 2), (programmableTransferCS, TokenName "0d", 1)])
+        , txOutAt progWalletB (mkValue [(programmableTransferCS, TokenName "0c", 3), (programmableTransferCS, TokenName "0d", 4)])
+        , txOutAt (pubKeyAddress signerPkh) (mkValue [(programmableTransferCS, TokenName "0d", 100)])
+        ]
+        (mkValue [(programmableTransferCS, TokenName "0c", 5), (programmableTransferCS, TokenName "0d", 5)])
+
+unit_outputsContain_multi_asset_shortfall_rejected :: Assertion
+unit_outputsContain_multi_asset_shortfall_rejected =
+    assertOutputsContainFails
+        progLogicBaseCred
+        [ txOutAt progWalletA (mkValue [(programmableTransferCS, TokenName "0c", 2), (programmableTransferCS, TokenName "0d", 1)])
+        , txOutAt progWalletB (mkValue [(programmableTransferCS, TokenName "0c", 3), (programmableTransferCS, TokenName "0d", 3)])
+        , txOutAt (pubKeyAddress signerPkh) (mkValue [(programmableTransferCS, TokenName "0d", 100)])
+        ]
+        (mkValue [(programmableTransferCS, TokenName "0c", 5), (programmableTransferCS, TokenName "0d", 5)])
 
 prop_seizeAct_complete_indices_succeeds :: QC.Property
 prop_seizeAct_complete_indices_succeeds =
@@ -169,6 +229,14 @@ assertScriptFails :: ScriptContext -> Assertion
 assertScriptFails ctx =
     assertBool "expected script failure" (scriptFails ctx)
 
+assertOutputsContainSucceeds :: Credential -> [TxOut] -> Value -> Assertion
+assertOutputsContainSucceeds cred outputs expected =
+    assertBool "expected outputsContain helper to succeed" (outputsContainSucceeds cred outputs expected)
+
+assertOutputsContainFails :: Credential -> [TxOut] -> Value -> Assertion
+assertOutputsContainFails cred outputs expected =
+    assertBool "expected outputsContain helper to fail" (not (outputsContainSucceeds cred outputs expected))
+
 scriptSucceeds :: ScriptContext -> Bool
 scriptSucceeds ctx =
     let (res, _budget, _logs) = evalScript (applyArguments globalScript [PlutusTx.toData protocolParamsCS, PlutusTx.toData ctx])
@@ -179,12 +247,48 @@ scriptFails ctx =
     let (res, _budget, _logs) = evalScript (applyArguments globalScript [PlutusTx.toData protocolParamsCS, PlutusTx.toData ctx])
      in isLeft res
 
+outputsContainSucceeds :: Credential -> [TxOut] -> Value -> Bool
+outputsContainSucceeds cred outputs expected =
+    let ctx =
+            buildScriptContext $
+                mconcat
+                    [ withOutput
+                        ( withTxOutAddress (txOutAddress txOut)
+                            <> withTxOutValue (txOutValue txOut)
+                        )
+                    | txOut <- outputs
+                    ]
+        (res, _budget, _logs) =
+            evalScript
+                ( applyArguments
+                    (mkOutputsContainScript cred expected)
+                    [PlutusTx.toData ctx]
+                )
+     in isRight res
+
 compileNoTracing :: (forall s. Term s a) -> Script
 compileNoTracing term =
     either (error . ("compile failed: " <>) . show) id (compile NoTracing term)
 
 globalScript :: Script
 globalScript = compileNoTracing mkProgrammableLogicGlobal
+
+mkOutputsContainScript :: Credential -> Value -> Script
+mkOutputsContainScript cred expectedValue =
+    compileNoTracing $
+        plam $ \ctx ->
+            pmatch (pscriptContextTxInfo ctx) $ \txInfo ->
+                let expectedValueTerm =
+                        punsafeCoerce $
+                            pconstant @(PlutarchV3.PValue 'PlutarchV3.Unsorted 'PlutarchV3.NoGuarantees) expectedValue
+                 in pif
+                        ( poutputsContainExpectedValueAtCred
+                            (pconstant cred)
+                            (pfromData $ PlutarchV3.ptxInfo'outputs txInfo)
+                            expectedValueTerm
+                        )
+                        (pconstantInteger 0)
+                        perror
 
 mkValue :: [(CurrencySymbol, TokenName, Integer)] -> Value
 mkValue = foldMap (\(cs, tn, amount) -> assetClassValue (assetClass cs tn) amount)
@@ -206,6 +310,9 @@ globalScriptHash = ScriptHash (bs28 0x13)
 
 globalCred :: Credential
 globalCred = ScriptCredential globalScriptHash
+
+progLogicBaseCred :: Credential
+progLogicBaseCred = ScriptCredential progLogicBaseHash
 
 issuerLogicHash :: ScriptHash
 issuerLogicHash = ScriptHash (bs28 0x14)
@@ -231,6 +338,15 @@ scriptAddressWithSignerStake sh pkh =
 
 pubKeyAddress :: PubKeyHash -> Address
 pubKeyAddress pkh = Address (PubKeyCredential pkh) Nothing
+
+txOutAt :: Address -> Value -> TxOut
+txOutAt addr assets =
+    TxOut
+        { txOutAddress = addr
+        , txOutValue = mkAdaValue 3_000_000 <> assets
+        , txOutDatum = NoOutputDatum
+        , txOutReferenceScript = Nothing
+        }
 
 withRefInputDatumValue :: TxOutRef -> Address -> Value -> BuiltinData -> ScriptContextBuilder
 withRefInputDatumValue ref addr value dat =
@@ -262,6 +378,12 @@ transferCred = ScriptCredential transferLogicHash
 
 seizeInputAddr :: Address
 seizeInputAddr = scriptAddressWithSignerStake progLogicBaseHash signerPkh
+
+progWalletA :: Address
+progWalletA = scriptAddressWithSignerStake progLogicBaseHash signerPkh
+
+progWalletB :: Address
+progWalletB = scriptAddressWithSignerStake progLogicBaseHash (PubKeyHash (bs28 0x02))
 
 metadataDatumA :: BuiltinData
 metadataDatumA = PlutusTx.toBuiltinData (1 :: Integer)
@@ -339,6 +461,37 @@ mkGlobalTransferMintCtx globalRedeemer mintedQty transferOutputQty =
                     <> withTxOutValue (mkAdaValue 10_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", transferOutputQty)])
                 )
             <> withMint (mkValue [(programmableTransferCS, TokenName "0c", mintedQty)]) (PlutusTx.toBuiltinData ())
+            <> withRefInputDatumValue
+                paramRef
+                (pubKeyAddress signerPkh)
+                (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                (PlutusTx.toBuiltinData protocolParamsDatum)
+            <> withRefInputDatumValue
+                dirNodeRef
+                (pubKeyAddress signerPkh)
+                (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                (PlutusTx.toBuiltinData directoryProgrammableNode)
+        )
+
+mkGlobalTransferEscapeCtx :: ScriptContext
+mkGlobalTransferEscapeCtx =
+    buildBalancedScriptContext
+        ( withRewardingScript
+            (PlutusTx.toBuiltinData $ TransferAct [TokenExists 1] [])
+            globalCred
+            0
+            <> withSigner signerPkh
+            <> withWithdrawal transferCred 0
+            <> withScriptInput
+                (PlutusTx.toBuiltinData ())
+                ( withOutRef transferInputRef
+                    <> withAddress seizeInputAddr
+                    <> withValue (mkAdaValue 10_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 1)])
+                )
+            <> withOutput
+                ( withTxOutAddress (pubKeyAddress signerPkh)
+                    <> withTxOutValue (mkAdaValue 10_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 1)])
+                )
             <> withRefInputDatumValue
                 paramRef
                 (pubKeyAddress signerPkh)
@@ -539,6 +692,32 @@ mkGlobalSeizeMintEscapeCtx =
                         <> withTxOutValue (mkValue [(programmableTransferCS, TokenName "0c", 1)])
                     )
                 <> withMint (mkValue [(programmableTransferCS, TokenName "0c", 1)]) (PlutusTx.toBuiltinData ())
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    (PlutusTx.toBuiltinData protocolParamsDatum)
+                <> withRefInputDatumValue
+                    dirNodeRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    (PlutusTx.toBuiltinData directoryProgrammableNode)
+            )
+
+mkGlobalSeizeDirectEscapeCtx :: ScriptContext
+mkGlobalSeizeDirectEscapeCtx =
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+     in buildBalancedScriptContext
+            ( withRewardingScript
+                (PlutusTx.toBuiltinData seizeRedeemer)
+                globalCred
+                0
+                <> withWithdrawal issuerCred 0
+                <> seizeInputBuilder 0
+                <> withOutput
+                    ( withTxOutAddress (pubKeyAddress signerPkh)
+                        <> withTxOutValue seizeInputValue
+                    )
                 <> withRefInputDatumValue
                     paramRef
                     (pubKeyAddress signerPkh)

@@ -19,7 +19,7 @@ module Wst.Offchain.BuildTx.TransferLogic (
 where
 
 import Cardano.Api qualified as C
-import Control.Lens (at, over, set, (&), (?~), (^.), _1)
+import Control.Lens (at, over, set, (&), (?~), _1)
 import Control.Lens qualified as L
 import Control.Monad (forM_, when)
 import Control.Monad.Error.Lens (throwing_)
@@ -46,7 +46,6 @@ import Convex.Class (MonadBlockchain (queryNetworkId))
 import Convex.PlutusLedger.V1 (
     transCredential,
     transPolicyId,
-    transStakeCredential,
     unTransStakeCredential,
  )
 import Convex.Scripts qualified as C
@@ -56,7 +55,7 @@ import Convex.Wallet (selectMixedInputsCovering)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Foldable (maximumBy)
 import Data.Function (on)
-import Data.List (find, nub, sort)
+import Data.List (find, nub)
 import Data.Monoid (Last (..))
 import Data.OpenApi (
     NamedSchema (..),
@@ -252,7 +251,7 @@ transferSmartTokens paramsTxIn blacklistNodes directoryNodes spendingUserOutputs
             C.AdaAssetId -> error "Ada is not programmable"
 
     transferProgrammableToken paramsTxIn txins (transPolicyId programmablePolicyId) directoryNodes -- Invoking the programmableBase and global scripts
-    result <- addTransferWitness blacklistNodes -- Proof of non-membership of the blacklist
+    result <- addTransferWitness blacklistNodes (length txins) -- Proof of non-membership of the blacklist
 
     -- Send outputs to destinationCred
     destStakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential destinationCred
@@ -380,19 +379,6 @@ addIssueWitness = Utils.inBabbage @era $ do
     addRequiredSignature opPkh
     addScriptWithdrawal sh 0 $ buildScriptWitness mintingScript C.NoScriptDatumForStake ()
 
--- | Extracts the credentials that can be used for a transfer from the transaction body
-transferWitnesses :: C.TxBodyContent v era -> [Credential]
-transferWitnesses txBody =
-    let wdrls = case txBody ^. L.txWithdrawals of
-            -- Maybe `sort` here is redundant if txWithdrawals are already sorted
-            C.TxWithdrawals _ wdrls' -> sort $ map (\(stkAddr, _, _) -> transStakeCredential $ C.stakeAddressCredential stkAddr) wdrls'
-            _ -> []
-
-        signatories = case txBody ^. L.txExtraKeyWits of
-            C.TxExtraKeyWitnesses _ pkhs -> map (transCredential . C.PaymentCredentialByKey) pkhs
-            _ -> []
-     in wdrls <> signatories
-
 data FindProofResult era
     = NoBlacklistNodes -- TODO: Use NonEmpty list to avoid this
     | -- | A node containing exactly the credential was found. (Negative result, transfer not OK)
@@ -422,8 +408,8 @@ findProof blacklistNodes cred =
 {- | Add a proof that the user is allowed to transfer programmable tokens.
 Uses the user from 'HasOperatorEnv env'. Fails if the user is blacklisted.
 -}
-addTransferWitness :: forall env era err m. (MonadError err m, MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => [UTxODat era BlacklistNode] -> m (FindProofResult era)
-addTransferWitness blacklistNodes = Utils.inBabbage @era $ do
+addTransferWitness :: forall env era err m. (MonadError err m, MonadReader env m, Env.HasOperatorEnv era env, Env.HasTransferLogicEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => [UTxODat era BlacklistNode] -> Int -> m (FindProofResult era)
+addTransferWitness blacklistNodes programmableInputCount = Utils.inBabbage @era $ do
     opPkh <- asks (fst . Env.bteOperator . Env.operatorEnv @era) -- In this case 'operator' is the user
     nid <- queryNetworkId
     transferScript <- asks (Env.tleTransferScript . Env.transferLogicEnv)
@@ -436,11 +422,14 @@ addTransferWitness blacklistNodes = Utils.inBabbage @era $ do
             let UTxODat{uIn} = tryFindProof blacklistNodes cred
              in fromIntegral @Int @Integer $ findIndexReference uIn txBody
 
-        -- Maps the credential to the index of the blacklist node in the reference scripts
-        witnessReferences txBody = map (uIn . tryFindProof blacklistNodes) $ transferWitnesses txBody
+        requiredWitnesses =
+            replicate programmableInputCount (transCredential $ C.PaymentCredentialByKey opPkh)
+
+        -- Maps each required witness to the index of the blacklist node in the reference scripts
+        witnessReferences _txBody = map (uIn . tryFindProof blacklistNodes) requiredWitnesses
 
         -- Maps the credential to the index of the blacklist node in the reference scripts and wraps in redeemer
-        transferRedeemer txBody = map (NonmembershipProof . findWitnessReferenceIndex txBody) $ transferWitnesses txBody
+        transferRedeemer txBody = map (NonmembershipProof . findWitnessReferenceIndex txBody) requiredWitnesses
 
         -- Builds the script witness for the transfer
         transferStakeWitness txBody = buildScriptWitness transferScript C.NoScriptDatumForStake (transferRedeemer txBody)

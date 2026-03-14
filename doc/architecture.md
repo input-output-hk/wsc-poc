@@ -1,13 +1,14 @@
 # System Design
 
 This document describes the design of the regulated stablecoin proof-of-concept (POC).
+For the core programmable-token mini-ledger contracts only, see [mini-ledger-architecture.md](mini-ledger-architecture.md).
 
 ## Overview
 
 The POC consists of two components that make up the functionality of the regulated stablecoin.
 The first component is [CIP-0143](https://github.com/colll78/CIPs/tree/patch-3/CIP-0143), which gives us a unified standard for managing different _programmable tokens_, comparable to some of the popular ERC standards on Ethereum.
 
-The second component is a concrete instance of such a programmable token, namely a policy that checks each transfer of tokens in its domain to ensure that the sender is not on a list of sanctioned addresses.
+The second component is a concrete instance of such a programmable token, namely a policy that checks each transfer of tokens in its domain to ensure that the owners/witnesses required to spend the programmable-token inputs are not on a list of sanctioned addresses.
 The policy also allows the issuer of the programmable token to seize funds from sanctioned addresses.
 We will call this policy the Access Control Policy (ACP).
 
@@ -20,11 +21,11 @@ CIP-0143 supports a wide range of programmable token policies, including non-fin
 ### Access Control Policy (ACP)
 
 This is the programmable token policy that we use to enable freeze and seize features.
-When the policy is invoked, it examines the spending transaction to ensure that none of the signatures on the transaction are blacklisted.
+When the policy is invoked, it examines the spending transaction to ensure that none of the required owners/witnesses for the programmable-token inputs are blacklisted.
 The blacklist is stored as a sorted linked list on-chain.
 Each entry has its own UTxO.
 The UTxO also stores the next entry.
-This makes it possible to check membership and non-membership in constant time (in the size of the list).
+This makes it possible to check membership and non-membership in constant time with respect to the length of the list, provided the covering entry is supplied as a reference input.
 
 ```mermaid
 ---
@@ -46,6 +47,15 @@ flowchart LR
 ```
 ## High-Level Interactions
 
+The current implementation supports the following lifecycle:
+
+1. The off-chain library can deploy the CIP-0143 registry, protocol parameters, blacklist state, and script registrations in a single transaction.
+2. The currently exposed browser flow performs the issuer setup incrementally through separate "Register Asset" and "Initialize Blacklist" actions.
+3. Issuance mints programmable tokens into the programmable-logic mini-ledger at an address derived from the recipient payment credential.
+4. Ordinary transfers spend mini-ledger outputs, invoke the global programmable logic script, and invoke the ACP transfer script to prove that the required owners/witnesses are not blacklisted.
+5. Freeze and unfreeze operations insert or remove nodes from the on-chain blacklist linked list.
+6. Seize operations perform an issuer-authorized third-party transfer from sanctioned credentials; the current API also supports multi-seize.
+
 ## On-Chain Scripts
 
 For each of the two components (CIP and ACP) there is a principal validation script that encodes the script's logic and vetoes any transaction that does not meet the specification.
@@ -55,12 +65,15 @@ The following table lists the main scripts and their purposes.
 
 |Plutarch definition name|Used by|Parameters|Redeemer|Description|
 |--|--|--|--|--|
-|`mkPermissionedTransfer`|ACP|`permissionedCred`||Checks that the transaction was signed by the `permissionedCred` payment credential|
-|`mkFreezeAndSeizeTransfer`|ACP|`programmableLogicBaseCred`, `blacklistNodeCS`|`proofs`|Checks that the transaction spends an output locked by `programmableLogicBaseCred`, and that none of the transaction's witnesses are in the blacklist with root `blacklistNodeCS`. For each witness a proof must be provided in `proofs`|
-|`mkProgrammableLogicMinting`|CIP|`programmableLogicBase`, `nodeCS`, `mintingLogicCred`|`mintingAction`|Handles minting policy registration, and issuance / burning of programmable tokens.|
-|`mkProgrammableLogicBase`|CIP|`stakeCred`|/|Validator script that locks progammable token outputs. Forwards all validation logic to the "global" programmable logic stake script `stakeCred`|
-|`mkProgrammableLogicGlobal`|CIP|`protocolParamsCS`||The global programmable logic stake script. For each programmable token that is transferred/minted/burned, check that the corresponding programmable token logic is invoked.|
+|`mkDirectoryNodeMP`|CIP|`initUTxO`, `issuanceCborHexCS`|`InitDirectory \| InsertDirectoryNode`|Maintains the linked-list directory of registered programmable-token policies.|
+|`pmkDirectorySpending`|CIP|`protocolParamsCS`|/|Validates spending of directory nodes against the protocol-parameters NFT.|
+|`mkProgrammableLogicMinting`|CIP|`programmableLogicBase`, `mintingLogicCred`|`mintingLogicCred`|Handles issuance and burning for a programmable-token policy instance. Requires the corresponding minting logic script to be invoked.|
+|`mkProgrammableLogicBase`|CIP|`stakeCred`|/|Validator script that locks programmable token outputs. Forwards all validation logic to the "global" programmable logic stake script `stakeCred`|
+|`mkProgrammableLogicGlobal`|CIP|`protocolParamsCS`|`TransferAct \| SeizeAct`|The global programmable logic stake script. `TransferAct` validates transfer/mint proofs against the directory and keeps programmable value inside the mini-ledger. `SeizeAct` validates issuer-authorized third-party transfers/seizures.|
 |`mkProtocolParametersMinting`|CIP|`oref`||Protocol parameters minting policy. Creates the NFT that marks the protocol parameters output. Checks that `oref` is spent (making this a one-shot minting policy)|
+|`mkIssuanceCborHexMinting`|CIP|`oref`|/|One-shot minting policy for the issuance CBOR-hex reference UTxO used by directory registration.|
+|`mkFreezeAndSeizeTransfer`|ACP|`programmableLogicBaseCred`, `blacklistNodeCS`|`[BlacklistProof]`|Checks that the owners/witnesses required to spend programmable-token inputs are not blacklisted. Each proof points to a covering blacklist node supplied via reference inputs.|
+|`mkPermissionedTransfer`|ACP support|`permissionedCred`|/|Checks that the transaction was signed by the required payment key hash. Used by the permissioned blacklist and issuer-side scripts.|
 
 ### Example Transaction
 
@@ -74,7 +87,7 @@ The screenshot below shows inputs on the left and outputs on the right.
 ![alt text](image.png)
 
 Three different Plutus scripts are invoked:
-The global programmable logic stake script (`mkProgrammableLogicGlobal`), the POC transfer policy stake script (`mkFreezeAndSeizeTransfer`), and the programmabe logic base validator script (`mkProgrammableLogicBase`).
+The global programmable logic stake script (`mkProgrammableLogicGlobal`), the POC transfer policy stake script (`mkFreezeAndSeizeTransfer`), and the programmable logic base validator script (`mkProgrammableLogicBase`).
 
 #### Inputs and outputs
 
@@ -117,34 +130,20 @@ We can distinguish them by their redeemers.
 
 ##### Stake validator 1: Programmable Logic (CIP)
 
-The redeemer of the first entry is `{"fields": [{"list": [{"fields": [{"int": 2}], "constructor": 0}]}], "constructor": 0}`.
-Applying our knowledge of the data encoding we can tell that this redeemer corresponds to the first constructor of `PProgrammableLogicGlobalRedeemer`,`PTransferAct`.
+In the current implementation, ordinary transfers and mint/burn transactions use the `TransferAct` constructor of `ProgrammableLogicGlobalRedeemer`, while issuer-driven third-party transfers use `SeizeAct`.
 
-```haskell
+`TransferAct` carries two proof lists:
 
-data PProgrammableLogicGlobalRedeemer (s :: S)
-  = PTransferAct
-      ( Term s ( PDataRecord '[ "proofs" ':= PBuiltinList (PAsData PTokenProof) ] ) )
-  -- | PSeizeAct
-  --     ( ...
-  --     )
-  deriving stock (Generic)
-  deriving anyclass (PlutusType, PIsData, PEq)
-```
+1. `plgrTransferProofs`, which prove that each programmable token touched by the transaction is registered in the directory and that the corresponding transfer logic script is invoked.
+2. `plgrMintProofs`, which are used only when programmable tokens are minted or burned.
 
-This means that we are looking at the programmable logic base script.
-The redeemer contains a list of proofs in the form of pointers into the list of reference inputs used by the transaction.
-There is one proof for each type of programmable token touched by the transaction.
-
-The value `2` tells the global programmable logic validator to check the second reference input for a stake credential, and to verify that the referenced stake validator is run as part of this transaction.
-
-So we could say that the global programmable logic validator "de-references a pointer" to the ACP stake credential.
+For a plain user-to-user transfer such as the example above, the relevant information is the transfer-proof list. Each proof acts like a pointer into the reference-input set, allowing the global programmable logic validator to find the directory node for the token policy and verify that the corresponding stake script is invoked in the same transaction.
 
 
 ##### Stake validator 2: Access Control Policy (ACP)
 
 The second stake validator implements the actual policy that governs the spending of `MicroCoin`s.
-This redeemer of this validator is a list of `PBlacklistProof` values.
+The redeemer of this validator is a list of `PBlacklistProof` values.
 
 ```haskell
 data PBlacklistProof (s :: S)
@@ -160,13 +159,15 @@ data PBlacklistProof (s :: S)
   deriving anyclass (PlutusType, PIsData, PEq, PShow)
 ```
 
-Each `PBlacklistProof` is a pointer into the list of reference inputs.
-The UTxO of the reference input is an entry in the linked list that contains the blacklisted credentials.
-The script needs to check that the sender of the funds is not blacklisted, and it does so by looking at the "covering entry" in the list -- the entry that _would_ contain the sender's credential if it _was_ blacklisted.
+Each `PBlacklistProof` points into the list of reference inputs.
+The referenced UTxO is an entry in the linked list that contains blacklisted credentials.
+The script extracts the owners/witnesses required to spend the programmable-token inputs and checks that each one is not blacklisted by looking at the corresponding "covering entry" in the list: the entry that _would_ contain that credential if it _was_ blacklisted.
 
 ## Off-Chain
 
-The system is designed so that all actions except the initial deployment of the programmable logic UTxOs can be performed through a web UI with browser-based wallets. The REST API therefore exposes a number of endpoints that produce fully-balanced-but-not-signed transactions. The intention is for the caller (web UI) to sign the transactions with the web-based wallet and submit them to the network. The backend uses blockfrost to query the blockchain. As a result, the server is pretty light-weight and does not even need its own database or a full cardano node.
+The current implementation consists of a Servant backend and a Next.js frontend. The backend exposes query endpoints and transaction-building endpoints that return fully-balanced-but-not-signed transactions. The intended production-style flow is for the caller (typically a browser wallet) to sign those transactions client-side and submit them to the network.
+
+The backend uses Blockfrost to query the blockchain and does not require a full Cardano node for these flows. Unlike the earliest version of the POC, the server now also keeps a small SQLite-backed metadata store that maps freeze/seize policy identifiers back to their issuer addresses so that later transactions can be built after a process restart.
 
 ### Docker Image, Deployment
 
@@ -175,24 +176,21 @@ As a result, it is very easy to run the entire system locally.
 
 ### Lifecycle
 
-Both components, CIP and ACP, require an initial transaction that creates the on-chain data which is referenced on every interaction with the programmable tokens.
-The initial transaction creates the registry nodes and mints the NFTs that are used to prove authenticity to the on-chain scripts.
-In the POC, the initialisation procedures for programmable tokens (CIP) and for the regulated stablecoin (ACP) are merged in a single transaction.
-This means that the entire system can be deployed in a single step.
+Both components, CIP and ACP, require initial on-chain state that is referenced by later interactions with programmable tokens.
+
+At the library level, the repository still supports a single-step deployment transaction that mints protocol parameters, initializes the directory, initializes the blacklist, registers the global programmable-logic script, and registers the issuer-specific transfer scripts.
+
+At the currently exposed API/UI level, issuer setup is more incremental: the browser flow presents separate actions for registering the transfer scripts and initializing the blacklist, after which mint, transfer, freeze, unfreeze, and seize operations are available.
 
 ### Security
 
-The deployment phase relies exclusively on the command-line (CLI).
-This is the only time when our code handles private keys.
+For normal transaction-building flows, the backend can operate without holding user private keys: it builds unsigned transactions and expects the wallet on the client side to sign and submit them.
 
-After the initial deployment, the private keys can be removed from the system.
-All future transactions can be signed by a web wallet.
-
-Therefore, there is no need to store private keys during the regular operation of the system.
+However, the repository also contains a demo mode that serves a `demo-environment` payload with canned seed phrases and related metadata for local/demo accounts. The frontend can derive addresses from those mnemonics to populate the demo UI. That behavior is a demo convenience and should not be treated as the production security model.
 
 ## Limitations of POC
 
-The POC works on the *preview testnet*.
+The checked-in demo environment targets the *preview* network by default, although the demo-environment format carries an explicit network value and the repository also contains generated artifacts for other networks.
 The code in this repository has not been audited.
 A professional audit is highly recommended before using this code in a production setting.
 
@@ -208,7 +206,7 @@ From a technical perspective, not having to manage the reserve on-chain makes th
 
 ## How does the system scale?
 
-The core idea of the regulated stablecoin is to run a check every time the owner of some amount of regulated tokens changes. This check is performed by the _transfer logic script_, a plutus program that consults a list of sanctioned addresses to ensure that the receiving address is not on it. 
+The core idea of the regulated stablecoin is to run a check every time the owner of some amount of regulated tokens changes. This check is performed by the _transfer logic script_, a plutus program that consults a list of sanctioned addresses to ensure that the required owners/witnesses of the programmable-token inputs are not on it.
 
 The list of sanctioned addresses is the only data structure that (a) needs to be read from by every transaction of the transfer logic script and (b) gets changed regularly during the operation of the stablecoin.
 
@@ -222,7 +220,7 @@ There is also no risk of UTxO congestion as the "system outputs" are used as ref
 
 The list of sanctioned addresses is stored on-chain as a [_linked list_](https://github.com/Anastasia-Labs/plutarch-linked-list). This means that each entry (address) in the list is represented as a single transaction output that includes the address itself as well as a pointer to the next address in lexicographical order.
 
-When checking a transfer, the transfer logic script is provided with a single reference input containing the relevant entry in the ordered linked list. 
+When checking a transfer, the transfer logic script is provided with one or more reference inputs containing the relevant covering entries in the ordered linked list.
 
 The transfer transaction does not spend the linked list output, therefore the same linked list output can be used by many transactions in the same block and across multiple blocks.
 

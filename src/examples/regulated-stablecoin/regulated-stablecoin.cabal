@@ -174,6 +174,7 @@ test-suite regulated-stablecoin-test
   build-depends:
     , base                          >=4.14.0
     , cardano-api
+    , containers
     , convex-base
     , convex-coin-selection
     , convex-mockchain
@@ -198,3 +199,26 @@ executable write-openapi-schema
     , bytestring
     , regulated-stablecoin
     , servant-openapi3
+
+executable full-transaction-benchmarks
+  import:         lang
+  main-is:        FullTransactionBenchmarks.hs
+  hs-source-dirs: exe/full-transaction-benchmarks test/unit
+  other-modules:  Wst.Test.Env
+  ghc-options:    -threaded -rtsopts -O2 -with-rtsopts=-N
+  build-depends:
+    , base
+    , cardano-api
+    , containers
+    , convex-base
+    , convex-coin-selection
+    , convex-mockchain
+    , convex-wallet
+    , hset
+    , mtl
+    , plutus-ledger-api
+    , programmable-tokens-offchain
+    , programmable-tokens-onchain
+    , programmable-tokens-testlib
+    , regulated-stablecoin
+    , type-fun

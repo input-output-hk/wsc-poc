@@ -84,6 +84,7 @@ test-suite programmable-tokens-test
     ProgrammableTokens.Test.DirectorySet
     ProgrammableTokens.Test.Error
     ProgrammableTokens.Test.ProgrammableLogicGlobal
+    ProgrammableTokens.Test.ProgrammableLogicMinting
 
   build-depends:
     , base                          >=4.14.0
@@ -95,6 +96,8 @@ test-suite programmable-tokens-test
     , lens
     , mtl
     , plutarch
+    , plutarch-ledger-api
+    , plutarch-onchain-lib
     , plutus-ledger-api
     , plutus-tx
     , programmable-tokens-offchain
@@ -113,6 +116,21 @@ executable benchmark-onchain-scripts
     , base
     , bytestring
     , plutarch
+    , plutus-ledger-api
+    , plutus-tx
+    , programmable-tokens-onchain
+    , programmable-tokens-testlib
+
+executable benchmark-onchain-functions
+  import:         lang
+  hs-source-dirs: exe
+  main-is:        BenchmarkOnchainFunctions.hs
+  build-depends:
+    , base
+    , bytestring
+    , plutarch
+    , plutarch-ledger-api
+    , plutarch-onchain-lib
     , plutus-ledger-api
     , plutus-tx
     , programmable-tokens-onchain
