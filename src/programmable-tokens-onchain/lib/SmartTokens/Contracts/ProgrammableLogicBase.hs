@@ -776,34 +776,6 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                     ]
             pvalidateConditions conditions
 
-punionTokens :: Term s (PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)) :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)) :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
-punionTokens = pfix #$ plam $ \self tokensA tokensB ->
-    pelimList
-        ( \tokenPairA tokensRestA ->
-            plet (pfstBuiltin # tokenPairA) $ \tokenNameA ->
-                pelimList
-                    ( \tokenPairB tokensRestB ->
-                        pif
-                            (pfromData tokenNameA #== pfromData (pfstBuiltin # tokenPairB))
-                            ( -- both entries have the same token so we add quantities
-                              let quantityA = pfromData (psndBuiltin # tokenPairA)
-                                  quantityB = pfromData (psndBuiltin # tokenPairB)
-                               in pcons # (ppairDataBuiltin # tokenNameA # pdata (quantityA + quantityB)) # (self # tokensRestA # tokensRestB)
-                            )
-                            ( pif
-                                (pfromData tokenNameA #< pfromData (pfstBuiltin # tokenPairB))
-                                -- entry A has a token that entry B does not so we add the token and quantity from entry A.
-                                (pcons # tokenPairA # (self # tokensRestA # tokensB))
-                                -- entry B has a token that entry A does not so we add the token and quantity from entry B.
-                                (pcons # tokenPairB # (self # tokensA # tokensRestB))
-                            )
-                    )
-                    tokensA
-                    tokensB
-        )
-        tokensB
-        tokensA
-
 {- | Extract signed minted token pairs for a specific currency symbol from tx mint.
 Returns an empty list when the currency symbol is not minted/burned in the tx.
 -}
@@ -863,7 +835,7 @@ pcheckCorrespondingThirdPartyTransferInputsAndOutputs programmableCS progLogicCr
                                                     ]
                                                 )
                                                 ( let delta = pvalueEqualsDeltaCurrencySymbol programmableCS programmableInputValue programmableOutputValue
-                                                   in self # remainingRelativeIdxs # remainingInputsAfterIdx # (ptail # programmableOutputs) # (punionTokens # delta # deltaAccumulator)
+                                                   in self # remainingRelativeIdxs # remainingInputsAfterIdx # (ptail # programmableOutputs) # (ptokenPairsUnionFast # delta # deltaAccumulator)
                                                 )
                                                 perror
                                             )
@@ -925,7 +897,7 @@ processThirdPartyTransfer programmableCS progLogicCred inputs progOutputs inputI
                                             deltaAccumulator
                                             programmableInputResolved
                 )
-                (checkBalanceInvariant programmableOutputs (punionTokens # deltaAccumulator # mintedTokens))
+                (checkBalanceInvariant programmableOutputs (ptokenPairsUnionFast # deltaAccumulator # mintedTokens))
                 relativeInputIdxs
      in
         go # inputIdxs' # inputs # progOutputs # pnil
