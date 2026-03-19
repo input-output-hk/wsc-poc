@@ -42,7 +42,13 @@ main = do
             <> " | Mem "
             <> formatUnits maxMem
     putStrLn ""
+    mapM_ putStrLn (intercalate [""] (fmap renderScenarioResult sorted))
+    putStrLn ""
+    putStrLn "Transaction totals"
     mapM_ putStrLn (renderBenchTable sorted)
+    putStrLn ""
+    putStrLn "Per-script breakdown"
+    mapM_ putStrLn (renderBreakdownTable sorted)
   where
     caseName BenchRow{brName = name} = name
 
@@ -60,6 +66,22 @@ data BenchRow = BenchRow
     , brBudget :: ExBudget
     , brScriptCount :: Int
     , brPrimaryBudget :: ExBudget
+    , brRows :: [ScriptWitnessRow]
+    , brBreakdown :: [ScriptBreakdown]
+    }
+
+data ScriptWitnessRow = ScriptWitnessRow
+    { swContract :: String
+    , swPurpose :: String
+    , swDetail :: String
+    , swBudget :: ExBudget
+    }
+
+data ScriptBreakdown = ScriptBreakdown
+    { sbCaseName :: String
+    , sbScriptName :: String
+    , sbCount :: Int
+    , sbBudget :: ExBudget
     }
 
 runCase :: BenchCase -> IO BenchRow
@@ -72,8 +94,10 @@ runCase bench = do
     results <- traverse runEvalSpec scenarioSpecs
     let ok = all erSuccess results
         totalBudget = sumBudgets (fmap erBudget results)
+        witnessRows = fmap scriptWitnessRowFromEvalResult results
+        breakdown = aggregateBreakdown (bcName bench) results
     if ok
-        then pure (BenchRow (bcName bench) ok totalBudget (length scenarioSpecs) (erBudget primaryResult))
+        then pure (BenchRow (bcName bench) ok totalBudget (length scenarioSpecs) (erBudget primaryResult) witnessRows breakdown)
         else do
             putStrLn ("failure logs for " <> bcName bench <> ":")
             mapM_
@@ -83,7 +107,55 @@ runCase bench = do
                         else putStrLn ("  [" <> show idx <> "] " <> renderEvalKind (erKind result) <> ": " <> erLogText result)
                 )
                 (zip [0 :: Int ..] results)
-            pure (BenchRow (bcName bench) ok totalBudget (length scenarioSpecs) (erBudget primaryResult))
+            pure (BenchRow (bcName bench) ok totalBudget (length scenarioSpecs) (erBudget primaryResult) witnessRows breakdown)
+
+renderScenarioResult :: BenchRow -> [String]
+renderScenarioResult BenchRow{brName = name, brSuccess = success, brBudget = budget, brRows = witnessRows} =
+    let contracts = uniquePreservingOrder (fmap swContract witnessRows)
+        renderContractSummary =
+            case contracts of
+                [] -> ["Contracts: none"]
+                _ -> "Contracts:" : fmap ("  - " <>) contracts
+        renderContractLine (contract, witnessCount, contractBudget) =
+            "  - "
+                <> contract
+                <> " ("
+                <> show witnessCount
+                <> "): CPU "
+                <> budgetCpuText contractBudget
+                <> " | Mem "
+                <> budgetMemText contractBudget
+                <> " | CPU % "
+                <> formatPercent (budgetCpuPct contractBudget)
+                <> " | Mem % "
+                <> formatPercent (budgetMemPct contractBudget)
+        renderScriptBlock idx ScriptWitnessRow{swContract = contract, swPurpose = purpose, swDetail = detail, swBudget = rowBudget} =
+            [ contract <> ":"
+            , "  witness: #" <> show idx <> if idx == 1 then " (primary)" else ""
+            , "  purpose: " <> purpose <> " | detail: " <> detail
+            , "  CPU: "
+                <> budgetCpuText rowBudget
+                <> " | Mem: "
+                <> budgetMemText rowBudget
+                <> " | CPU %: "
+                <> formatPercent (budgetCpuPct rowBudget)
+                <> " | Mem %: "
+                <> formatPercent (budgetMemPct rowBudget)
+            ]
+     in [scenarioSeparator, "Scenario: " <> name <> if success then " [PASS]" else " [FAIL]", "Scripts: " <> show (length witnessRows)]
+            <> renderContractSummary
+            <> ( case contractTotals witnessRows of
+                    [] -> []
+                    totals -> "Contract totals:" : fmap renderContractLine totals
+               )
+            <> [ "Totals:"
+               , "  CPU: " <> budgetCpuText budget <> " | Mem: " <> budgetMemText budget
+               , "  CPU %: " <> formatPercent (budgetCpuPct budget) <> " | Mem %: " <> formatPercent (budgetMemPct budget)
+               , ""
+               ]
+            <> if null witnessRows
+                then ["No Plutus script witnesses"]
+                else indentLines 2 (intercalate [""] (zipWith renderScriptBlock [1 :: Int ..] witnessRows))
 
 renderBenchTable :: [BenchRow] -> [String]
 renderBenchTable rows =
@@ -117,6 +189,32 @@ renderBenchRow BenchRow{brName = name, brSuccess = success, brBudget = budget, b
     , show scriptCount
     , budgetCpuText primaryBudget
     , budgetMemText primaryBudget
+    ]
+
+renderBreakdownTable :: [BenchRow] -> [String]
+renderBreakdownTable rows =
+    let header =
+            [ "Case"
+            , "Script"
+            , "Count"
+            , "CPU"
+            , "Mem"
+            ]
+        renderedRows = fmap renderBreakdownRow (concatMap brBreakdown rows)
+        allRows = header : renderedRows
+        widths = fmap maximumColumnWidth (transpose allRows)
+        separator = renderSeparator widths
+     in renderColumns widths header
+            : separator
+            : fmap (renderColumns widths) renderedRows
+
+renderBreakdownRow :: ScriptBreakdown -> [String]
+renderBreakdownRow ScriptBreakdown{sbCaseName, sbScriptName, sbCount, sbBudget} =
+    [ sbCaseName
+    , sbScriptName
+    , show sbCount
+    , budgetCpuText sbBudget
+    , budgetMemText sbBudget
     ]
 
 renderColumns :: [Int] -> [String] -> String
@@ -166,6 +264,18 @@ chunksOf n xs =
     let (prefix, suffix) = splitAt n xs
      in prefix : chunksOf n suffix
 
+abbrevTo :: Int -> String -> String
+abbrevTo limit s
+    | length s <= limit = s
+    | limit <= 8 = take limit s
+    | otherwise =
+        let suffixLen = min 10 (max 4 (limit `div` 4))
+            prefixLen = max 1 (limit - suffixLen - 3)
+         in take prefixLen s <> "..." <> drop (length s - suffixLen) s
+
+abbrev :: String -> String
+abbrev = abbrevTo 72
+
 budgetCpuPct :: ExBudget -> Double
 budgetCpuPct (ExBudget (ExCPU cpu) _) =
     let ExBudget (ExCPU maxCpu) _ = productionMaxTxExBudget
@@ -186,6 +296,24 @@ percentage numerator denominator =
 formatPercent :: Double -> String
 formatPercent pct = showFFloat (Just 2) pct "%"
 
+scenarioSeparator :: String
+scenarioSeparator = replicate 80 '='
+
+indentLines :: Int -> [String] -> [String]
+indentLines width = fmap ((replicate width ' ') <>)
+
+uniquePreservingOrder :: (Eq a) => [a] -> [a]
+uniquePreservingOrder =
+    foldl' (\seen x -> if x `elem` seen then seen else seen <> [x]) []
+
+contractTotals :: [ScriptWitnessRow] -> [(String, Int, ExBudget)]
+contractTotals witnessRows =
+    fmap toTotal (uniquePreservingOrder (fmap swContract witnessRows))
+  where
+    toTotal contract =
+        let matchingRows = filter ((== contract) . swContract) witnessRows
+         in (contract, length matchingRows, sumBudgets (fmap swBudget matchingRows))
+
 data EvalKind
     = EvalBaseSpend TxOutRef
     | EvalGlobalReward Credential
@@ -194,8 +322,8 @@ data EvalKind
     | EvalProgrammableMint CurrencySymbol
     | EvalProtocolParamsMint CurrencySymbol
     | EvalIssuanceMint CurrencySymbol
-    | EvalAlwaysSucceedsSpend TxOutRef
-    | EvalAlwaysSucceedsReward Credential
+    | EvalAlwaysSucceedsSpend String TxOutRef
+    | EvalAlwaysSucceedsReward String Credential
     deriving stock (Eq, Show)
 
 data EvalSpec = EvalSpec
@@ -239,8 +367,83 @@ renderEvalKind kind =
         EvalProgrammableMint cs -> "programmableLogicMinting mint " <> show cs
         EvalProtocolParamsMint cs -> "protocolParamsMinting mint " <> show cs
         EvalIssuanceMint cs -> "issuanceCborHexMinting mint " <> show cs
-        EvalAlwaysSucceedsSpend outRef -> "alwaysSucceeds spending " <> show outRef
-        EvalAlwaysSucceedsReward cred -> "alwaysSucceeds rewarding " <> show cred
+        EvalAlwaysSucceedsSpend scriptName outRef -> scriptName <> " spending " <> show outRef
+        EvalAlwaysSucceedsReward scriptName cred -> scriptName <> " rewarding " <> show cred
+
+aggregateBreakdown :: String -> [EvalResult] -> [ScriptBreakdown]
+aggregateBreakdown caseName =
+    foldl' step []
+  where
+    step :: [ScriptBreakdown] -> EvalResult -> [ScriptBreakdown]
+    step acc EvalResult{erKind, erBudget} =
+        let scriptName = scriptNameForEvalKind erKind
+         in case break ((== scriptName) . sbScriptName) acc of
+                (prefix, current : suffix) ->
+                    prefix
+                        <> [ current
+                                { sbCount = sbCount current + 1
+                                , sbBudget = sumBudgets [sbBudget current, erBudget]
+                                }
+                           ]
+                        <> suffix
+                (prefix, []) ->
+                    prefix
+                        <> [ ScriptBreakdown
+                                { sbCaseName = caseName
+                                , sbScriptName = scriptName
+                                , sbCount = 1
+                                , sbBudget = erBudget
+                                }
+                           ]
+
+scriptNameForEvalKind :: EvalKind -> String
+scriptNameForEvalKind evalKind =
+    case evalKind of
+        EvalBaseSpend{} -> "programmableLogicBase"
+        EvalGlobalReward{} -> "programmableLogicGlobal"
+        EvalDirectoryMint{} -> "directoryNodeMinting"
+        EvalDirectorySpend{} -> "directoryNodeSpending"
+        EvalProgrammableMint{} -> "programmableLogicMinting"
+        EvalProtocolParamsMint{} -> "protocolParamsMinting"
+        EvalIssuanceMint{} -> "issuanceCborHexMinting"
+        EvalAlwaysSucceedsSpend scriptName _ -> scriptName
+        EvalAlwaysSucceedsReward scriptName _ -> scriptName
+
+scriptWitnessRowFromEvalResult :: EvalResult -> ScriptWitnessRow
+scriptWitnessRowFromEvalResult EvalResult{erKind = evalKind, erBudget = budget} =
+    ScriptWitnessRow
+        { swContract = scriptNameForEvalKind evalKind
+        , swPurpose = scriptPurposeForEvalKind evalKind
+        , swDetail = scriptDetailForEvalKind evalKind
+        , swBudget = budget
+        }
+
+scriptPurposeForEvalKind :: EvalKind -> String
+scriptPurposeForEvalKind evalKind =
+    case evalKind of
+        EvalBaseSpend{} -> "spending"
+        EvalGlobalReward{} -> "rewarding"
+        EvalDirectoryMint{} -> "minting"
+        EvalDirectorySpend{} -> "spending"
+        EvalProgrammableMint{} -> "minting"
+        EvalProtocolParamsMint{} -> "minting"
+        EvalIssuanceMint{} -> "minting"
+        EvalAlwaysSucceedsSpend{} -> "spending"
+        EvalAlwaysSucceedsReward{} -> "rewarding"
+
+scriptDetailForEvalKind :: EvalKind -> String
+scriptDetailForEvalKind evalKind =
+    abbrev $
+        case evalKind of
+            EvalBaseSpend outRef -> show outRef
+            EvalGlobalReward cred -> show cred
+            EvalDirectoryMint cs -> show cs
+            EvalDirectorySpend outRef -> show outRef
+            EvalProgrammableMint cs -> show cs
+            EvalProtocolParamsMint cs -> show cs
+            EvalIssuanceMint cs -> show cs
+            EvalAlwaysSucceedsSpend _ outRef -> show outRef
+            EvalAlwaysSucceedsReward _ cred -> show cred
 
 compiledAlwaysSucceedsScript :: Script
 compiledAlwaysSucceedsScript =
@@ -298,11 +501,18 @@ scenarioEvalSpecsFromCtx ctx@(ScriptContext txInfo _ _) =
                                 (EvalDirectorySpend outRef)
                                 (cardanoApiScriptToScript (Aiken.aikenDirectoryNodeSpendingScript protocolParamsCS))
                                 (aikenSpendArgs outRef (spendingPurposeCtx ctx input))
-                | sh == externalAlwaysSucceedsHash || sh == externalAlwaysSucceedsHash2 ->
+                | sh == externalAlwaysSucceedsHash ->
                     let outRef = txInInfoOutRef input
                      in Just $
                             EvalSpec
-                                (EvalAlwaysSucceedsSpend outRef)
+                                (EvalAlwaysSucceedsSpend "alwaysSucceeds" outRef)
+                                compiledAlwaysSucceedsScript
+                                [toData (spendingPurposeCtx ctx input)]
+                | sh == externalAlwaysSucceedsHash2 ->
+                    let outRef = txInInfoOutRef input
+                     in Just $
+                            EvalSpec
+                                (EvalAlwaysSucceedsSpend "alwaysSucceeds2" outRef)
                                 compiledAlwaysSucceedsScript
                                 [toData (spendingPurposeCtx ctx input)]
             _ -> Nothing
@@ -324,24 +534,18 @@ scenarioEvalSpecsFromCtx ctx@(ScriptContext txInfo _ _) =
         | cred == txD29TransferLogicStakeCred =
             Just $
                 EvalSpec
-                    (EvalAlwaysSucceedsReward cred)
+                    (EvalAlwaysSucceedsReward "transferLogicScript" cred)
                     compiledAlwaysSucceedsScript
                     [toData (rewardingPurposeCtx ctx cred)]
-        | cred `elem` auxiliaryAlwaysSucceedsCreds =
-            Just $
-                EvalSpec
-                    (EvalAlwaysSucceedsReward cred)
-                    compiledAlwaysSucceedsScript
-                    [toData (rewardingPurposeCtx ctx cred)]
-        | otherwise = Nothing
-
-    auxiliaryAlwaysSucceedsCreds =
-        [ ScriptCredential transferLogicHash
-        , issuerCred
-        , ScriptCredential mintingLogicHash
-        , ScriptCredential externalAlwaysSucceedsHash
-        , ScriptCredential externalAlwaysSucceedsHash2
-        ]
+        | otherwise =
+            case auxiliaryAlwaysSucceedsScriptName cred of
+                Just scriptName ->
+                    Just $
+                        EvalSpec
+                            (EvalAlwaysSucceedsReward scriptName cred)
+                            compiledAlwaysSucceedsScript
+                            [toData (rewardingPurposeCtx ctx cred)]
+                Nothing -> Nothing
 
     mintEvalSpec :: CurrencySymbol -> Maybe EvalSpec
     mintEvalSpec cs
@@ -369,6 +573,15 @@ scenarioEvalSpecsFromCtx ctx@(ScriptContext txInfo _ _) =
                     (EvalIssuanceMint cs)
                     (cardanoApiScriptToScript (Aiken.aikenIssuanceCborHexMintingScript issuanceInitRef))
                     (aikenMintArgs (mintingPurposeCtx ctx cs))
+        | otherwise = Nothing
+
+    auxiliaryAlwaysSucceedsScriptName :: Credential -> Maybe String
+    auxiliaryAlwaysSucceedsScriptName cred
+        | cred == ScriptCredential transferLogicHash = Just "transferLogicScript"
+        | cred == issuerCred = Just "issuerScript"
+        | cred == ScriptCredential mintingLogicHash = Just "mintingLogicScript"
+        | cred == ScriptCredential externalAlwaysSucceedsHash = Just "alwaysSucceeds"
+        | cred == ScriptCredential externalAlwaysSucceedsHash2 = Just "alwaysSucceeds2"
         | otherwise = Nothing
 
 spendingPurposeCtx :: ScriptContext -> TxInInfo -> ScriptContext
