@@ -18,6 +18,7 @@ module ProgrammableTokens.Test (
     user,
 
     -- * Mockchain actions
+    attachProgrammableLogicReferenceScripts,
     deployDirectorySet,
     issueProgrammableTokenTx,
 ) where
@@ -29,13 +30,15 @@ import Cardano.Ledger.Plutus.ExUnits (ExUnits (..))
 import Control.Lens ((%~), (&), (^.))
 import Control.Monad.Except (ExceptT, MonadError)
 import Control.Monad.IO.Class (MonadIO (..))
-import Control.Monad.Reader (MonadReader, ReaderT (runReaderT), ask)
+import Control.Monad.Reader (MonadReader, ReaderT (runReaderT), ask, asks)
+import Convex.BuildTx qualified as ConvexBuildTx
 import Convex.Class (
     MonadBlockchain,
     MonadMockchain,
     MonadUtxoQuery,
     ValidationError,
     getTxById,
+    queryNetworkId,
     sendTx,
  )
 import Convex.CoinSelection (AsBalancingError (..), AsCoinSelectionError)
@@ -58,6 +61,7 @@ import Convex.Wallet.Operator (
     signTxOperator,
  )
 import Data.Functor (void)
+import Data.List (findIndex)
 import PlutusLedgerApi.V3 (ExBudget (..), ExCPU (..), ExMemory (..))
 import PlutusLedgerApi.V3 qualified as PV3
 import ProgrammableTokens.OffChain.BuildTx qualified as BuildTx
@@ -163,7 +167,58 @@ deployDirectorySet op = do
     flip runReaderT operatorEnv_ $ do
         (tx, scriptRoot) <- Endpoints.deployCip143RegistryTx target
         void $ sendTx $ signTxOperator op tx
+        attachProgrammableLogicReferenceScripts op scriptRoot
+
+attachProgrammableLogicReferenceScripts ::
+    forall era err m.
+    ( MonadUtxoQuery m
+    , MonadBlockchain era m
+    , MonadError err m
+    , AsCoinSelectionError err
+    , AsBalancingError err era
+    , C.IsBabbageBasedEra era
+    ) =>
+    Operator Signing ->
+    Env.DirectoryScriptRoot ->
+    m Env.DirectoryScriptRoot
+attachProgrammableLogicReferenceScripts op scriptRoot@Env.DirectoryScriptRoot{Env.srProgrammableLogicBaseRefTxIn, Env.srProgrammableLogicGlobalRefTxIn}
+    | Just _ <- srProgrammableLogicBaseRefTxIn
+    , Just _ <- srProgrammableLogicGlobalRefTxIn =
         pure scriptRoot
+    | otherwise = do
+        operatorEnv <- Env.loadConvexOperatorEnv @_ @era op
+        flip runReaderT (Env.addEnv (Env.mkDirectoryEnv scriptRoot) $ Env.singleton operatorEnv) $ do
+            networkId <- queryNetworkId
+            directoryEnv <- asks Env.directoryEnv
+            let baseScript = C.PlutusScript C.PlutusScriptV3 (Env.dsProgrammableLogicBaseScript directoryEnv)
+                globalScript = C.PlutusScript C.PlutusScriptV3 (Env.dsProgrammableLogicGlobalScript directoryEnv)
+                refScriptAddress =
+                    C.makeShelleyAddressInEra
+                        C.shelleyBasedEra
+                        networkId
+                        (C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 $ Env.dsIssuanceCborHexSpendingScript directoryEnv)
+                        C.NoStakeAddress
+            (tx, _) <-
+                Env.balanceTxEnv_ $ do
+                    ConvexBuildTx.createRefScriptNoDatum refScriptAddress baseScript mempty
+                    ConvexBuildTx.createRefScriptNoDatum refScriptAddress globalScript mempty
+            let signedTx = Convex.CoinSelection.signBalancedTxBody [] tx
+            void $ sendTx $ signTxOperator op signedTx
+            let txId = C.getTxId (C.getTxBody signedTx)
+                C.TxBodyContent{C.txOuts} = C.getTxBodyContent (C.getTxBody signedTx)
+                findRefTxIn scriptHash =
+                    maybe (error $ "Missing reference script output for " <> show scriptHash) (C.TxIn txId . C.TxIx . fromIntegral) $
+                        findIndex (hasReferenceScript scriptHash) txOuts
+            pure
+                scriptRoot
+                    { Env.srProgrammableLogicBaseRefTxIn = Just (findRefTxIn (C.hashScript baseScript))
+                    , Env.srProgrammableLogicGlobalRefTxIn = Just (findRefTxIn (C.hashScript globalScript))
+                    }
+  where
+    hasReferenceScript expectedHash (C.TxOut _ _ _ referenceScript) =
+        case referenceScript of
+            C.ReferenceScript _ (C.ScriptInAnyLang _ script) -> C.hashScript script == expectedHash
+            C.ReferenceScriptNone -> False
 
 -- | Build a transaction that issues a progammable token
 issueProgrammableTokenTx ::

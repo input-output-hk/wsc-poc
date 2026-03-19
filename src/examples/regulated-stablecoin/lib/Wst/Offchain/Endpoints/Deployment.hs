@@ -49,7 +49,14 @@ deployFullTx :: forall env era err m. (MonadReader env m, C.IsConwayBasedEra era
 deployFullTx target = do
     ((txi, _), (issuanceCborHexTxIn, _)) <- Env.selectTwoOperatorOutputs @env @_ @era
     opEnv <- asks (Env.operatorEnv @era)
-    let root = DirectoryScriptRoot txi issuanceCborHexTxIn target
+    let root =
+            DirectoryScriptRoot
+                { srTxIn = txi
+                , srIssuanceCborHexTxIn = issuanceCborHexTxIn
+                , srTarget = target
+                , srProgrammableLogicBaseRefTxIn = Nothing
+                , srProgrammableLogicGlobalRefTxIn = Nothing
+                }
     (tx, _) <-
         Env.withEnv $
             Env.withOperator opEnv $

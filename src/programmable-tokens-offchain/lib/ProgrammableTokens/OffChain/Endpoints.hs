@@ -65,7 +65,14 @@ deployCip143RegistryTx ::
 deployCip143RegistryTx target = do
     ((txi, _), (issuanceCborHexTxIn_, _)) <- Env.selectTwoOperatorOutputs @env @_ @era
     opEnv <- asks (Env.operatorEnv @era)
-    let root = DirectoryScriptRoot txi issuanceCborHexTxIn_ target
+    let root =
+            DirectoryScriptRoot
+                { srTxIn = txi
+                , srIssuanceCborHexTxIn = issuanceCborHexTxIn_
+                , srTarget = target
+                , srProgrammableLogicBaseRefTxIn = Nothing
+                , srProgrammableLogicGlobalRefTxIn = Nothing
+                }
     (tx, _) <-
         flip Env.runReaderT (Env.addEnv (Env.mkDirectoryEnv root) $ Env.singleton opEnv) $
             Env.balanceDeployTxEnv_ $

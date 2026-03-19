@@ -1,5 +1,6 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RankNTypes #-}
 
 module Main (main) where
 
@@ -12,33 +13,27 @@ import Data.Maybe (mapMaybe)
 import Data.Word (Word8)
 import Numeric (showFFloat)
 import Plutarch.Evaluate (applyArguments, evalScript)
-import Plutarch.Internal.Term (Config (NoTracing), Script, Term, compile)
+import Plutarch.Script (Script, deserialiseScript)
 import PlutusLedgerApi.V1 qualified as PV1
 import PlutusLedgerApi.V1.Value (assetClass, assetClassValue)
-import PlutusLedgerApi.V3
+import PlutusLedgerApi.V3 hiding (deserialiseScript)
 import PlutusLedgerApi.V3.MintValue (MintValue (UnsafeMintValue))
 import PlutusTx qualified
 import PlutusTx.AssocMap qualified as Map
 import PlutusTx.Builtins qualified as BI
+import ProgrammableTokens.OffChain.AikenProgrammableTokenScripts qualified as Aiken
 import ProgrammableTokens.OffChain.Scripts qualified as OffchainScripts
 import ProgrammableTokens.Test (productionMaxTxExBudget)
 import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buildBalancedScriptContext, buildScriptContext, mkAdaValue, withAddress, withFee, withInlineDatum, withInput, withMint, withMintingScript, withOutRef, withOutput, withRedeemer, withReferenceInput, withRewardingScript, withScriptInput, withSigner, withTxOutAddress, withTxOutInlineDatum, withTxOutValue, withValue, withWithdrawal)
-import SmartTokens.Contracts.AlwaysYields (palwaysSucceed)
-import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
-import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (IssuanceCborHex), mkIssuanceCborHexMinting)
-import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedeemer (TransferAct), TokenProof (TokenDoesNotExist, TokenExists), mkProgrammableLogicBase, mkProgrammableLogicGlobal, mkSeizeActRedeemerFromAbsoluteInputIdxs)
-import SmartTokens.Contracts.ProtocolParams (mkProtocolParametersMinting)
+import SmartTokens.Contracts.ProgrammableLogicBase (TokenProof (TokenDoesNotExist, TokenExists), mkSeizeActRedeemerFromAbsoluteInputIdxs)
 import SmartTokens.Core.Scripts (ScriptTarget (Production))
-import SmartTokens.LinkedList.MintDirectory (DirectoryNodeAction (InitDirectory, InsertDirectoryNode), mkDirectoryNodeMP)
-import SmartTokens.LinkedList.SpendDirectory (pmkDirectorySpending)
+import SmartTokens.LinkedList.MintDirectory (DirectoryNodeAction (InsertDirectoryNode))
 import SmartTokens.Types.Constants (issuanceCborHexToken, protocolParamsToken)
-import SmartTokens.Types.PTokenDirectory (DirectorySetNode (DirectorySetNode))
-import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (ProgrammableLogicGlobalParams))
 
 main :: IO ()
 main = do
     let ExBudget (ExCPU maxCpu) (ExMemory maxMem) = productionMaxTxExBudget
-    putStrLn "Onchain script benchmark (NoTracing, one case per redeemer path)"
+    putStrLn "Onchain Aiken script benchmark (NoTracing, one case per redeemer path)"
     rows <- traverse runCase benchCases
     let sorted = sortOn caseName rows
     putStrLn $
@@ -191,10 +186,6 @@ percentage numerator denominator =
 formatPercent :: Double -> String
 formatPercent pct = showFFloat (Just 2) pct "%"
 
-compileNoTracing :: (forall s. Term s a) -> Script
-compileNoTracing t =
-    either (error . ("compile failed: " <>) . show) id (compile NoTracing t)
-
 data EvalKind
     = EvalBaseSpend TxOutRef
     | EvalGlobalReward Credential
@@ -221,14 +212,11 @@ data EvalResult = EvalResult
     }
 
 runEvalSpec :: EvalSpec -> IO EvalResult
-runEvalSpec evalSpec = do
-    let evalKind = esKind evalSpec
-        evalScript' = esScript evalSpec
-        evalArgs = esArgs evalSpec
-    let (res, budget, logs) = evalScript (applyArguments evalScript' evalArgs)
+runEvalSpec EvalSpec{esKind, esScript, esArgs} = do
+    let (res, budget, logs) = evalScript (applyArguments esScript esArgs)
     pure
         EvalResult
-            { erKind = evalKind
+            { erKind = esKind
             , erSuccess = isRight res
             , erBudget = budget
             , erLogText = show logs
@@ -256,27 +244,28 @@ renderEvalKind kind =
 
 compiledAlwaysSucceedsScript :: Script
 compiledAlwaysSucceedsScript =
-    compileNoTracing palwaysSucceed
+    cardanoApiScriptToScript (OffchainScripts.alwaysSucceedsScript Production)
 
-compiledDirectorySpendingScript :: Script
-compiledDirectorySpendingScript =
-    compileNoTracing pmkDirectorySpending
+mkAikenCase :: String -> EvalKind -> C.PlutusScript C.PlutusScriptV3 -> [Data] -> ScriptContext -> BenchCase
+mkAikenCase name primaryKind script args ctx =
+    BenchCase name (cardanoApiScriptToScript script) args primaryKind ctx
 
-mkCase :: String -> EvalKind -> (forall s. Term s a) -> [Data] -> ScriptContext -> BenchCase
-mkCase name primaryKind term args ctx =
-    BenchCase name (compileNoTracing term) args primaryKind ctx
+cardanoApiScriptToScript :: C.PlutusScript C.PlutusScriptV3 -> Script
+cardanoApiScriptToScript (C.PlutusScriptSerialised serialisedBytes) =
+    deserialiseScript serialisedBytes
+
+aikenMintArgs :: ScriptContext -> [Data]
+aikenMintArgs ctx = [toData ctx]
+
+aikenRewardArgs :: ScriptContext -> [Data]
+aikenRewardArgs ctx = [toData ctx]
+
+aikenSpendArgs :: TxOutRef -> ScriptContext -> [Data]
+aikenSpendArgs _ ctx = [toData ctx]
 
 scriptCredentialHash :: Credential -> ScriptHash
 scriptCredentialHash (ScriptCredential sh) = sh
 scriptCredentialHash cred = error ("expected ScriptCredential, got: " <> show cred)
-
-scriptHashFromCardanoScript :: C.PlutusScript C.PlutusScriptV3 -> ScriptHash
-scriptHashFromCardanoScript =
-    ScriptHash
-        . PV1.toBuiltin
-        . C.serialiseToRawBytes
-        . C.hashScript
-        . C.PlutusScript C.PlutusScriptV3
 
 scenarioEvalSpecsFromCtx :: ScriptContext -> [EvalSpec]
 scenarioEvalSpecsFromCtx ctx@(ScriptContext txInfo _ _) =
@@ -293,22 +282,22 @@ scenarioEvalSpecsFromCtx ctx@(ScriptContext txInfo _ _) =
                      in Just $
                             EvalSpec
                                 (EvalBaseSpend outRef)
-                                (compileNoTracing mkProgrammableLogicBase)
-                                [toData globalCred, toData (spendingPurposeCtx ctx input)]
+                                (cardanoApiScriptToScript (Aiken.aikenProgrammableLogicBaseScript globalCred))
+                                (aikenSpendArgs outRef (spendingPurposeCtx ctx input))
                 | sh == scriptCredentialHash txD29BaseScriptCred ->
                     let outRef = txInInfoOutRef input
                      in Just $
                             EvalSpec
                                 (EvalBaseSpend outRef)
-                                (compileNoTracing mkProgrammableLogicBase)
-                                [toData txD29GlobalStakeCred, toData (spendingPurposeCtx ctx input)]
+                                (cardanoApiScriptToScript (Aiken.aikenProgrammableLogicBaseScript txD29GlobalStakeCred))
+                                (aikenSpendArgs outRef (spendingPurposeCtx ctx input))
                 | sh == ScriptHash (bs28 0x44) ->
                     let outRef = txInInfoOutRef input
                      in Just $
                             EvalSpec
                                 (EvalDirectorySpend outRef)
-                                compiledDirectorySpendingScript
-                                [toData protocolParamsCS, toData (spendingPurposeCtx ctx input)]
+                                (cardanoApiScriptToScript (Aiken.aikenDirectoryNodeSpendingScript protocolParamsCS))
+                                (aikenSpendArgs outRef (spendingPurposeCtx ctx input))
                 | sh == externalAlwaysSucceedsHash || sh == externalAlwaysSucceedsHash2 ->
                     let outRef = txInInfoOutRef input
                      in Just $
@@ -324,14 +313,14 @@ scenarioEvalSpecsFromCtx ctx@(ScriptContext txInfo _ _) =
             Just $
                 EvalSpec
                     (EvalGlobalReward cred)
-                    (compileNoTracing mkProgrammableLogicGlobal)
-                    [toData protocolParamsCS, toData (rewardingPurposeCtx ctx cred)]
+                    (cardanoApiScriptToScript (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS))
+                    (aikenRewardArgs (rewardingPurposeCtx ctx cred))
         | cred == txD29GlobalStakeCred =
             Just $
                 EvalSpec
                     (EvalGlobalReward cred)
-                    (compileNoTracing mkProgrammableLogicGlobal)
-                    [toData txD29ProtocolParamsCS, toData (rewardingPurposeCtx ctx cred)]
+                    (cardanoApiScriptToScript (Aiken.aikenProgrammableLogicGlobalScript txD29ProtocolParamsCS))
+                    (aikenRewardArgs (rewardingPurposeCtx ctx cred))
         | cred == txD29TransferLogicStakeCred =
             Just $
                 EvalSpec
@@ -360,26 +349,26 @@ scenarioEvalSpecsFromCtx ctx@(ScriptContext txInfo _ _) =
             Just $
                 EvalSpec
                     (EvalDirectoryMint cs)
-                    (compileNoTracing mkDirectoryNodeMP)
-                    [toData initRef, toData issuancePolicyCS, toData (mintingPurposeCtx ctx cs)]
+                    (cardanoApiScriptToScript (Aiken.aikenDirectoryNodeMintingScript initRef issuanceInitRef))
+                    (aikenMintArgs (mintingPurposeCtx ctx cs))
         | cs == mintingPolicyCS =
             Just $
                 EvalSpec
                     (EvalProgrammableMint cs)
-                    (compileNoTracing mkProgrammableLogicMinting)
-                    [toData progLogicBaseCred, toData mintingLogicHash, toData (mintingPurposeCtx ctx cs)]
+                    (cardanoApiScriptToScript (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred (ScriptCredential mintingLogicHash)))
+                    (aikenMintArgs (mintingPurposeCtx ctx cs))
         | cs == protocolParamsCS =
             Just $
                 EvalSpec
                     (EvalProtocolParamsMint cs)
-                    (compileNoTracing mkProtocolParametersMinting)
-                    [toData protocolParamsInitRef, toData (mintingPurposeCtx ctx cs)]
+                    (cardanoApiScriptToScript (Aiken.aikenProtocolParamsMintingScript protocolParamsInitRef))
+                    (aikenMintArgs (mintingPurposeCtx ctx cs))
         | cs == issuancePolicyCS =
             Just $
                 EvalSpec
                     (EvalIssuanceMint cs)
-                    (compileNoTracing mkIssuanceCborHexMinting)
-                    [toData issuanceInitRef, toData (mintingPurposeCtx ctx cs)]
+                    (cardanoApiScriptToScript (Aiken.aikenIssuanceCborHexMintingScript issuanceInitRef))
+                    (aikenMintArgs (mintingPurposeCtx ctx cs))
         | otherwise = Nothing
 
 spendingPurposeCtx :: ScriptContext -> TxInInfo -> ScriptContext
@@ -413,6 +402,79 @@ lookupRedeemerData purpose txInfo =
     case Map.lookup purpose (txInfoRedeemers txInfo) of
         Just (Redeemer dat) -> dat
         Nothing -> PlutusTx.toBuiltinData ()
+
+aikenConstr :: Integer -> [PlutusTx.Data] -> BuiltinData
+aikenConstr tag fields =
+    PlutusTx.dataToBuiltinData (PlutusTx.Constr tag fields)
+
+aikenProtocolParamsDatumData :: CurrencySymbol -> Credential -> BuiltinData
+aikenProtocolParamsDatumData registryNodeCs progLogicCredential =
+    aikenConstr
+        0
+        [ PlutusTx.toData registryNodeCs
+        , PlutusTx.toData progLogicCredential
+        ]
+
+aikenIssuanceDatumData :: BuiltinByteString -> BuiltinByteString -> BuiltinData
+aikenIssuanceDatumData prefix postfix =
+    aikenConstr
+        0
+        [ PlutusTx.toData prefix
+        , PlutusTx.toData postfix
+        ]
+
+aikenCurrencySymbolBytes :: CurrencySymbol -> BuiltinByteString
+aikenCurrencySymbolBytes (CurrencySymbol bs) = bs
+
+aikenDirectoryNodeDatumData ::
+    BuiltinByteString ->
+    BuiltinByteString ->
+    Credential ->
+    Credential ->
+    BuiltinByteString ->
+    BuiltinData
+aikenDirectoryNodeDatumData key next transferLogicScript issuerLogicScript globalStateCs =
+    aikenConstr
+        0
+        [ PlutusTx.toData key
+        , PlutusTx.toData next
+        , PlutusTx.toData transferLogicScript
+        , PlutusTx.toData issuerLogicScript
+        , PlutusTx.toData globalStateCs
+        ]
+
+aikenTransferProofData :: TokenProof -> PlutusTx.Data
+aikenTransferProofData = \case
+    TokenExists nodeIdx ->
+        PlutusTx.Constr 0 [PlutusTx.I nodeIdx]
+    TokenDoesNotExist nodeIdx ->
+        PlutusTx.Constr 1 [PlutusTx.I nodeIdx]
+
+aikenTransferActRedeemerData :: [TokenProof] -> BuiltinData
+aikenTransferActRedeemerData proofs =
+    aikenConstr 0 [PlutusTx.List (fmap aikenTransferProofData proofs)]
+
+aikenMintingActionRedeemerData :: Credential -> BuiltinData
+aikenMintingActionRedeemerData mintingLogicCredential =
+    aikenConstr 0 [PlutusTx.toData mintingLogicCredential]
+
+policyIdCurrencySymbol :: C.PolicyId -> CurrencySymbol
+policyIdCurrencySymbol =
+    CurrencySymbol . PV1.toBuiltin . C.serialiseToRawBytes
+
+scriptPolicyCurrencySymbol :: C.PlutusScript C.PlutusScriptV3 -> CurrencySymbol
+scriptPolicyCurrencySymbol =
+    policyIdCurrencySymbol
+        . C.scriptPolicyId
+        . C.PlutusScript C.PlutusScriptV3
+
+scriptHashFromCardanoScript :: C.PlutusScript C.PlutusScriptV3 -> ScriptHash
+scriptHashFromCardanoScript =
+    ScriptHash
+        . PV1.toBuiltin
+        . C.serialiseToRawBytes
+        . C.hashScript
+        . C.PlutusScript C.PlutusScriptV3
 
 mkValue :: [(CurrencySymbol, TokenName, Integer)] -> Value
 mkValue = foldMap (\(cs, tn, amount) -> assetClassValue (assetClass cs tn) amount)
@@ -466,16 +528,13 @@ assetUnitHex unit quantity =
 bs28 :: Word8 -> BuiltinByteString
 bs28 w = PV1.toBuiltin (BS.replicate 28 w)
 
-maxBs28 :: BuiltinByteString
-maxBs28 = bs28 0xff
-
 computeRegisteredCs :: BuiltinByteString -> BuiltinByteString -> BuiltinByteString -> CurrencySymbol
 computeRegisteredCs prefix postfix hashedParam =
     CurrencySymbol $
         BI.blake2b_224
             ( versionHeader
                 <> prefix
-                <> BI.serialiseData (PlutusTx.toBuiltinData hashedParam)
+                <> hashedParam
                 <> postfix
             )
   where
@@ -504,7 +563,6 @@ withRefInputDatumValue ref addr value dat =
             <> withInlineDatum dat
         )
 
--- Shared constants for mini-ledger scripts
 signerPkh :: PubKeyHash
 signerPkh = PubKeyHash (bs28 0x01)
 
@@ -574,8 +632,8 @@ externalAlwaysSucceedsHash2 = ScriptHash (bs28 0x22)
 manyPubKeyInputCount :: Integer
 manyPubKeyInputCount = 50
 
-tailCS :: CurrencySymbol
-tailCS = CurrencySymbol maxBs28
+tailNodeBs :: BuiltinByteString
+tailNodeBs = PV1.toBuiltin (BS.replicate 30 0xff)
 
 seizeInputTxId :: TxId
 seizeInputTxId = txId32 0x5e 0x12
@@ -634,57 +692,45 @@ protocolParamsInitRef = txOutRef32 0xaa 0x11 0
 issuanceInitRef :: TxOutRef
 issuanceInitRef = txOutRef32 0xbb 0x21 0
 
-protocolParamsAlwaysFailHash :: ScriptHash
-protocolParamsAlwaysFailHash =
-    scriptHashFromCardanoScript (OffchainScripts.protocolParamsSpendingScript Production)
-
-issuanceAlwaysFailHash :: ScriptHash
-issuanceAlwaysFailHash =
-    scriptHashFromCardanoScript (OffchainScripts.issuanceCborHexSpendingScript Production)
-
-protocolParamsDatum :: ProgrammableLogicGlobalParams
+protocolParamsDatum :: BuiltinData
 protocolParamsDatum =
-    ProgrammableLogicGlobalParams directoryNodeCS progLogicBaseCred
+    aikenProtocolParamsDatumData directoryNodeCS progLogicBaseCred
 
-issuanceDatum :: BuiltinData
-issuanceDatum =
-    PlutusTx.toBuiltinData (IssuanceCborHex "0d" "0e")
-
-directoryCoveringNode :: DirectorySetNode
+directoryCoveringNode :: BuiltinData
 directoryCoveringNode =
-    DirectorySetNode
-        (CurrencySymbol "")
-        tailCS
+    aikenDirectoryNodeDatumData
+        ""
+        tailNodeBs
         (ScriptCredential transferLogicHash)
         issuerCred
-        (CurrencySymbol "")
+        ""
 
-directoryProgrammableNode :: DirectorySetNode
+directoryProgrammableNode :: BuiltinData
 directoryProgrammableNode =
-    DirectorySetNode
-        programmableTransferCS
-        tailCS
+    aikenDirectoryNodeDatumData
+        (aikenCurrencySymbolBytes programmableTransferCS)
+        tailNodeBs
         (ScriptCredential transferLogicHash)
         issuerCred
-        (CurrencySymbol "")
+        ""
 
-directoryProgrammableNode2 :: DirectorySetNode
+directoryProgrammableNode2 :: BuiltinData
 directoryProgrammableNode2 =
-    DirectorySetNode
-        programmableTransferCS2
-        tailCS
+    aikenDirectoryNodeDatumData
+        (aikenCurrencySymbolBytes programmableTransferCS2)
+        tailNodeBs
         (ScriptCredential transferLogicHash)
         issuerCred
-        (CurrencySymbol "")
+        ""
 
-directoryProgrammableNode3 :: DirectorySetNode
+directoryProgrammableNode3 :: BuiltinData
 directoryProgrammableNode3 =
-    DirectorySetNode
-        programmableTransferCS3
-        tailCS
+    aikenDirectoryNodeDatumData
+        (aikenCurrencySymbolBytes programmableTransferCS3)
+        tailNodeBs
         (ScriptCredential transferLogicHash)
         issuerCred
-        (CurrencySymbol "")
+        ""
 
 seizeInputIdxsFor :: Integer -> [Integer]
 seizeInputIdxsFor n = [0 .. (n - 1)]
@@ -744,7 +790,6 @@ seizeResidualOutputBuilder n =
             <> withTxOutValue (seizeResidualOutputValueFor n)
         )
 
--- Contexts / redeemer paths
 baseSpendingCtx :: ScriptContext
 baseSpendingCtx =
     let ScriptContext txInfo _ _ = globalTransferCtx
@@ -757,7 +802,7 @@ globalTransferCtx :: ScriptContext
 globalTransferCtx =
     buildBalancedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData $ TransferAct [TokenExists 1] [])
+            (aikenTransferActRedeemerData [TokenExists 1])
             globalCred
             0
             <> withSigner signerPkh
@@ -787,19 +832,19 @@ globalTransferCtx =
                 paramRef
                 (pubKeyAddress signerPkh)
                 (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
-                (PlutusTx.toBuiltinData protocolParamsDatum)
+                protocolParamsDatum
             <> withRefInputDatumValue
                 dirNodeRef
                 (pubKeyAddress signerPkh)
                 (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
-                (PlutusTx.toBuiltinData directoryProgrammableNode)
+                directoryProgrammableNode
         )
 
 globalTransferDoesNotExistCtx :: ScriptContext
 globalTransferDoesNotExistCtx =
     buildBalancedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData $ TransferAct [TokenDoesNotExist 1] [])
+            (aikenTransferActRedeemerData [TokenDoesNotExist 1])
             globalCred
             0
             <> withSigner signerPkh
@@ -825,19 +870,19 @@ globalTransferDoesNotExistCtx =
                 paramRef
                 (pubKeyAddress signerPkh)
                 (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
-                (PlutusTx.toBuiltinData protocolParamsDatum)
+                protocolParamsDatum
             <> withRefInputDatumValue
                 dirNodeRef
                 (pubKeyAddress signerPkh)
                 (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
-                (PlutusTx.toBuiltinData directoryCoveringNode)
+                directoryCoveringNode
         )
 
 globalTransferMixedManyCtx :: ScriptContext
 globalTransferMixedManyCtx =
     buildBalancedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData $ TransferAct [TokenDoesNotExist 1, TokenExists 2, TokenExists 3, TokenExists 4, TokenDoesNotExist 1] [])
+            (aikenTransferActRedeemerData [TokenDoesNotExist 1, TokenExists 2, TokenExists 3, TokenExists 4, TokenDoesNotExist 1])
             globalCred
             0
             <> withSigner signerPkh
@@ -882,27 +927,27 @@ globalTransferMixedManyCtx =
                 paramRef
                 (pubKeyAddress signerPkh)
                 (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
-                (PlutusTx.toBuiltinData protocolParamsDatum)
+                protocolParamsDatum
             <> withRefInputDatumValue
                 dirNodeRef
                 (pubKeyAddress signerPkh)
                 (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
-                (PlutusTx.toBuiltinData directoryCoveringNode)
+                directoryCoveringNode
             <> withRefInputDatumValue
                 directoryProgrammableNodeRef
                 (pubKeyAddress signerPkh)
                 (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
-                (PlutusTx.toBuiltinData directoryProgrammableNode)
+                directoryProgrammableNode
             <> withRefInputDatumValue
                 directoryProgrammableNode2Ref
                 (pubKeyAddress signerPkh)
                 (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
-                (PlutusTx.toBuiltinData directoryProgrammableNode2)
+                directoryProgrammableNode2
             <> withRefInputDatumValue
                 directoryProgrammableNode3Ref
                 (pubKeyAddress signerPkh)
                 (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
-                (PlutusTx.toBuiltinData directoryProgrammableNode3)
+                directoryProgrammableNode3
         )
 
 transferManyInputAddr :: Address
@@ -933,7 +978,7 @@ mkGlobalTransferManyCtx inputCount =
         qtyInSecondOutput = inputCount - qtyInFirstOutput
      in buildBalancedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [TokenDoesNotExist 1, TokenExists 2] [])
+                (aikenTransferActRedeemerData [TokenDoesNotExist 1, TokenExists 2])
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -958,17 +1003,17 @@ mkGlobalTransferManyCtx inputCount =
                     paramRef
                     (pubKeyAddress signerPkh)
                     (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
-                    (PlutusTx.toBuiltinData protocolParamsDatum)
+                    protocolParamsDatum
                 <> withRefInputDatumValue
                     dirNodeRef
                     (pubKeyAddress signerPkh)
                     (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
-                    (PlutusTx.toBuiltinData directoryCoveringNode)
+                    directoryCoveringNode
                 <> withRefInputDatumValue
                     directoryProgrammableNodeRef
                     (pubKeyAddress signerPkh)
                     (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
-                    (PlutusTx.toBuiltinData directoryProgrammableNode)
+                    directoryProgrammableNode
             )
 
 globalTransfer5Ctx :: ScriptContext
@@ -994,37 +1039,31 @@ mkGlobalSeizeCtx seizeInputCount =
                 0
                 <> withWithdrawal issuerCred 0
                 <> seizeInputsBuilder
-                -- put the residual output first so it is last in tx output order
-                -- (withOutput prepends in the builder)
                 <> seizeResidualOutputBuilder seizeInputCount
                 <> correspondingOutputsBuilder
                 <> withRefInputDatumValue
                     paramRef
                     (pubKeyAddress signerPkh)
                     (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
-                    (PlutusTx.toBuiltinData protocolParamsDatum)
+                    protocolParamsDatum
                 <> withRefInputDatumValue
                     dirNodeRef
                     (pubKeyAddress signerPkh)
                     (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
-                    (PlutusTx.toBuiltinData directoryProgrammableNode)
+                    directoryProgrammableNode
             )
 
 globalSeize1Ctx :: ScriptContext
-globalSeize1Ctx =
-    mkGlobalSeizeCtx 1
+globalSeize1Ctx = mkGlobalSeizeCtx 1
 
 globalSeize5Ctx :: ScriptContext
-globalSeize5Ctx =
-    mkGlobalSeizeCtx 5
+globalSeize5Ctx = mkGlobalSeizeCtx 5
 
 globalSeize10Ctx :: ScriptContext
-globalSeize10Ctx =
-    mkGlobalSeizeCtx 10
+globalSeize10Ctx = mkGlobalSeizeCtx 10
 
 globalSeize20Ctx :: ScriptContext
-globalSeize20Ctx =
-    mkGlobalSeizeCtx 20
+globalSeize20Ctx = mkGlobalSeizeCtx 20
 
 mkGlobalSeizeExternalScriptAndManyPubKeyCtx :: Integer -> ScriptContext
 mkGlobalSeizeExternalScriptAndManyPubKeyCtx pubKeyInputCount =
@@ -1032,9 +1071,10 @@ mkGlobalSeizeExternalScriptAndManyPubKeyCtx pubKeyInputCount =
         seizeRedeemer =
             mkSeizeActRedeemerFromAbsoluteInputIdxs
                 1
-                -- The Plutarch validator accounts for every spending redeemer in
-                -- the transaction, so the external script spend is listed too.
-                [pubKeyInputCount, pubKeyInputCount + 1]
+                -- The Aiken ThirdPartyAct validator only allows indexed inputs to
+                -- be programmable inputs. The external script spend is present in
+                -- the transaction, but it is not listed in input_idxs.
+                [pubKeyInputCount]
                 0
         pubKeyInputsBuilder = mconcat (map leadingPubKeyInputBuilder pubKeyInputIdxs)
      in buildBalancedScriptContext
@@ -1052,12 +1092,12 @@ mkGlobalSeizeExternalScriptAndManyPubKeyCtx pubKeyInputCount =
                     paramRef
                     (pubKeyAddress signerPkh)
                     (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
-                    (PlutusTx.toBuiltinData protocolParamsDatum)
+                    protocolParamsDatum
                 <> withRefInputDatumValue
                     dirNodeRef
                     (pubKeyAddress signerPkh)
                     (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
-                    (PlutusTx.toBuiltinData directoryProgrammableNode)
+                    directoryProgrammableNode
             )
 
 globalSeize1ExternalScript50PubKeyCtx :: ScriptContext
@@ -1068,17 +1108,15 @@ directoryInitCtx :: ScriptContext
 directoryInitCtx =
     let mintValue = mkValue [(directoryPolicyCS, TokenName "", 1)]
         emptyNodeDatum =
-            PlutusTx.dataToBuiltinData $
-                PlutusTx.List
-                    [ PlutusTx.B ""
-                    , PlutusTx.B (BS.replicate 30 0xff)
-                    , PlutusTx.Constr 0 [PlutusTx.B ""]
-                    , PlutusTx.Constr 0 [PlutusTx.B ""]
-                    , PlutusTx.B ""
-                    ]
+            aikenDirectoryNodeDatumData
+                ""
+                tailNodeBs
+                (PubKeyCredential (PubKeyHash ""))
+                (PubKeyCredential (PubKeyHash ""))
+                ""
      in buildScriptContext
-            ( withRedeemer (PlutusTx.toBuiltinData InitDirectory)
-                <> withMintingScript mintValue (PlutusTx.toBuiltinData InitDirectory)
+            ( withRedeemer (aikenConstr 0 [])
+                <> withMintingScript mintValue (aikenConstr 0 [])
                 <> withInput
                     ( withOutRef initRef
                         <> withAddress (pubKeyAddress signerPkh)
@@ -1091,77 +1129,9 @@ directoryInitCtx =
                     )
             )
 
-directoryInsertCtx :: ScriptContext
-directoryInsertCtx =
-    let issuancePrefix = "0d"
-        issuancePostfix = "0e"
-        hashedMintingParam = bs28 0x55
-        insertProtocolParamsDatum =
-            ProgrammableLogicGlobalParams directoryPolicyCS progLogicBaseCred
-        insertedCs = computeRegisteredCs issuancePrefix issuancePostfix hashedMintingParam
-        insertedCsBs = case insertedCs of
-            CurrencySymbol bs -> bs
-        insertedToken = TokenName insertedCsBs
-        insertRedeemer = InsertDirectoryNode insertedCs (ScriptHash hashedMintingParam)
-        nodeMintValue = mkValue [(directoryPolicyCS, insertedToken, 1)]
-        registeredAssetMintValue = mkValue [(insertedCs, TokenName "0b", 1)]
-        coveringNode =
-            DirectorySetNode
-                (CurrencySymbol "")
-                tailCS
-                (ScriptCredential transferLogicHash)
-                issuerCred
-                (CurrencySymbol "")
-        coveringOutput =
-            DirectorySetNode
-                (CurrencySymbol "")
-                insertedCs
-                (ScriptCredential transferLogicHash)
-                issuerCred
-                (CurrencySymbol "")
-        insertedNode =
-            DirectorySetNode
-                insertedCs
-                tailCS
-                (ScriptCredential transferLogicHash)
-                issuerCred
-                (CurrencySymbol "")
-     in buildScriptContext
-            ( withRedeemer (PlutusTx.toBuiltinData insertRedeemer)
-                <> withMintingScript nodeMintValue (PlutusTx.toBuiltinData insertRedeemer)
-                <> withMint registeredAssetMintValue (PlutusTx.toBuiltinData ())
-                <> withScriptInput
-                    (PlutusTx.toBuiltinData ())
-                    ( withOutRef insertNodeInRef
-                        <> withAddress (scriptAddress (ScriptHash (bs28 0x44)))
-                        <> withValue (mkAdaValue 2_000_000 <> mkValue [(directoryPolicyCS, TokenName "", 1)])
-                        <> withInlineDatum (PlutusTx.toBuiltinData coveringNode)
-                    )
-                <> withOutput
-                    ( withTxOutAddress (scriptAddress (ScriptHash (bs28 0x44)))
-                        <> withTxOutValue (mkAdaValue 2_000_000 <> mkValue [(directoryPolicyCS, TokenName "", 1)])
-                        <> withTxOutInlineDatum (PlutusTx.toBuiltinData coveringOutput)
-                    )
-                <> withOutput
-                    ( withTxOutAddress (scriptAddress (ScriptHash (bs28 0x44)))
-                        <> withTxOutValue (mkAdaValue 2_000_000 <> mkValue [(directoryPolicyCS, insertedToken, 1)])
-                        <> withTxOutInlineDatum (PlutusTx.toBuiltinData insertedNode)
-                    )
-                <> withRefInputDatumValue
-                    paramRef
-                    (pubKeyAddress signerPkh)
-                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
-                    (PlutusTx.toBuiltinData insertProtocolParamsDatum)
-                <> withRefInputDatumValue
-                    issuanceRef
-                    (pubKeyAddress signerPkh)
-                    (mkAdaValue 2_000_000 <> mkValue [(issuancePolicyCS, issuanceCborHexToken, 1)])
-                    (PlutusTx.toBuiltinData $ IssuanceCborHex issuancePrefix issuancePostfix)
-            )
-
 programmableMintCtx :: ScriptContext
 programmableMintCtx =
-    let scriptRedeemer = PlutusTx.toBuiltinData (ScriptCredential mintingLogicHash)
+    let scriptRedeemer = aikenMintingActionRedeemerData (ScriptCredential mintingLogicHash)
         mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
      in buildBalancedScriptContext
             ( withFee 0
@@ -1176,7 +1146,7 @@ programmableMintCtx =
 
 programmableBurnCtx :: ScriptContext
 programmableBurnCtx =
-    let scriptRedeemer = PlutusTx.toBuiltinData (ScriptCredential mintingLogicHash)
+    let scriptRedeemer = aikenMintingActionRedeemerData (ScriptCredential mintingLogicHash)
         burnValue = mkValue [(mintingPolicyCS, TokenName "0c", -1)]
      in buildBalancedScriptContext
             ( withRedeemer scriptRedeemer
@@ -1184,8 +1154,23 @@ programmableBurnCtx =
                 <> withWithdrawal (ScriptCredential mintingLogicHash) 0
             )
 
-protocolParamsMintCtx :: ScriptContext
-protocolParamsMintCtx =
+aikenIssuanceDatum :: BuiltinData
+aikenIssuanceDatum = aikenIssuanceDatumData "0d" "0e"
+
+aikenProtocolParamsAlwaysFailHash :: ScriptHash
+aikenProtocolParamsAlwaysFailHash =
+    scriptHashFromCardanoScript Aiken.aikenProtocolParamsSpendingScript
+
+aikenIssuanceAlwaysFailHash :: ScriptHash
+aikenIssuanceAlwaysFailHash =
+    scriptHashFromCardanoScript Aiken.aikenIssuanceCborHexSpendingScript
+
+aikenIssuancePolicyCS :: CurrencySymbol
+aikenIssuancePolicyCS =
+    scriptPolicyCurrencySymbol (Aiken.aikenIssuanceCborHexMintingScript issuanceInitRef)
+
+aikenProtocolParamsMintCtx :: ScriptContext
+aikenProtocolParamsMintCtx =
     let mintValue = mkValue [(protocolParamsCS, protocolParamsToken, 1)]
      in buildBalancedScriptContext
             ( withMintingScript mintValue (PlutusTx.toBuiltinData ())
@@ -1195,14 +1180,14 @@ protocolParamsMintCtx =
                         <> withValue (mkAdaValue 2_000_000)
                     )
                 <> withOutput
-                    ( withTxOutAddress (scriptAddress protocolParamsAlwaysFailHash)
+                    ( withTxOutAddress (scriptAddress aikenProtocolParamsAlwaysFailHash)
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
-                        <> withTxOutInlineDatum (PlutusTx.toBuiltinData protocolParamsDatum)
+                        <> withTxOutInlineDatum protocolParamsDatum
                     )
             )
 
-issuanceMintCtx :: ScriptContext
-issuanceMintCtx =
+aikenIssuanceMintCtx :: ScriptContext
+aikenIssuanceMintCtx =
     let mintValue = mkValue [(issuancePolicyCS, issuanceCborHexToken, 1)]
      in buildBalancedScriptContext
             ( withMintingScript mintValue (PlutusTx.toBuiltinData ())
@@ -1212,22 +1197,80 @@ issuanceMintCtx =
                         <> withValue (mkAdaValue 2_000_000)
                     )
                 <> withOutput
-                    ( withTxOutAddress (scriptAddress issuanceAlwaysFailHash)
+                    ( withTxOutAddress (scriptAddress aikenIssuanceAlwaysFailHash)
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
-                        <> withTxOutInlineDatum issuanceDatum
+                        <> withTxOutInlineDatum aikenIssuanceDatum
                     )
             )
 
--- Mainnet-inspired DEX transaction benchmark fixture from:
--- c3111df78f97a8f7ed4934510e04d9c777339a00d5eac26e123471ff4ab954ff
---
--- The original tx processes 16 swap requests against a NIGHT/ADA pool. Here we
--- model the same broad shape on the programmable-token mini-ledger:
--- - 16 request inputs at programmableLogicBase with an always-succeeds stake script
--- - 1 pool input at programmableLogicBase with a second always-succeeds stake script
--- - 1 pubkey input that is consumed entirely as fees
--- - 16 request outputs at programmableLogicBase with pubkey stake credentials
--- - 1 pool continuation output carrying the pool state NFT
+aikenDirectoryInsertCtx :: ScriptContext
+aikenDirectoryInsertCtx =
+    let issuancePrefix = "0d"
+        issuancePostfix = "0e"
+        hashedMintingParam = bs28 0x55
+        insertProtocolParamsDatum =
+            aikenProtocolParamsDatumData directoryPolicyCS progLogicBaseCred
+        insertedCs = computeRegisteredCs issuancePrefix issuancePostfix hashedMintingParam
+        insertedCsBs = case insertedCs of
+            CurrencySymbol bs -> bs
+        insertedToken = TokenName insertedCsBs
+        insertRedeemer = InsertDirectoryNode insertedCs (ScriptHash hashedMintingParam)
+        nodeMintValue = mkValue [(directoryPolicyCS, insertedToken, 1)]
+        registeredAssetMintValue = mkValue [(insertedCs, TokenName "0b", 1)]
+        coveringNode =
+            aikenDirectoryNodeDatumData
+                ""
+                tailNodeBs
+                (ScriptCredential transferLogicHash)
+                issuerCred
+                ""
+        coveringOutput =
+            aikenDirectoryNodeDatumData
+                ""
+                (aikenCurrencySymbolBytes insertedCs)
+                (ScriptCredential transferLogicHash)
+                issuerCred
+                ""
+        insertedNode =
+            aikenDirectoryNodeDatumData
+                (aikenCurrencySymbolBytes insertedCs)
+                tailNodeBs
+                (ScriptCredential transferLogicHash)
+                issuerCred
+                ""
+     in buildScriptContext
+            ( withRedeemer (PlutusTx.toBuiltinData insertRedeemer)
+                <> withMintingScript nodeMintValue (PlutusTx.toBuiltinData insertRedeemer)
+                <> withMint registeredAssetMintValue (PlutusTx.toBuiltinData ())
+                <> withScriptInput
+                    (PlutusTx.toBuiltinData ())
+                    ( withOutRef insertNodeInRef
+                        <> withAddress (scriptAddress (ScriptHash (bs28 0x44)))
+                        <> withValue (mkAdaValue 2_000_000 <> mkValue [(directoryPolicyCS, TokenName "", 1)])
+                        <> withInlineDatum coveringNode
+                    )
+                <> withOutput
+                    ( withTxOutAddress (scriptAddress (ScriptHash (bs28 0x44)))
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> mkValue [(directoryPolicyCS, TokenName "", 1)])
+                        <> withTxOutInlineDatum coveringOutput
+                    )
+                <> withOutput
+                    ( withTxOutAddress (scriptAddress (ScriptHash (bs28 0x44)))
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> mkValue [(directoryPolicyCS, insertedToken, 1)])
+                        <> withTxOutInlineDatum insertedNode
+                    )
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    insertProtocolParamsDatum
+                <> withRefInputDatumValue
+                    issuanceRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 2_000_000 <> mkValue [(aikenIssuancePolicyCS, issuanceCborHexToken, 1)])
+                    aikenIssuanceDatum
+            )
+
 mainnetDexTxHash :: String
 mainnetDexTxHash = "c3111df78f97a8f7ed4934510e04d9c777339a00d5eac26e123471ff4ab954ff"
 
@@ -1397,7 +1440,7 @@ mainnetDexGlobalTransferCtx =
             buildBalancedScriptContext
                 ( withFee mainnetDexFeeAda
                     <> withRewardingScript
-                        (PlutusTx.toBuiltinData $ TransferAct [TokenExists 2, TokenDoesNotExist 1] [])
+                        (aikenTransferActRedeemerData [TokenExists 2, TokenDoesNotExist 1])
                         globalCred
                         0
                     <> withSigner signerPkh
@@ -1413,17 +1456,17 @@ mainnetDexGlobalTransferCtx =
                         paramRef
                         (pubKeyAddress signerPkh)
                         (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
-                        (PlutusTx.toBuiltinData protocolParamsDatum)
+                        protocolParamsDatum
                     <> withRefInputDatumValue
                         dirNodeRef
                         (pubKeyAddress signerPkh)
                         (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
-                        (PlutusTx.toBuiltinData directoryCoveringNode)
+                        directoryCoveringNode
                     <> withRefInputDatumValue
                         directoryProgrammableNodeRef
                         (pubKeyAddress signerPkh)
                         (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
-                        (PlutusTx.toBuiltinData directoryProgrammableNode)
+                        directoryProgrammableNode
                 )
 
 mainnetDexBaseSpendingCtx :: ScriptContext
@@ -1434,9 +1477,6 @@ mainnetDexBaseSpendingCtx =
             (Redeemer (PlutusTx.toBuiltinData ()))
             (SpendingScript mainnetDexBaseInputRef Nothing)
 
--- Exact transaction benchmark fixture from:
--- https://preview.cexplorer.io/tx/d29ce2a9f79a70a91d83a40e0e1cf346ab94979b6f0ba001de8a89895aa518df?tab=content
--- The context is reconstructed from chain data (inputs/outputs/ref-inputs/redeemers/withdrawals).
 txD29Hash :: String
 txD29Hash = "d29ce2a9f79a70a91d83a40e0e1cf346ab94979b6f0ba001de8a89895aa518df"
 
@@ -1481,7 +1521,7 @@ txD29SpendingRedeemer = PlutusTx.dataToBuiltinData (PlutusTx.Constr 0 [])
 
 txD29GlobalStakeRedeemer :: BuiltinData
 txD29GlobalStakeRedeemer =
-    PlutusTx.toBuiltinData $ TransferAct [TokenExists 2] []
+    aikenTransferActRedeemerData [TokenExists 2]
 
 txD29TransferLogicStakeRedeemer :: BuiltinData
 txD29TransferLogicStakeRedeemer =
@@ -1494,29 +1534,25 @@ txD29TransferLogicStakeRedeemer =
 
 txD29ProtocolParamsDatumData :: BuiltinData
 txD29ProtocolParamsDatumData =
-    PlutusTx.dataToBuiltinData $
-        PlutusTx.List
-            [ PlutusTx.B (hexToBytes "f1f838a525637791ca06d1fd415358a27ba829024ee0b90af5e32f14")
-            , PlutusTx.Constr 1 [PlutusTx.B (hexToBytes "fca77bcce1e5e73c97a0bfa8c90f7cd2faff6fd6ed5b6fec1c04eefa")]
-            ]
+    aikenProtocolParamsDatumData
+        (currencySymbolHex "f1f838a525637791ca06d1fd415358a27ba829024ee0b90af5e32f14")
+        txD29BaseScriptCred
 
 txD29RefDatum1Data :: BuiltinData
 txD29RefDatum1Data =
-    PlutusTx.dataToBuiltinData $
-        PlutusTx.List
-            [ PlutusTx.B (hexToBytes "338ef18819c855fc8970be65827abb86089b58fad24b31cff332ce97")
-            , PlutusTx.B (hexToBytes "87f2531e16923b81a0f3f507363db6b7cebf30735cb76b94543ca7ac")
-            ]
+    aikenIssuanceDatumData
+        (hexToBuiltin "338ef18819c855fc8970be65827abb86089b58fad24b31cff332ce97")
+        (hexToBuiltin "87f2531e16923b81a0f3f507363db6b7cebf30735cb76b94543ca7ac")
 
 txD29DirectoryNodeDatumData :: BuiltinData
 txD29DirectoryNodeDatumData =
-    PlutusTx.dataToBuiltinData $
-        PlutusTx.List
-            [ PlutusTx.B (hexToBytes "b34a184f1f2871aa4d33544caecefef5242025f45c3fa5213d7662a9")
-            , PlutusTx.B (hexToBytes "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
-            , PlutusTx.Constr 1 [PlutusTx.B (hexToBytes "5b7d265e7d862937c6e1a5266bba7dc685b786b1cc33551aa66867c9")]
-            , PlutusTx.Constr 1 [PlutusTx.B (hexToBytes "b427cc9d5b829bbf66a784066fa3c03684fee2bfac7b571654ae8f55")]
-            ]
+    aikenConstr
+        0
+        [ PlutusTx.B (hexToBytes "b34a184f1f2871aa4d33544caecefef5242025f45c3fa5213d7662a9")
+        , PlutusTx.B (hexToBytes "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+        , PlutusTx.toData txD29TransferLogicStakeCred
+        , PlutusTx.toData (ScriptCredential (scriptHashHex "b427cc9d5b829bbf66a784066fa3c03684fee2bfac7b571654ae8f55"))
+        ]
 
 txD29ScriptAddressWithStake :: PubKeyHash -> Address
 txD29ScriptAddressWithStake stakePkh =
@@ -1626,20 +1662,6 @@ txD29Output2 =
         , txOutReferenceScript = Nothing
         }
 
--- /// --- Plutarch baseline --------------------------------------------------------------------------
--- ///
--- /// Replicate a Preview transaction based on the Plutarch version of the
--- /// programmable logic validators. This transaction has been used as a benchmark
--- /// for optimisation and improvements over the Aiken version.
--- ///
--- /// Characteristics:
--- /// - 2 inputs: one script-locked, one for fuel
--- /// - 3 outputs: two with programmable tokens, and one for change
--- /// - one programmable token kind (i.e. two nodes from the registry referenced)
--- /// - transfer logic is script-based, provided as withdrawal
--- ///
--- /// Source: https://preview.cexplorer.io/tx/d29ce2a9f79a70a91d83a40e0e1cf346ab94979b6f0ba001de8a89895aa518df?tab=contracts
--- /// ------------------------------------------------------------------------------------------------
 txD29TxInfo :: TxInfo
 txD29TxInfo =
     TxInfo
@@ -1682,59 +1704,136 @@ txD29ProgrammableLogicBaseStakeCtx =
 
 benchCases :: [BenchCase]
 benchCases =
-    [ mkCase "programmableLogicBase" (EvalBaseSpend progInputRef) mkProgrammableLogicBase [toData globalCred, toData baseSpendingCtx] baseSpendingCtx
-    , mkCase "programmableLogicGlobal.TransferAct" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferCtx] globalTransferCtx
-    , mkCase "programmableLogicGlobal.TransferAct.TokenDoesNotExist" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferDoesNotExistCtx] globalTransferDoesNotExistCtx
-    , mkCase "programmableLogicGlobal.TransferAct.MixedMany" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferMixedManyCtx] globalTransferMixedManyCtx
-    , mkCase "programmableLogicGlobal.TransferAct.Spend5Utxos" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransfer5Ctx] globalTransfer5Ctx
-    , mkCase "programmableLogicGlobal.TransferAct.Spend10Utxos" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransfer10Ctx] globalTransfer10Ctx
-    , mkCase "programmableLogicGlobal.TransferAct.Spend15Utxos" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransfer15Ctx] globalTransfer15Ctx
-    , mkCase "programmableLogicGlobal.SeizeAct1" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalSeize1Ctx] globalSeize1Ctx
-    , mkCase
+    [ mkAikenCase
+        "programmableLogicBase"
+        (EvalBaseSpend progInputRef)
+        (Aiken.aikenProgrammableLogicBaseScript globalCred)
+        (aikenSpendArgs progInputRef baseSpendingCtx)
+        baseSpendingCtx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferCtx)
+        globalTransferCtx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.TokenDoesNotExist"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferDoesNotExistCtx)
+        globalTransferDoesNotExistCtx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.MixedMany"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferMixedManyCtx)
+        globalTransferMixedManyCtx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.Spend5Utxos"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransfer5Ctx)
+        globalTransfer5Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.Spend10Utxos"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransfer10Ctx)
+        globalTransfer10Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.Spend15Utxos"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransfer15Ctx)
+        globalTransfer15Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.SeizeAct1"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalSeize1Ctx)
+        globalSeize1Ctx
+    , mkAikenCase
         "programmableLogicGlobal.SeizeAct1.ExternalScriptAnd50PubKeyInputs"
         (EvalGlobalReward globalCred)
-        mkProgrammableLogicGlobal
-        [toData protocolParamsCS, toData globalSeize1ExternalScript50PubKeyCtx]
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalSeize1ExternalScript50PubKeyCtx)
         globalSeize1ExternalScript50PubKeyCtx
-    , mkCase "programmableLogicGlobal.SeizeAct5" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalSeize5Ctx] globalSeize5Ctx
-    , mkCase "programmableLogicGlobal.SeizeAct10" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalSeize10Ctx] globalSeize10Ctx
-    , mkCase "programmableLogicGlobal.SeizeAct20" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalSeize20Ctx] globalSeize20Ctx
-    , mkCase "directoryNodeMinting.InitDirectory" (EvalDirectoryMint directoryPolicyCS) mkDirectoryNodeMP [toData initRef, toData issuancePolicyCS, toData directoryInitCtx] directoryInitCtx
-    , mkCase "directoryNodeMinting.InsertDirectoryNode" (EvalDirectoryMint directoryPolicyCS) mkDirectoryNodeMP [toData initRef, toData issuancePolicyCS, toData directoryInsertCtx] directoryInsertCtx
-    , mkCase "programmableLogicMinting.Mint" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData mintingLogicHash, toData programmableMintCtx] programmableMintCtx
-    , mkCase "programmableLogicMinting.Burn" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData mintingLogicHash, toData programmableBurnCtx] programmableBurnCtx
-    , mkCase "protocolParamsMinting" (EvalProtocolParamsMint protocolParamsCS) mkProtocolParametersMinting [toData protocolParamsInitRef, toData protocolParamsMintCtx] protocolParamsMintCtx
-    , mkCase "issuanceCborHexMinting" (EvalIssuanceMint issuancePolicyCS) mkIssuanceCborHexMinting [toData issuanceInitRef, toData issuanceMintCtx] issuanceMintCtx
-    , mkCase
+    , mkAikenCase
+        "programmableLogicGlobal.SeizeAct5"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalSeize5Ctx)
+        globalSeize5Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.SeizeAct10"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalSeize10Ctx)
+        globalSeize10Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.SeizeAct20"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalSeize20Ctx)
+        globalSeize20Ctx
+    , mkAikenCase
+        "directoryNodeMinting.InitDirectory"
+        (EvalDirectoryMint directoryPolicyCS)
+        (Aiken.aikenDirectoryNodeMintingScript initRef issuanceInitRef)
+        (aikenMintArgs directoryInitCtx)
+        directoryInitCtx
+    , mkAikenCase
+        "directoryNodeMinting.InsertDirectoryNode"
+        (EvalDirectoryMint directoryPolicyCS)
+        (Aiken.aikenDirectoryNodeMintingScript initRef issuanceInitRef)
+        (aikenMintArgs aikenDirectoryInsertCtx)
+        aikenDirectoryInsertCtx
+    , mkAikenCase
+        "programmableLogicMinting.Mint"
+        (EvalProgrammableMint mintingPolicyCS)
+        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred (ScriptCredential mintingLogicHash))
+        (aikenMintArgs programmableMintCtx)
+        programmableMintCtx
+    , mkAikenCase
+        "programmableLogicMinting.Burn"
+        (EvalProgrammableMint mintingPolicyCS)
+        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred (ScriptCredential mintingLogicHash))
+        (aikenMintArgs programmableBurnCtx)
+        programmableBurnCtx
+    , mkAikenCase
+        "protocolParamsMinting"
+        (EvalProtocolParamsMint protocolParamsCS)
+        (Aiken.aikenProtocolParamsMintingScript protocolParamsInitRef)
+        (aikenMintArgs aikenProtocolParamsMintCtx)
+        aikenProtocolParamsMintCtx
+    , mkAikenCase
+        "issuanceCborHexMinting"
+        (EvalIssuanceMint issuancePolicyCS)
+        (Aiken.aikenIssuanceCborHexMintingScript issuanceInitRef)
+        (aikenMintArgs aikenIssuanceMintCtx)
+        aikenIssuanceMintCtx
+    , mkAikenCase
         ("programmableLogicBase.Tx." <> take 8 mainnetDexTxHash <> ".Spending")
         (EvalBaseSpend mainnetDexBaseInputRef)
-        mkProgrammableLogicBase
-        [ toData globalCred
-        , toData mainnetDexBaseSpendingCtx
-        ]
+        (Aiken.aikenProgrammableLogicBaseScript globalCred)
+        (aikenSpendArgs mainnetDexBaseInputRef mainnetDexBaseSpendingCtx)
         mainnetDexBaseSpendingCtx
-    , mkCase
+    , mkAikenCase
         ("programmableLogicGlobal.TransferAct.Tx." <> take 8 mainnetDexTxHash <> ".NightAdaDex16Swaps")
         (EvalGlobalReward globalCred)
-        mkProgrammableLogicGlobal
-        [ toData protocolParamsCS
-        , toData mainnetDexGlobalTransferCtx
-        ]
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs mainnetDexGlobalTransferCtx)
         mainnetDexGlobalTransferCtx
-    , mkCase
+    , mkAikenCase
         ("programmableLogicBase.Tx." <> take 8 txD29Hash <> ".Spending")
         (EvalBaseSpend txD29ScriptInputRef)
-        mkProgrammableLogicBase
-        [ toData txD29GlobalStakeCred
-        , toData txD29ProgrammableLogicBaseSpendingCtx
-        ]
+        (Aiken.aikenProgrammableLogicBaseScript txD29GlobalStakeCred)
+        (aikenSpendArgs txD29ScriptInputRef txD29ProgrammableLogicBaseSpendingCtx)
         txD29ProgrammableLogicBaseSpendingCtx
-    , mkCase
+    , mkAikenCase
         ("programmableLogicBase.Tx." <> take 8 txD29Hash <> ".Stake")
         (EvalGlobalReward txD29GlobalStakeCred)
-        mkProgrammableLogicGlobal
-        [ toData txD29ProtocolParamsCS
-        , toData txD29ProgrammableLogicBaseStakeCtx
-        ]
+        (Aiken.aikenProgrammableLogicGlobalScript txD29ProtocolParamsCS)
+        (aikenRewardArgs txD29ProgrammableLogicBaseStakeCtx)
         txD29ProgrammableLogicBaseStakeCtx
     ]

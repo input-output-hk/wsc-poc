@@ -115,9 +115,26 @@ executable benchmark-onchain-scripts
   build-depends:
     , base
     , bytestring
+    , cardano-api
     , plutarch
     , plutus-ledger-api
     , plutus-tx
+    , programmable-tokens-offchain
+    , programmable-tokens-onchain
+    , programmable-tokens-testlib
+
+executable benchmark-onchain-aiken-scripts
+  import:         lang
+  hs-source-dirs: exe
+  main-is:        BenchmarkOnchainAikenScripts.hs
+  build-depends:
+    , base
+    , bytestring
+    , cardano-api
+    , plutarch
+    , plutus-ledger-api
+    , plutus-tx
+    , programmable-tokens-offchain
     , programmable-tokens-onchain
     , programmable-tokens-testlib
 

@@ -79,7 +79,16 @@ runCommand com = do
         RegisterPolicyStakeScripts config txIn issuanceCborHexTxIn -> runWstApp env (registerPolicyStakeScripts config txIn issuanceCborHexTxIn)
         BlacklistInit config txIn issuanceCborHexTxIn -> runWstApp env (deployBlacklist config txIn issuanceCborHexTxIn)
         Manage txIn issuanceCborHexTxIn com_ -> do
-            let env' = Env.addDirectoryEnvFor (Env.DirectoryScriptRoot txIn issuanceCborHexTxIn Production) env
+            let env' =
+                    Env.addDirectoryEnvFor
+                        Env.DirectoryScriptRoot
+                            { Env.srTxIn = txIn
+                            , Env.srIssuanceCborHexTxIn = issuanceCborHexTxIn
+                            , Env.srTarget = Production
+                            , Env.srProgrammableLogicBaseRefTxIn = Nothing
+                            , Env.srProgrammableLogicGlobalRefTxIn = Nothing
+                            }
+                        env
             case com_ of
                 Status ->
                     runWstApp env' $ do
@@ -163,7 +172,17 @@ deployIssuanceCborHex config txin issuanceCborHexTxIn = do
     opEnv <- Env.loadOperatorEnv @_ @C.ConwayEra operatorPaymentHash C.NoStakeAddress
     runEnv <- asks Env.runtimeEnv
 
-    let env = Env.addDirectoryEnvFor (Env.DirectoryScriptRoot txin issuanceCborHexTxIn Production) $ Env.addOperatorEnv opEnv $ Utils.singleton runEnv
+    let env =
+            Env.addDirectoryEnvFor
+                Env.DirectoryScriptRoot
+                    { Env.srTxIn = txin
+                    , Env.srIssuanceCborHexTxIn = issuanceCborHexTxIn
+                    , Env.srTarget = Production
+                    , Env.srProgrammableLogicBaseRefTxIn = Nothing
+                    , Env.srProgrammableLogicGlobalRefTxIn = Nothing
+                    }
+                $ Env.addOperatorEnv opEnv
+                $ Utils.singleton runEnv
     issuanceCborHexTx <- liftIO (runWstApp env Endpoints.deployIssuanceCborHex) >>= liftEither
     let signedIssuanceCborHexTx = signTxOperator operator issuanceCborHexTx
     sendTx signedIssuanceCborHexTx >>= \case
@@ -181,7 +200,17 @@ deployBlacklist config txin issuanceCborHexTxIn = do
         operatorPaymentHash = C.verificationKeyHash . verificationKey . oPaymentKey $ operator
     opEnv <- Env.loadOperatorEnv @_ @C.ConwayEra operatorPaymentHash C.NoStakeAddress
     runEnv <- asks Env.runtimeEnv
-    let env = Env.addDirectoryEnvFor (Env.DirectoryScriptRoot txin issuanceCborHexTxIn Production) $ Env.addOperatorEnv opEnv $ Utils.singleton runEnv
+    let env =
+            Env.addDirectoryEnvFor
+                Env.DirectoryScriptRoot
+                    { Env.srTxIn = txin
+                    , Env.srIssuanceCborHexTxIn = issuanceCborHexTxIn
+                    , Env.srTarget = Production
+                    , Env.srProgrammableLogicBaseRefTxIn = Nothing
+                    , Env.srProgrammableLogicGlobalRefTxIn = Nothing
+                    }
+                $ Env.addOperatorEnv opEnv
+                $ Utils.singleton runEnv
     (transferEnv, _) <- liftIO (runWstApp env $ Env.transferLogicForDirectory operatorPaymentHash Nothing) >>= liftEither
     let env' = Env.addTransferEnv transferEnv env
     policyTx <- liftIO (runWstApp env' deployBlacklistTx) >>= liftEither
@@ -200,7 +229,17 @@ registerPolicyStakeScripts config txin issuanceCborHexTxIn = do
         operatorPaymentHash = C.verificationKeyHash . verificationKey . oPaymentKey $ operator
     opEnv <- Env.loadOperatorEnv @_ @C.ConwayEra operatorPaymentHash C.NoStakeAddress
     runEnv <- asks Env.runtimeEnv
-    let env = Env.addDirectoryEnvFor (Env.DirectoryScriptRoot txin issuanceCborHexTxIn Production) $ Env.addOperatorEnv opEnv $ Utils.singleton runEnv
+    let env =
+            Env.addDirectoryEnvFor
+                Env.DirectoryScriptRoot
+                    { Env.srTxIn = txin
+                    , Env.srIssuanceCborHexTxIn = issuanceCborHexTxIn
+                    , Env.srTarget = Production
+                    , Env.srProgrammableLogicBaseRefTxIn = Nothing
+                    , Env.srProgrammableLogicGlobalRefTxIn = Nothing
+                    }
+                $ Env.addOperatorEnv opEnv
+                $ Utils.singleton runEnv
     (transferEnv, _) <- liftIO (runWstApp env $ Env.transferLogicForDirectory operatorPaymentHash Nothing) >>= liftEither
     let env' = Env.addTransferEnv transferEnv env
     policyTx <- liftIO (runWstApp env' Endpoints.registerCip143PolicyTransferScripts) >>= liftEither

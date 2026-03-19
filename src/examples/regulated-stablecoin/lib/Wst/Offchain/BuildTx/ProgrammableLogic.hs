@@ -11,26 +11,30 @@ module Wst.Offchain.BuildTx.ProgrammableLogic (
 where
 
 import Cardano.Api qualified as C
-import Control.Lens ((^.))
+import Control.Lens (over, (^.))
 import Control.Lens qualified as L
 import Control.Monad (forM_)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (
     MonadBuildTx,
+    TxBuilder (..),
     addOutput,
     addReference,
+    addTxBuilder,
     addWithdrawalWithTxBody,
+    buildRefScriptWitness,
     buildScriptWitness,
     findIndexReference,
     findIndexSpending,
     spendPlutusInlineDatum,
+    spendPlutusRefWithInlineDatum,
  )
 import Convex.CardanoApi.Lenses as L
 import Convex.Class (MonadBlockchain (queryNetworkId))
 import Convex.PlutusLedger.V1 (transPolicyId)
 import Convex.Utils qualified as Utils
 import Data.Foldable (find)
-import Data.List (findIndex, partition)
+import Data.List (findIndex, nub, partition)
 import Data.Maybe (fromMaybe)
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (CurrencySymbol (..))
@@ -82,6 +86,8 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicy
     nid <- queryNetworkId
     globalStakeScript <- asks (Env.dsProgrammableLogicGlobalScript . Env.directoryEnv)
     baseSpendingScript <- asks (Env.dsProgrammableLogicBaseScript . Env.directoryEnv)
+    baseRefTxIn <- asks (Env.srProgrammableLogicBaseRefTxIn . Env.dsScriptRoot . Env.directoryEnv)
+    globalRefTxIn <- asks (Env.srProgrammableLogicGlobalRefTxIn . Env.dsScriptRoot . Env.directoryEnv)
 
     let globalStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 globalStakeScript
         programmableLogicBaseCredential = C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 baseSpendingScript
@@ -94,7 +100,9 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicy
     -- destStakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential seizeDestinationCred
 
     forM_ seizingUTxOs $ \UTxODat{uIn = seizingTxIn, uOut = seizingTxOut} -> do
-        spendPlutusInlineDatum seizingTxIn baseSpendingScript ()
+        case baseRefTxIn of
+            Just baseRef -> spendPlutusRefWithInlineDatum seizingTxIn baseRef C.PlutusScriptV3 ()
+            Nothing -> spendPlutusInlineDatum seizingTxIn baseSpendingScript ()
         let (seizedAddr, remainingValue, seizedDatum, referenceScript) = case seizingTxOut of
                 (C.TxOut a v dat refScript) ->
                     let (_seized, other) =
@@ -137,10 +145,18 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicy
                 (seizingInputAbsoluteIndexes txBody)
                 (firstSeizeContinuationOutputIndex txBody)
 
-        programmableGlobalWitness txBody = buildScriptWitness globalStakeScript C.NoScriptDatumForStake (programmableLogicGlobalRedeemer txBody)
+        programmableGlobalWitness txBody =
+            case globalRefTxIn of
+                Just globalRef ->
+                    buildRefScriptWitness globalRef C.PlutusScriptV3 C.NoScriptDatumForStake (programmableLogicGlobalRedeemer txBody)
+                Nothing ->
+                    buildScriptWitness globalStakeScript C.NoScriptDatumForStake (programmableLogicGlobalRedeemer txBody)
 
     addReference paramsTxIn -- Protocol Params TxIn
     addReference dirNodeRef -- Directory Node TxIn
+    forM_ baseRefTxIn addReference
+    forM_ globalRefTxIn addReference
+    addTxBuilder (TxBuilder $ \_ -> over (L.txInsReference . L._TxInsReferenceIso . L._1) nub)
     addWithdrawalWithTxBody -- Add the global script witness to the transaction
         (C.makeStakeAddress nid globalStakeCred)
         (C.Quantity 0)

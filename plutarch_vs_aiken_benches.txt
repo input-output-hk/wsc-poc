@@ -1,0 +1,46 @@
+Plutarch vs Aiken ex-unit comparison
+Case                                                               Plutarch  Aiken  Plutarch CPU  Aiken CPU    CPU x  Plutarch Mem  Aiken Mem  Mem x
+directoryNodeMinting.InitDirectory                                 PASS      PASS   49,653,450    52,045,658   1.05x  137,064       160,469    1.17x
+directoryNodeMinting.InsertDirectoryNode                           PASS      PASS   127,405,370   136,238,022  1.07x  348,114       419,089    1.20x
+issuanceCborHexMinting                                             PASS      PASS   15,249,978    32,244,045   2.11x  33,917        87,754     2.59x
+programmableLogicBase                                              PASS      PASS   4,056,800     5,831,834    1.44x  9,583         14,537     1.52x
+programmableLogicBase.Tx.d29ce2a9.Spending                         PASS      PASS   4,056,800     5,831,834    1.44x  9,583         14,537     1.52x
+programmableLogicBase.Tx.d29ce2a9.Stake                            PASS      PASS   67,705,762    80,683,978   1.19x  190,094       227,613    1.20x
+programmableLogicGlobal.SeizeAct1                                  PASS      PASS   61,266,316    73,131,626   1.19x  183,198       203,259    1.11x
+programmableLogicGlobal.SeizeAct1.ExternalScriptAnd50PubKeyInputs  PASS      PASS   77,393,531    257,702,067  3.33x  229,190       549,428    2.40x
+programmableLogicGlobal.SeizeAct10                                 PASS      PASS   222,594,191   324,001,901  1.46x  560,930       845,058    1.51x
+programmableLogicGlobal.SeizeAct20                                 PASS      PASS   394,905,941   602,746,651  1.53x  951,736       1,558,168  1.64x
+programmableLogicGlobal.SeizeAct5                                  PASS      PASS   135,173,792   184,629,526  1.37x  360,070       488,503    1.36x
+programmableLogicGlobal.TransferAct                                PASS      PASS   67,279,220    79,199,733   1.18x  192,927       223,187    1.16x
+programmableLogicGlobal.TransferAct.MixedMany                      PASS      PASS   122,466,515   127,567,455  1.04x  359,671       368,095    1.02x
+programmableLogicGlobal.TransferAct.Spend10Utxos                   PASS      PASS   285,669,740   340,121,195  1.19x  773,496       1,053,134  1.36x
+programmableLogicGlobal.TransferAct.Spend15Utxos                   PASS      PASS   401,707,340   478,612,635  1.19x  1,078,441     1,494,529  1.39x
+programmableLogicGlobal.TransferAct.Spend5Utxos                    PASS      PASS   169,632,140   201,629,755  1.19x  468,551       611,739    1.31x
+programmableLogicGlobal.TransferAct.TokenDoesNotExist              PASS      PASS   31,791,351    57,142,620   1.80x  101,147       158,493    1.57x
+programmableLogicMinting.Burn                                      PASS      PASS   17,918,951    26,813,243   1.50x  49,827        73,408     1.47x
+programmableLogicMinting.Mint                                      PASS      PASS   31,802,694    37,634,316   1.18x  79,495        102,919    1.29x
+protocolParamsMinting                                              PASS      PASS   15,249,978    33,947,679   2.23x  33,917        93,082     2.74x
+Plutarch vs Aiken ex-unit comparison
+Case                                                                Plutarch  Aiken  Plutarch CPU  Aiken CPU    CPU x  Plutarch Mem  Aiken Mem  Mem x
+directoryNodeMinting.InitDirectory                                  PASS      PASS   49,653,450    52,045,658   1.05x  137,064       160,469    1.17x
+directoryNodeMinting.InsertDirectoryNode                            PASS      PASS   127,405,370   136,238,022  1.07x  348,114       419,089    1.20x
+issuanceCborHexMinting                                              PASS      PASS   15,249,978    32,244,045   2.11x  33,917        87,754     2.59x
+programmableLogicBase                                               PASS      PASS   4,056,800     5,831,834    1.44x  9,583         14,537     1.52x
+programmableLogicBase.Tx.c3111df7.Spending                          PASS      PASS   4,056,800     5,831,834    1.44x  9,583         14,537     1.52x
+programmableLogicBase.Tx.d29ce2a9.Spending                          PASS      PASS   4,056,800     5,831,834    1.44x  9,583         14,537     1.52x
+programmableLogicBase.Tx.d29ce2a9.Stake                             PASS      PASS   67,705,762    80,683,978   1.19x  190,094       227,613    1.20x
+programmableLogicGlobal.SeizeAct1                                   PASS      PASS   61,266,316    73,131,626   1.19x  183,198       203,259    1.11x
+programmableLogicGlobal.SeizeAct1.ExternalScriptAnd50PubKeyInputs   PASS      PASS   77,393,531    257,702,067  3.33x  229,190       549,428    2.40x
+programmableLogicGlobal.SeizeAct10                                  PASS      PASS   222,594,191   324,001,901  1.46x  560,930       845,058    1.51x
+programmableLogicGlobal.SeizeAct20                                  PASS      PASS   394,905,941   602,746,651  1.53x  951,736       1,558,168  1.64x
+programmableLogicGlobal.SeizeAct5                                   PASS      PASS   135,173,792   184,629,526  1.37x  360,070       488,503    1.36x
+programmableLogicGlobal.TransferAct                                 PASS      PASS   67,279,220    79,199,733   1.18x  192,927       223,187    1.16x
+programmableLogicGlobal.TransferAct.MixedMany                       PASS      PASS   122,466,515   127,567,455  1.04x  359,671       368,095    1.02x
+programmableLogicGlobal.TransferAct.Spend10Utxos                    PASS      PASS   285,669,740   340,121,195  1.19x  773,496       1,053,134  1.36x
+programmableLogicGlobal.TransferAct.Spend15Utxos                    PASS      PASS   401,707,340   478,612,635  1.19x  1,078,441     1,494,529  1.39x
+programmableLogicGlobal.TransferAct.Spend5Utxos                     PASS      PASS   169,632,140   201,629,755  1.19x  468,551       611,739    1.31x
+programmableLogicGlobal.TransferAct.TokenDoesNotExist               PASS      PASS   31,791,351    57,142,620   1.80x  101,147       158,493    1.57x
+programmableLogicGlobal.TransferAct.Tx.c3111df7.NightAdaDex16Swaps  PASS      PASS   596,497,299   660,141,227  1.11x  1,468,926     1,886,531  1.28x
+programmableLogicMinting.Burn                                       PASS      PASS   17,918,951    26,813,243   1.50x  49,827        73,408     1.47x
+programmableLogicMinting.Mint                                       PASS      PASS   31,802,694    37,634,316   1.18x  79,495        102,919    1.29x
+protocolParamsMinting                                               PASS      PASS   15,249,978    33,947,679   2.23x  33,917        93,082     2.74x

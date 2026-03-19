@@ -182,7 +182,14 @@ writeAppliedScripts baseFolder AppliedScriptArgs{asaTxIn, asaIssuerCborHexTxIn, 
         stakeCred = case issuerAddr of
             (C.ShelleyAddress _ntw _pmt (C.fromShelleyStakeReference -> C.StakeAddressByValue sCred)) -> Just sCred
             _ -> Nothing
-        dirRoot = DirectoryScriptRoot asaTxIn asaIssuerCborHexTxIn Production
+        dirRoot =
+            DirectoryScriptRoot
+                { srTxIn = asaTxIn
+                , srIssuanceCborHexTxIn = asaIssuerCborHexTxIn
+                , srTarget = Production
+                , srProgrammableLogicBaseRefTxIn = Nothing
+                , srProgrammableLogicGlobalRefTxIn = Nothing
+                }
         blacklistTransferRoot = BlacklistTransferLogicScriptRoot Production (mkDirectoryEnv dirRoot) opkh stakeCred
     putStrLn "Writing applied Plutus scripts to files"
     createDirectoryIfMissing True baseFolder

@@ -14,7 +14,7 @@ import Cardano.Api qualified as C
 import Control.Lens (over, (^.), _1)
 import Control.Monad (unless)
 import Control.Monad.Reader (MonadReader, asks)
-import Convex.BuildTx (MonadBuildTx, TxBuilder (..), mintPlutus, payToAddress)
+import Convex.BuildTx (MonadBuildTx, TxBuilder (..), mintPlutus, payToAddress, spendPlutusRefWithInlineDatum)
 import Convex.BuildTx qualified as BuildTx
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain, queryNetworkId)
@@ -184,6 +184,8 @@ transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol director
 
     baseSpendingScript <- asks (Env.dsProgrammableLogicBaseScript . Env.directoryEnv)
     globalStakeScript <- asks (Env.dsProgrammableLogicGlobalScript . Env.directoryEnv)
+    baseRefTxIn <- asks (Env.srProgrammableLogicBaseRefTxIn . Env.dsScriptRoot . Env.directoryEnv)
+    globalRefTxIn <- asks (Env.srProgrammableLogicGlobalRefTxIn . Env.dsScriptRoot . Env.directoryEnv)
 
     let sortedDirectoryNodes = sortOn (Down . key . uDatum) directoryNodes
 
@@ -204,12 +206,23 @@ transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol director
                 , plgrMintProofs = mintProofs txBody
                 }
 
-        programmableGlobalWitness txBody = BuildTx.buildScriptWitness globalStakeScript C.NoScriptDatumForStake (programmableLogicGlobalRedeemer txBody)
+        programmableGlobalWitness txBody =
+            case globalRefTxIn of
+                Just globalRef ->
+                    BuildTx.buildRefScriptWitness globalRef C.PlutusScriptV3 C.NoScriptDatumForStake (programmableLogicGlobalRedeemer txBody)
+                Nothing ->
+                    BuildTx.buildScriptWitness globalStakeScript C.NoScriptDatumForStake (programmableLogicGlobalRedeemer txBody)
 
     BuildTx.addReference (uIn paramsTxIn) -- Protocol Params TxIn
     addReferencesWithTxBody transferProofReferences
     addReferencesWithTxBody mintProofReferences
-    traverse_ (\tin -> BuildTx.spendPlutusInlineDatum tin baseSpendingScript ()) tokenTxIns
+    case baseRefTxIn of
+        Just baseRef -> do
+            traverse_ (\tin -> spendPlutusRefWithInlineDatum tin baseRef C.PlutusScriptV3 ()) tokenTxIns
+            BuildTx.addTxBuilder (TxBuilder $ \_ -> over (L.txInsReference . L._TxInsReferenceIso . _1) nub)
+        Nothing ->
+            traverse_ (\tin -> BuildTx.spendPlutusInlineDatum tin baseSpendingScript ()) tokenTxIns
+    traverse_ BuildTx.addReference globalRefTxIn
     BuildTx.addWithdrawalWithTxBody -- Add the global script witness to the transaction
         (C.makeStakeAddress nid globalStakeCred)
         (C.Quantity 0)

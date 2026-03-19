@@ -88,7 +88,8 @@ deployAll = do
         asAdmin @C.ConwayEra $ do
             (tx, scriptRoot) <- Endpoints.deployFullTx target
             void $ sendTx $ signTxOperator admin tx
-            Env.withDirectoryFor scriptRoot $ do
+            scriptRootWithRefs <- Test.attachProgrammableLogicReferenceScripts @C.ConwayEra admin scriptRoot
+            Env.withDirectoryFor scriptRootWithRefs $ do
                 assertRegisteredTokensStayInMiniLedger @C.ConwayEra
                 Query.registryNodes @C.ConwayEra
                     >>= void . Test.expectSingleton "registry output"
