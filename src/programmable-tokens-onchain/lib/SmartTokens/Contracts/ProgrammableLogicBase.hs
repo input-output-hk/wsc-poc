@@ -489,70 +489,71 @@ pcheckTransferLogicAndGetProgrammableValue ::
     Term s (PValue 'Sorted 'Positive) ->
     Term s (PValue 'Sorted 'Positive)
 pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList withdrawalEntries initialCachedTransferScript totalValue =
-    plet (pelemAtFast @PBuiltinList # refInputs) $ \patRefUTxOIdx ->
-        let mapInnerList :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
-            mapInnerList = pto (pto totalValue)
-            -- Cache transfer-script invocation checks across adjacent TokenExists proofs.
-            go = pfix #$ plam $ \self proofs inputInnerValue actualProgrammableTokenValue cachedTransferScript ->
-                pelimList
-                    ( \csPair csPairs ->
-                        pmatch (pfromData $ phead # proofs) $ \case
-                            PTokenExists nodeIdx -> P.do
-                                PTxOut{ptxOut'value = directoryNodeUTxOFValue, ptxOut'datum = directoryNodeUTxOFDatum} <- pmatch $ ptxInInfoResolved (pfromData $ patRefUTxOIdx # pfromData nodeIdx)
-                                POutputDatum paramDat' <- pmatch directoryNodeUTxOFDatum
-                                PDirectorySetNode{pkey = directoryNodeDatumFkey, ptransferLogicScript = directoryNodeDatumFTransferLogicScript} <- pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto paramDat'))
-                                -- validate that the directory entry for the currency symbol is referenced by the proof
-                                -- and that the associated transfer logic script is executed in the transaction
-                                let checks =
-                                        pand'List
-                                            [ ptraceInfoIfFalse "Missing required transfer script" $
-                                                (directoryNodeDatumFTransferLogicScript #== cachedTransferScript)
-                                                    #|| (pisScriptInvokedEntries # directoryNodeDatumFTransferLogicScript # withdrawalEntries)
-                                            , ptraceInfoIfFalse "directory proof mismatch" (directoryNodeDatumFkey #== (pfstBuiltin # csPair))
-                                            , ptraceInfoIfFalse "invalid dir node" (phasCSH directoryNodeCS directoryNodeUTxOFValue)
-                                            ]
-                                pif
-                                    checks
-                                    ( self
-                                        # (ptail # proofs)
-                                        # csPairs
-                                        # (pcons # csPair # actualProgrammableTokenValue)
-                                        # directoryNodeDatumFTransferLogicScript
-                                    )
-                                    perror
-                            PTokenDoesNotExist notExistNodeIdx -> P.do
-                                PTxOut{ptxOut'value = prevNodeUTxOValue, ptxOut'datum = prevNodeUTxODatum} <- pmatch $ ptxInInfoResolved (pfromData $ patRefUTxOIdx # pfromData notExistNodeIdx)
-                                POutputDatum prevNodeDat' <- pmatch prevNodeUTxODatum
-                                PDirectorySetNode{pkey = nodeDatumKey, pnext = nodeDatumNext} <- pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto prevNodeDat'))
-                                currCS <- plet $ pasByteStr # pforgetData (pfstBuiltin # csPair)
-                                nodeKey <- plet $ pasByteStr # pforgetData nodeDatumKey
-                                let nodeNext = pasByteStr # pforgetData nodeDatumNext
-                                    checks =
-                                        pand'List
-                                            [ -- the currency symbol is not in the directory
-                                              ptraceInfoIfFalse "dir neg-proof node must cover" $ nodeKey #< currCS
-                                            , ptraceInfoIfFalse "dir neg-proof node must cover" $ currCS #< nodeNext
-                                            , -- both directory entries are legitimate, this is proven by the
-                                              -- presence of the directory node currency symbol.
-                                              ptraceInfoIfFalse "invalid dir node n" $ phasCSH directoryNodeCS prevNodeUTxOValue
-                                            ]
-                                pif
-                                    checks
-                                    ( self
-                                        # (ptail # proofs)
-                                        # csPairs
-                                        # actualProgrammableTokenValue
-                                        # cachedTransferScript
-                                    )
-                                    perror
-                    )
-                    (pcon $ PValue $ pcon $ PMap actualProgrammableTokenValue)
-                    inputInnerValue
-         in go
-                # proofList
-                # mapInnerList
-                # pto (pto pemptyLedgerValue)
-                # initialCachedTransferScript
+    let mapInnerList :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
+        mapInnerList = pto (pto totalValue)
+        -- Cache transfer-script invocation checks across adjacent TokenExists proofs.
+        go = pfix #$ plam $ \self proofs inputInnerValue actualProgrammableTokenValue cachedTransferScript ->
+            pelimList
+                ( \csPair csPairs ->
+                    pmatch (pfromData $ phead # proofs) $ \case
+                        PTokenExists nodeIdx -> P.do
+                            PTxOut{ptxOut'value = directoryNodeUTxOFValue, ptxOut'datum = directoryNodeUTxOFDatum} <-
+                                pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropFast # pfromData nodeIdx # refInputs))
+                            POutputDatum paramDat' <- pmatch directoryNodeUTxOFDatum
+                            PDirectorySetNode{pkey = directoryNodeDatumFkey, ptransferLogicScript = directoryNodeDatumFTransferLogicScript} <- pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto paramDat'))
+                            -- validate that the directory entry for the currency symbol is referenced by the proof
+                            -- and that the associated transfer logic script is executed in the transaction
+                            let checks =
+                                    pand'List
+                                        [ ptraceInfoIfFalse "Missing required transfer script" $
+                                            (directoryNodeDatumFTransferLogicScript #== cachedTransferScript)
+                                                #|| (pisScriptInvokedEntries # directoryNodeDatumFTransferLogicScript # withdrawalEntries)
+                                        , ptraceInfoIfFalse "directory proof mismatch" (directoryNodeDatumFkey #== (pfstBuiltin # csPair))
+                                        , ptraceInfoIfFalse "invalid dir node" (phasCSH directoryNodeCS directoryNodeUTxOFValue)
+                                        ]
+                            pif
+                                checks
+                                ( self
+                                    # (ptail # proofs)
+                                    # csPairs
+                                    # (pcons # csPair # actualProgrammableTokenValue)
+                                    # directoryNodeDatumFTransferLogicScript
+                                )
+                                perror
+                        PTokenDoesNotExist notExistNodeIdx -> P.do
+                            PTxOut{ptxOut'value = prevNodeUTxOValue, ptxOut'datum = prevNodeUTxODatum} <-
+                                pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropFast # pfromData notExistNodeIdx # refInputs))
+                            POutputDatum prevNodeDat' <- pmatch prevNodeUTxODatum
+                            PDirectorySetNode{pkey = nodeDatumKey, pnext = nodeDatumNext} <- pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto prevNodeDat'))
+                            currCS <- plet $ pasByteStr # pforgetData (pfstBuiltin # csPair)
+                            nodeKey <- plet $ pasByteStr # pforgetData nodeDatumKey
+                            let nodeNext = pasByteStr # pforgetData nodeDatumNext
+                                checks =
+                                    pand'List
+                                        [ -- the currency symbol is not in the directory
+                                          ptraceInfoIfFalse "dir neg-proof node must cover" $ nodeKey #< currCS
+                                        , ptraceInfoIfFalse "dir neg-proof node must cover" $ currCS #< nodeNext
+                                        , -- both directory entries are legitimate, this is proven by the
+                                          -- presence of the directory node currency symbol.
+                                          ptraceInfoIfFalse "invalid dir node n" $ phasCSH directoryNodeCS prevNodeUTxOValue
+                                        ]
+                            pif
+                                checks
+                                ( self
+                                    # (ptail # proofs)
+                                    # csPairs
+                                    # actualProgrammableTokenValue
+                                    # cachedTransferScript
+                                )
+                                perror
+                )
+                (pcon $ PValue $ pcon $ PMap actualProgrammableTokenValue)
+                inputInnerValue
+     in go
+            # proofList
+            # mapInnerList
+            # pto (pto pemptyLedgerValue)
+            # initialCachedTransferScript
 
 {- | Traverse the minted value and validate one directory proof per minted currency symbol.
 Returns a signed value containing only programmable currency symbols from the tx mint field.
@@ -566,54 +567,55 @@ pcheckMintLogicAndGetProgrammableValue ::
     Term s (PValue 'Sorted 'NoGuarantees) ->
     Term s (PValue 'Sorted 'NoGuarantees)
 pcheckMintLogicAndGetProgrammableValue directoryNodeCS refInputs proofList withdrawalEntries totalMintValue =
-    plet (pelemAtFast @PBuiltinList # refInputs) $ \patRefUTxOIdx ->
-        let mintedEntries :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
-            mintedEntries = pto (pto totalMintValue)
-            go = pfix #$ plam $ \self proofs remainingMintEntries programmableMintValue ->
-                pelimList
-                    ( \mintCsPair mintCsPairs ->
-                        pelimList
-                            ( \proof proofsRest ->
-                                let mintCs = pfstBuiltin # mintCsPair
-                                 in pmatch (pfromData proof) $ \case
-                                        PTokenExists nodeIdx -> P.do
-                                            PTxOut{ptxOut'value = directoryNodeUTxOFValue, ptxOut'datum = directoryNodeUTxOFDatum} <- pmatch $ ptxInInfoResolved (pfromData $ patRefUTxOIdx # pfromData nodeIdx)
-                                            POutputDatum paramDat' <- pmatch directoryNodeUTxOFDatum
-                                            PDirectorySetNode{pkey = directoryNodeDatumFkey, ptransferLogicScript = directoryNodeDatumFTransferLogicScript} <- pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto paramDat'))
-                                            let checks =
-                                                    pand'List
-                                                        [ ptraceInfoIfFalse "Missing required transfer script" (pisScriptInvokedEntries # directoryNodeDatumFTransferLogicScript # withdrawalEntries)
-                                                        , ptraceInfoIfFalse "directory mint proof mismatch" (directoryNodeDatumFkey #== mintCs)
-                                                        , ptraceInfoIfFalse "invalid dir node m" (phasCSH directoryNodeCS directoryNodeUTxOFValue)
-                                                        ]
-                                            pif
-                                                checks
-                                                (self # proofsRest # mintCsPairs # (pcons # mintCsPair # programmableMintValue))
-                                                perror
-                                        PTokenDoesNotExist notExistNodeIdx -> P.do
-                                            PTxOut{ptxOut'value = prevNodeUTxOValue, ptxOut'datum = prevNodeUTxODatum} <- pmatch $ ptxInInfoResolved (pfromData $ patRefUTxOIdx # pfromData notExistNodeIdx)
-                                            POutputDatum prevNodeDat' <- pmatch prevNodeUTxODatum
-                                            PDirectorySetNode{pkey = nodeDatumKey, pnext = nodeDatumNext} <- pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto prevNodeDat'))
-                                            let currCS = pfromData mintCs
-                                            let nodeKey = pfromData nodeDatumKey
-                                            let nodeNext = pfromData nodeDatumNext
-                                            let checks =
-                                                    pand'List
-                                                        [ ptraceInfoIfFalse "dir mint neg-proof node must cover" (nodeKey #< currCS)
-                                                        , ptraceInfoIfFalse "dir mint neg-proof node must cover" (currCS #< nodeNext)
-                                                        , ptraceInfoIfFalse "invalid dir node n" (phasCSH directoryNodeCS prevNodeUTxOValue)
-                                                        ]
-                                            pif
-                                                checks
-                                                (self # proofsRest # mintCsPairs # programmableMintValue)
-                                                perror
-                            )
-                            (ptraceInfoError "mint proof missing")
-                            proofs
-                    )
-                    (pelimList (\_ _ -> ptraceInfoError "extra mint proof") (pcon $ PValue $ pcon $ PMap programmableMintValue) proofs)
-                    remainingMintEntries
-         in go # proofList # mintedEntries # pnil
+    let mintedEntries :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
+        mintedEntries = pto (pto totalMintValue)
+        go = pfix #$ plam $ \self proofs remainingMintEntries programmableMintValue ->
+            pelimList
+                ( \mintCsPair mintCsPairs ->
+                    pelimList
+                        ( \proof proofsRest ->
+                            let mintCs = pfstBuiltin # mintCsPair
+                             in pmatch (pfromData proof) $ \case
+                                    PTokenExists nodeIdx -> P.do
+                                        PTxOut{ptxOut'value = directoryNodeUTxOFValue, ptxOut'datum = directoryNodeUTxOFDatum} <-
+                                            pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropFast # pfromData nodeIdx # refInputs))
+                                        POutputDatum paramDat' <- pmatch directoryNodeUTxOFDatum
+                                        PDirectorySetNode{pkey = directoryNodeDatumFkey, ptransferLogicScript = directoryNodeDatumFTransferLogicScript} <- pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto paramDat'))
+                                        let checks =
+                                                pand'List
+                                                    [ ptraceInfoIfFalse "Missing required transfer script" (pisScriptInvokedEntries # directoryNodeDatumFTransferLogicScript # withdrawalEntries)
+                                                    , ptraceInfoIfFalse "directory mint proof mismatch" (directoryNodeDatumFkey #== mintCs)
+                                                    , ptraceInfoIfFalse "invalid dir node m" (phasCSH directoryNodeCS directoryNodeUTxOFValue)
+                                                    ]
+                                        pif
+                                            checks
+                                            (self # proofsRest # mintCsPairs # (pcons # mintCsPair # programmableMintValue))
+                                            perror
+                                    PTokenDoesNotExist notExistNodeIdx -> P.do
+                                        PTxOut{ptxOut'value = prevNodeUTxOValue, ptxOut'datum = prevNodeUTxODatum} <-
+                                            pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropFast # pfromData notExistNodeIdx # refInputs))
+                                        POutputDatum prevNodeDat' <- pmatch prevNodeUTxODatum
+                                        PDirectorySetNode{pkey = nodeDatumKey, pnext = nodeDatumNext} <- pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto prevNodeDat'))
+                                        let currCS = pfromData mintCs
+                                        let nodeKey = pfromData nodeDatumKey
+                                        let nodeNext = pfromData nodeDatumNext
+                                        let checks =
+                                                pand'List
+                                                    [ ptraceInfoIfFalse "dir mint neg-proof node must cover" (nodeKey #< currCS)
+                                                    , ptraceInfoIfFalse "dir mint neg-proof node must cover" (currCS #< nodeNext)
+                                                    , ptraceInfoIfFalse "invalid dir node n" (phasCSH directoryNodeCS prevNodeUTxOValue)
+                                                    ]
+                                        pif
+                                            checks
+                                            (self # proofsRest # mintCsPairs # programmableMintValue)
+                                            perror
+                        )
+                        (ptraceInfoError "mint proof missing")
+                        proofs
+                )
+                (pelimList (\_ _ -> ptraceInfoError "extra mint proof") (pcon $ PValue $ pcon $ PMap programmableMintValue) proofs)
+                remainingMintEntries
+     in go # proofList # mintedEntries # pnil
 
 data ProgrammableLogicGlobalRedeemer
     = TransferAct
@@ -754,7 +756,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
             inputIdxsLen <- plet $ pfromData plengthInputIdxs
             let inputIdxsData = punsafeCoerce (pfromData pinputIdxs) :: Term _ (PBuiltinList PData)
             let remainingOutputs = pdropFast # pfromData poutputsStartIdx # pfromData ptxInfo'outputs
-            let directoryNodeUTxO = pelemAtFast @PBuiltinList # referenceInputs # pfromData pdirectoryNodeIdx
+            let directoryNodeUTxO = phead # (pdropFast # pfromData pdirectoryNodeIdx # referenceInputs)
             PTxOut{ptxOut'value = seizeDirectoryNodeValue, ptxOut'datum = seizeDirectoryNodeDatum} <- pmatch (ptxInInfoResolved $ pfromData directoryNodeUTxO)
             POutputDatum seizeDat' <- pmatch seizeDirectoryNodeDatum
             PDirectorySetNode
