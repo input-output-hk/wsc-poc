@@ -11,7 +11,6 @@
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 
 module SmartTokens.Contracts.ProgrammableLogicBase (
-    TokenProof (..),
     ProgrammableLogicGlobalRedeemer (..),
     absoluteToRelativeInputIdxs,
     mkSeizeActRedeemerFromAbsoluteInputIdxs,
@@ -50,6 +49,17 @@ import PlutusTx qualified
 import SmartTokens.Types.PTokenDirectory (PDirectorySetNode (..))
 import SmartTokens.Types.ProtocolParams (PProgrammableLogicGlobalParams (..))
 
+{- | Unsafely unwrap a `PMaybeData` known by the caller to be `Just`.
+
+High-level purpose:
+- Avoid repeated `pmatch` boilerplate when surrounding logic has already established
+  presence of the inner value.
+
+Security invariants:
+- The caller must prove the input is `Just`; using this on `Nothing` is invalid.
+- This helper must not be used to bypass missing-datum or missing-stake checks.
+- The extracted payload must be interpreted at the same type it was encoded with.
+-}
 pjustData :: Term s (PMaybeData a) -> Term s a
 pjustData term =
     punsafeCoerce $ phead # (psndBuiltin # (pasConstr # pforgetData (pdata term)))
@@ -71,36 +81,43 @@ pjustData term =
 -- The current implementation of the contracts in this module are not designed to be maximally efficient.
 -- In the future, this should be optimized to use the redeemer indexing design pattern to not just index the directory nodes in the reference inputs,
 -- but also to index the programmable inputs and outputs.
-data TokenProof
-    = TokenExists Integer
-    | TokenDoesNotExist Integer
-    deriving stock (Show, Eq, Generic)
 
-PlutusTx.makeIsDataIndexed
-    ''TokenProof
-    [('TokenExists, 0), ('TokenDoesNotExist, 1)]
+{- | Host-side empty `Value` constant used to build onchain empty values.
 
-data PTokenProof (s :: S)
-    = PTokenExists {pnodeIdx :: Term s (PAsData PInteger)}
-    | PTokenDoesNotExist {pnodeIdx :: Term s (PAsData PInteger)}
-    deriving stock (Generic)
-    deriving anyclass (SOP.Generic, PIsData, PEq, PShow)
-    deriving (PlutusType) via (DeriveAsDataStruct PTokenProof)
+High-level purpose:
+- Provide a single canonical zero value for coercion into Plutarch terms.
 
-deriving via
-    DeriveDataPLiftable PTokenProof TokenProof
-    instance
-        PLiftable PTokenProof
-
+Security invariants:
+- This must remain exactly `mempty`; any non-zero asset would corrupt every caller.
+- It must not depend on transaction data or redeemer-controlled inputs.
+-}
 emptyValue :: Value
 emptyValue = mempty
 
+{- | Canonical onchain empty non-Ada value.
+
+High-level purpose:
+- Seed value accumulators that track programmable assets.
+
+Security invariants:
+- The value must stay empty for all policies and token names.
+- It is only sound to coerce emptiness to a positive sorted value because emptiness
+  trivially satisfies both properties.
+-}
 pemptyLedgerValue :: Term s (PValue 'Sorted 'Positive)
 pemptyLedgerValue = punsafeCoerce $ pconstant @(PValue 'Unsorted 'NoGuarantees) emptyValue
 
-{- | Strip Ada from a ledger value
-Importantly this function assumes that the Value is provided by the ledger
-(i.e. via the ScriptContext), so Ada is the first entry.
+{- | Strip Ada from a ledger-provided value while preserving the remaining order.
+
+High-level purpose:
+- Remove the always-present Ada entry so later mini-ledger accounting can operate
+  only on non-Ada assets.
+
+Security invariants:
+- The input must be a ledger-provided sorted value where Ada is the first entry.
+- The helper must preserve the order and quantities of all non-Ada entries.
+- It must not be used on synthetic values whose ordering does not follow ledger
+  conventions.
 -}
 pstripAdaH ::
     forall (v :: AmountGuarantees) (s :: S).
@@ -109,6 +126,19 @@ pstripAdaH value =
     let nonAdaValueMapInner = ptail # pto (pto value)
      in pcon (PValue $ pcon $ PMap nonAdaValueMapInner)
 
+{- | Merge two sorted token-name maps by asset-wise addition.
+
+High-level purpose:
+- Support fast programmable-token balance accumulation without rebuilding full
+  `Value`s.
+
+Security invariants:
+- Both inputs must be sorted by token name and internally duplicate-free.
+- Matching token names must be added exactly once; non-matching entries must be
+  preserved unchanged.
+- The output must remain sorted, because later containment and delta checks rely
+  on monotonic order.
+-}
 ptokenPairsUnionFast ::
     Term
         s
@@ -146,6 +176,20 @@ ptokenPairsUnionFast = phoistAcyclic $
             tokensB
             tokensA
 
+{- | Merge two sorted currency-symbol maps by asset-wise addition.
+
+High-level purpose:
+- Provide a linear merge for full `Value` accumulation when multiple policy maps
+  must be combined.
+
+Security invariants:
+- Inputs must be sorted by currency symbol and each inner token map must itself be
+  sorted and duplicate-free.
+- Asset quantities must be combined only for equal currency symbols and equal token
+  names.
+- The resulting outer and inner maps must stay sorted for downstream lookups and
+  containment checks.
+-}
 pcurrencyPairsUnionFast ::
     Term
         s
@@ -189,6 +233,17 @@ pcurrencyPairsUnionFast = phoistAcyclic $
             csPairsB
             csPairsA
 
+{- | Add two non-Ada sorted `Value`s while preserving canonical ordering.
+
+High-level purpose:
+- Centralize asset-wise value addition used throughout transfer and mint
+  accounting.
+
+Security invariants:
+- Callers must only pass sorted positive values.
+- No asset may be dropped, duplicated, or reordered outside the merge rules.
+- The output must remain a valid sorted positive value.
+-}
 pvalueUnionFast :: Term s (PValue 'Sorted 'Positive :--> PValue 'Sorted 'Positive :--> PValue 'Sorted 'Positive)
 pvalueUnionFast = phoistAcyclic $ plam $ \valueA valueB ->
     pcon $
@@ -199,6 +254,20 @@ pvalueUnionFast = phoistAcyclic $ plam $ \valueA valueB ->
                         # pto (pto valueA)
                         # pto (pto valueB)
 
+{- | Check whether a specific stake-script credential appears in withdrawals.
+
+High-level purpose:
+- Detect whether a stake validator was actually invoked in the current
+  transaction.
+
+Security invariants:
+- The result must be true iff an entry with that credential is present in the
+  withdrawal map.
+- This helper only proves stake-script invocation; callers must not treat it as a
+  spending or minting witness check.
+- Callers must only use it with a non-empty withdrawal list, because the loop
+  assumes one.
+-}
 pisScriptInvokedEntries :: Term s (PAsData PCredential :--> PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace)) :--> PBool)
 pisScriptInvokedEntries = phoistAcyclic $ plam $ \scriptCredData withdrawalEntries ->
     let go = pfix #$ plam $ \self entries ->
@@ -213,6 +282,20 @@ pisScriptInvokedEntries = phoistAcyclic $ plam $ \scriptCredData withdrawalEntri
                         )
      in go # withdrawalEntries
 
+{- | Aggregate all non-Ada input value controlled by a payment credential and
+validated owner witness.
+
+High-level purpose:
+- Compute the programmable mini-ledger value entering the transaction from inputs
+  locked at the shared payment credential.
+
+Security invariants:
+- Only inputs whose payment credential equals `cred` may contribute to the result.
+- Each contributing input must prove control of its staking credential:
+  `PPubKeyCredential` via a signer, `PScriptCredential` via a withdrawal witness.
+- Missing owner witnesses must fail validation rather than silently omitting value.
+- Ada must be stripped and remaining assets summed exactly once.
+-}
 pvalueFromCred ::
     Term s PCredential ->
     Term s (PBuiltinList (PAsData PPubKeyHash)) ->
@@ -258,6 +341,18 @@ pvalueFromCred cred sigs withdrawalEntries inputs =
             # pemptyLedgerValue
             # inputs
 
+{- | Aggregate all non-Ada output value at a payment credential.
+
+High-level purpose:
+- Measure how much programmable value remains at the shared mini-ledger payment
+  credential after the transaction.
+
+Security invariants:
+- Only outputs whose payment credential equals `cred` may contribute.
+- Stake credentials, datums, and reference scripts are intentionally ignored here;
+  callers must validate those separately when required.
+- Ada must be stripped and non-Ada assets summed without loss or duplication.
+-}
 pvalueToCred ::
     Term s PCredential ->
     Term s (PBuiltinList (PAsData PTxOut)) ->
@@ -303,6 +398,16 @@ Implementation note: if `expectedValue` contains exactly one non-Ada asset, the
 function takes a single-asset fast path that scans outputs and accumulates only that
 asset quantity. Otherwise it aggregates the full non-Ada value at `progLogicCred`
 outputs and checks each expected asset against that aggregate.
+
+Security invariants:
+
+- The result must be a lower-bound containment check only for outputs at
+  `progLogicCred`.
+- No value at other payment credentials may satisfy the requirement.
+- This helper assumes the caller has already validated that `expectedValue`
+  represents the value that must remain inside the mini-ledger.
+- The single-asset fast path and the multi-asset path must be semantically
+  equivalent.
 -}
 poutputsContainExpectedValueAtCred ::
     Term s PCredential ->
@@ -416,9 +521,18 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
             (pconstant True)
             expectedCsPairs
 
-{- | Programmable logic base
-This validator forwards its validation logic to the programmable logic stake script
-using the withdraw-zero design pattern.
+{- | Base spending validator for programmable-token UTxOs.
+
+High-level purpose:
+- Force every spend of the shared programmable-token payment script to be
+  accompanied by the global stake validator through the withdraw-zero pattern.
+
+Security invariants:
+- Spending must fail unless the designated global stake credential appears in the
+  transaction withdrawals.
+- This validator must not independently authorize transfers or minting; it only
+  enforces delegation to the global validator.
+- The check must be credential-exact, so unrelated withdrawals cannot satisfy it.
 -}
 mkProgrammableLogicBase :: Term s (PAsData PCredential :--> PScriptContext :--> PUnit)
 mkProgrammableLogicBase = plam $ \stakeCred ctx ->
@@ -443,11 +557,66 @@ mkProgrammableLogicBase = plam $ \stakeCred ctx ->
                                  in go # (ptail # withdrawals)
                  in pvalidateConditions [ptraceInfoIfFalse "programmable global not invoked" hasCred]
 
+{- | Check that the first non-Ada policy in a ledger value matches a state-token
+currency symbol.
+
+High-level purpose:
+- Provide the cheapest possible legitimacy check for directory/protocol reference
+  UTxOs whose state token is expected to be the first non-Ada entry.
+
+Security invariants:
+- This is /not/ a general membership scan; it intentionally treats “first non-Ada
+  policy is not the expected state token” as a failed legitimacy check.
+- In protocol paths that use this helper to validate a reference UTxO, a mismatch
+  means the transaction must be rejected.
+- A false result must never be interpreted as “policy absent everywhere”; it only
+  means the first non-Ada entry is not the expected currency symbol.
+- Values with no non-Ada entries are malformed for this use case and may cause
+  evaluation to fail.
+-}
 phasCSH :: Term s PCurrencySymbol -> Term s (PAsData (PValue 'Sorted 'Positive)) -> Term s PBool
 phasCSH directoryNodeCS value =
     let value' = pto (pto (pfromData value))
      in pfromData (pfstBuiltin # (phead # (ptail # value'))) #== directoryNodeCS
 
+{- | Safe variant of `phasCSH` that returns `False` instead of crashing on missing
+non-Ada entries.
+
+High-level purpose:
+- Probe candidate reference inputs before attempting datum decoding.
+
+Security invariants:
+- Like `phasCSH`, this only inspects the first non-Ada policy entry.
+- It must never be used as a general-purpose “contains currency symbol anywhere”
+  predicate.
+- Returning `False` is only appropriate while scanning candidates; protocol paths
+  that require the state token must keep searching or reject the transaction.
+- It must not mask malformed data at call sites where the identified reference
+  UTxO is mandatory for validation.
+-}
+phasCSHOrFalse :: Term s PCurrencySymbol -> Term s (PAsData (PValue 'Sorted 'Positive)) -> Term s PBool
+phasCSHOrFalse directoryNodeCS value =
+    let nonAdaEntries = ptail # pto (pto (pfromData value))
+     in pelimList
+            (\currencyPair _ -> pfromData (pfstBuiltin # currencyPair) #== directoryNodeCS)
+            (pcon PFalse)
+            nonAdaEntries
+
+{- | Locate the protocol-parameter reference input by its state-token currency
+symbol and decode its datum.
+
+High-level purpose:
+- Recover the global protocol configuration that every validator in this module is
+  parameterized by.
+
+Security invariants:
+- The chosen reference input must be identified by the expected state token.
+- The datum must be present and decode as `ProgrammableLogicGlobalParams`.
+- If no reference input carries the protocol state token, evaluation must fail and
+  the transaction must be rejected.
+- A candidate UTxO with the right state token but missing or malformed datum must
+  also cause rejection rather than falling back to any default.
+-}
 pfindReferenceInputByCS ::
     Term s PCurrencySymbol ->
     Term s (PBuiltinList (PAsData PTxInInfo)) ->
@@ -458,32 +627,38 @@ pfindReferenceInputByCS currencySymbol referenceInputs =
                 POutputDatum paramDat' ->
                     pfromData $ punsafeCoerce @(PAsData PProgrammableLogicGlobalParams) (pto paramDat')
                 _ -> ptraceInfoError "protocol params datum missing"
-        firstRefInput = phead # referenceInputs
         go = pfix #$ plam $ \self remainingRefInputs ->
             let txIn = phead # remainingRefInputs
              in plet (ptxInInfoResolved $ pfromData txIn) $ \resolvedOut ->
                     pif
-                        (phasCSH currencySymbol (ptxOutValue resolvedOut))
+                        (phasCSHOrFalse currencySymbol (ptxOutValue resolvedOut))
                         (extractParams resolvedOut)
                         (self # (ptail # remainingRefInputs))
-     in plet (ptxInInfoResolved $ pfromData firstRefInput) $ \firstResolvedOut ->
-            pif
-                (phasCSH currencySymbol (ptxOutValue firstResolvedOut))
-                (extractParams firstResolvedOut)
-                (go # (ptail # referenceInputs))
+     in go # referenceInputs
 
-{- | Traverse the currency symbols of the combined Ada-stripped value of all programmable base inputs.
-For each currency symbol, we check a proof that either:
-1. The currency symbol is in the directory (and thus is a programmable token)
-     - given that it is a programmable token, we check that associated transfer logic script is executed in the transaction
-       and add the value entry to the result.
-2. The currency symbol is not in the directory.
-Return a Value containing only programmable tokens from `totalValue` by filtering out the non-programmable token entries.
+{- | Filter input value down to programmable policies by validating one directory
+node witness per policy entry.
+
+High-level purpose:
+- Walk the non-Ada policies in the mini-ledger input value, prove which ones are
+  registered in the directory, and retain only those programmable entries.
+
+Security invariants:
+- `proofList` must be aligned with the currency-symbol order of `totalValue`.
+- A positive proof must reference the exact directory node and the associated
+  transfer logic script must be invoked, with adjacent identical scripts allowed to
+  reuse the cached witness check.
+- A negative proof must reference a covering node whose `(key, next)` interval
+  excludes the current currency symbol.
+- Every referenced directory node must itself be legitimate, proven by the
+  directory state token.
+- No non-programmable policy may be added to the returned value, and no validated
+  programmable policy may be dropped.
 -}
 pcheckTransferLogicAndGetProgrammableValue ::
     Term s PCurrencySymbol ->
     Term s (PBuiltinList (PAsData PTxInInfo)) ->
-    Term s (PBuiltinList (PAsData PTokenProof)) ->
+    Term s (PBuiltinList (PAsData PInteger)) ->
     Term s (PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace))) ->
     Term s (PAsData PCredential) ->
     Term s (PValue 'Sorted 'Positive) ->
@@ -491,61 +666,58 @@ pcheckTransferLogicAndGetProgrammableValue ::
 pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList withdrawalEntries initialCachedTransferScript totalValue =
     let mapInnerList :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
         mapInnerList = pto (pto totalValue)
-        -- Cache transfer-script invocation checks across adjacent TokenExists proofs.
+        -- Cache transfer-script invocation checks across adjacent positive proofs.
         go = pfix #$ plam $ \self proofs inputInnerValue actualProgrammableTokenValue cachedTransferScript ->
             pelimList
                 ( \csPair csPairs ->
-                    pmatch (pfromData $ phead # proofs) $ \case
-                        PTokenExists nodeIdx -> P.do
-                            PTxOut{ptxOut'value = directoryNodeUTxOFValue, ptxOut'datum = directoryNodeUTxOFDatum} <-
-                                pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropFast # pfromData nodeIdx # refInputs))
-                            POutputDatum paramDat' <- pmatch directoryNodeUTxOFDatum
-                            PDirectorySetNode{pkey = directoryNodeDatumFkey, ptransferLogicScript = directoryNodeDatumFTransferLogicScript} <- pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto paramDat'))
-                            -- validate that the directory entry for the currency symbol is referenced by the proof
-                            -- and that the associated transfer logic script is executed in the transaction
-                            let checks =
+                    P.do
+                        PTxOut{ptxOut'value = directoryNodeUTxOFValue, ptxOut'datum = directoryNodeUTxOFDatum} <-
+                            pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropFast # pfromData (phead # proofs) # refInputs))
+                        POutputDatum directoryNodeDatum' <- pmatch directoryNodeUTxOFDatum
+                        PDirectorySetNode
+                            { pkey = directoryNodeDatumFkey
+                            , pnext = directoryNodeDatumFNext
+                            , ptransferLogicScript = directoryNodeDatumFTransferLogicScript
+                            } <-
+                            pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto directoryNodeDatum'))
+                        let currCS = pfromData (pfstBuiltin # csPair)
+                            nodeKey = pfromData directoryNodeDatumFkey
+                            nodeNext = pfromData directoryNodeDatumFNext
+                        pif
+                            (nodeKey #< currCS)
+                            ( let checks =
+                                    pand'List
+                                        [ ptraceInfoIfFalse "dir neg-proof node must cover" (currCS #< nodeNext)
+                                        , ptraceInfoIfFalse "invalid dir node n" (phasCSH directoryNodeCS directoryNodeUTxOFValue)
+                                        ]
+                               in pif
+                                    checks
+                                    ( self
+                                        # (ptail # proofs)
+                                        # csPairs
+                                        # actualProgrammableTokenValue
+                                        # cachedTransferScript
+                                    )
+                                    perror
+                            )
+                            ( let checks =
                                     pand'List
                                         [ ptraceInfoIfFalse "Missing required transfer script" $
                                             (directoryNodeDatumFTransferLogicScript #== cachedTransferScript)
                                                 #|| (pisScriptInvokedEntries # directoryNodeDatumFTransferLogicScript # withdrawalEntries)
-                                        , ptraceInfoIfFalse "directory proof mismatch" (directoryNodeDatumFkey #== (pfstBuiltin # csPair))
+                                        , ptraceInfoIfFalse "directory proof mismatch" (nodeKey #== currCS)
                                         , ptraceInfoIfFalse "invalid dir node" (phasCSH directoryNodeCS directoryNodeUTxOFValue)
                                         ]
-                            pif
-                                checks
-                                ( self
-                                    # (ptail # proofs)
-                                    # csPairs
-                                    # (pcons # csPair # actualProgrammableTokenValue)
-                                    # directoryNodeDatumFTransferLogicScript
-                                )
-                                perror
-                        PTokenDoesNotExist notExistNodeIdx -> P.do
-                            PTxOut{ptxOut'value = prevNodeUTxOValue, ptxOut'datum = prevNodeUTxODatum} <-
-                                pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropFast # pfromData notExistNodeIdx # refInputs))
-                            POutputDatum prevNodeDat' <- pmatch prevNodeUTxODatum
-                            PDirectorySetNode{pkey = nodeDatumKey, pnext = nodeDatumNext} <- pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto prevNodeDat'))
-                            currCS <- plet $ pasByteStr # pforgetData (pfstBuiltin # csPair)
-                            nodeKey <- plet $ pasByteStr # pforgetData nodeDatumKey
-                            let nodeNext = pasByteStr # pforgetData nodeDatumNext
-                                checks =
-                                    pand'List
-                                        [ -- the currency symbol is not in the directory
-                                          ptraceInfoIfFalse "dir neg-proof node must cover" $ nodeKey #< currCS
-                                        , ptraceInfoIfFalse "dir neg-proof node must cover" $ currCS #< nodeNext
-                                        , -- both directory entries are legitimate, this is proven by the
-                                          -- presence of the directory node currency symbol.
-                                          ptraceInfoIfFalse "invalid dir node n" $ phasCSH directoryNodeCS prevNodeUTxOValue
-                                        ]
-                            pif
-                                checks
-                                ( self
-                                    # (ptail # proofs)
-                                    # csPairs
-                                    # actualProgrammableTokenValue
-                                    # cachedTransferScript
-                                )
-                                perror
+                               in pif
+                                    checks
+                                    ( self
+                                        # (ptail # proofs)
+                                        # csPairs
+                                        # (pcons # csPair # actualProgrammableTokenValue)
+                                        # directoryNodeDatumFTransferLogicScript
+                                    )
+                                    perror
+                            )
                 )
                 (pcon $ PValue $ pcon $ PMap actualProgrammableTokenValue)
                 inputInnerValue
@@ -555,14 +727,27 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
             # pto (pto pemptyLedgerValue)
             # initialCachedTransferScript
 
-{- | Traverse the minted value and validate one directory proof per minted currency symbol.
-Returns a signed value containing only programmable currency symbols from the tx mint field.
-Proof list must be exactly aligned with the minted currency-symbol list (lockstep).
+{- | Filter the tx mint field down to programmable policies by validating one
+directory-node witness per minted policy.
+
+High-level purpose:
+- Prove which minted or burned policies are programmable and return only those
+  signed entries for later output containment checks.
+
+Security invariants:
+- `proofList` must be aligned with the currency-symbol order of `totalMintValue`.
+- A positive proof must reference the exact directory node and the referenced
+  transfer logic script must be invoked.
+- A negative proof must reference a covering node whose `(key, next)` interval
+  excludes the minted currency symbol.
+- Every referenced directory node must be legitimate, proven by the directory
+  state token.
+- Missing or extra proofs must fail validation.
 -}
 pcheckMintLogicAndGetProgrammableValue ::
     Term s PCurrencySymbol ->
     Term s (PBuiltinList (PAsData PTxInInfo)) ->
-    Term s (PBuiltinList (PAsData PTokenProof)) ->
+    Term s (PBuiltinList (PAsData PInteger)) ->
     Term s (PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace))) ->
     Term s (PValue 'Sorted 'NoGuarantees) ->
     Term s (PValue 'Sorted 'NoGuarantees)
@@ -573,42 +758,44 @@ pcheckMintLogicAndGetProgrammableValue directoryNodeCS refInputs proofList withd
             pelimList
                 ( \mintCsPair mintCsPairs ->
                     pelimList
-                        ( \proof proofsRest ->
+                        ( \nodeIdx proofsRest ->
                             let mintCs = pfstBuiltin # mintCsPair
-                             in pmatch (pfromData proof) $ \case
-                                    PTokenExists nodeIdx -> P.do
-                                        PTxOut{ptxOut'value = directoryNodeUTxOFValue, ptxOut'datum = directoryNodeUTxOFDatum} <-
-                                            pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropFast # pfromData nodeIdx # refInputs))
-                                        POutputDatum paramDat' <- pmatch directoryNodeUTxOFDatum
-                                        PDirectorySetNode{pkey = directoryNodeDatumFkey, ptransferLogicScript = directoryNodeDatumFTransferLogicScript} <- pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto paramDat'))
-                                        let checks =
+                             in P.do
+                                    PTxOut{ptxOut'value = directoryNodeUTxOFValue, ptxOut'datum = directoryNodeUTxOFDatum} <-
+                                        pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropFast # pfromData nodeIdx # refInputs))
+                                    POutputDatum paramDat' <- pmatch directoryNodeUTxOFDatum
+                                    PDirectorySetNode
+                                        { pkey = directoryNodeDatumFkey
+                                        , pnext = directoryNodeDatumFNext
+                                        , ptransferLogicScript = directoryNodeDatumFTransferLogicScript
+                                        } <-
+                                        pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto paramDat'))
+                                    let currCS = pfromData mintCs
+                                        nodeKey = pfromData directoryNodeDatumFkey
+                                        nodeNext = pfromData directoryNodeDatumFNext
+                                    pif
+                                        (nodeKey #== currCS)
+                                        ( let checks =
                                                 pand'List
                                                     [ ptraceInfoIfFalse "Missing required transfer script" (pisScriptInvokedEntries # directoryNodeDatumFTransferLogicScript # withdrawalEntries)
-                                                    , ptraceInfoIfFalse "directory mint proof mismatch" (directoryNodeDatumFkey #== mintCs)
                                                     , ptraceInfoIfFalse "invalid dir node m" (phasCSH directoryNodeCS directoryNodeUTxOFValue)
                                                     ]
-                                        pif
-                                            checks
-                                            (self # proofsRest # mintCsPairs # (pcons # mintCsPair # programmableMintValue))
-                                            perror
-                                    PTokenDoesNotExist notExistNodeIdx -> P.do
-                                        PTxOut{ptxOut'value = prevNodeUTxOValue, ptxOut'datum = prevNodeUTxODatum} <-
-                                            pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropFast # pfromData notExistNodeIdx # refInputs))
-                                        POutputDatum prevNodeDat' <- pmatch prevNodeUTxODatum
-                                        PDirectorySetNode{pkey = nodeDatumKey, pnext = nodeDatumNext} <- pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto prevNodeDat'))
-                                        let currCS = pfromData mintCs
-                                        let nodeKey = pfromData nodeDatumKey
-                                        let nodeNext = pfromData nodeDatumNext
-                                        let checks =
+                                           in pif
+                                                checks
+                                                (self # proofsRest # mintCsPairs # (pcons # mintCsPair # programmableMintValue))
+                                                perror
+                                        )
+                                        ( let checks =
                                                 pand'List
                                                     [ ptraceInfoIfFalse "dir mint neg-proof node must cover" (nodeKey #< currCS)
                                                     , ptraceInfoIfFalse "dir mint neg-proof node must cover" (currCS #< nodeNext)
-                                                    , ptraceInfoIfFalse "invalid dir node n" (phasCSH directoryNodeCS prevNodeUTxOValue)
+                                                    , ptraceInfoIfFalse "invalid dir node n" (phasCSH directoryNodeCS directoryNodeUTxOFValue)
                                                     ]
-                                        pif
-                                            checks
-                                            (self # proofsRest # mintCsPairs # programmableMintValue)
-                                            perror
+                                           in pif
+                                                checks
+                                                (self # proofsRest # mintCsPairs # programmableMintValue)
+                                                perror
+                                        )
                         )
                         (ptraceInfoError "mint proof missing")
                         proofs
@@ -619,8 +806,8 @@ pcheckMintLogicAndGetProgrammableValue directoryNodeCS refInputs proofList withd
 
 data ProgrammableLogicGlobalRedeemer
     = TransferAct
-        { plgrTransferProofs :: [TokenProof]
-        , plgrMintProofs :: [TokenProof]
+        { plgrTransferProofs :: [Integer]
+        , plgrMintProofs :: [Integer]
         }
     | SeizeAct
         { plgrDirectoryNodeIdx :: Integer
@@ -634,8 +821,17 @@ PlutusTx.makeIsDataIndexed
     ''ProgrammableLogicGlobalRedeemer
     [('TransferAct, 0), ('SeizeAct, 1)]
 
-{- | Convert absolute tx-input indexes to seize relative indexes.
-Requires a strictly increasing non-negative list of absolute indexes.
+{- | Convert absolute tx-input indexes into the relative-index encoding used by
+`SeizeAct`.
+
+High-level purpose:
+- Compress seize witnesses so onchain validation can walk the input list in one
+  pass without restarting from the head each time.
+
+Security invariants:
+- Input indexes must be strictly increasing and non-negative.
+- The resulting relative list must identify exactly the same absolute inputs.
+- Any malformed witness sequence must be rejected at construction time.
 -}
 absoluteToRelativeInputIdxs :: [Integer] -> [Integer]
 absoluteToRelativeInputIdxs [] = []
@@ -649,7 +845,16 @@ absoluteToRelativeInputIdxs (firstAbsIdx : remainingAbsIdxs)
         | currentAbsIdx <= previousAbsIdx = error "absoluteToRelativeInputIdxs: absolute indexes must be strictly increasing"
         | otherwise = (currentAbsIdx - previousAbsIdx - 1) : go currentAbsIdx restAbsIdxs
 
--- | Construct a SeizeAct redeemer from relative indexes.
+{- | Construct a `SeizeAct` redeemer from already-relative input indexes.
+
+High-level purpose:
+- Package the third-party transfer witness in the canonical onchain format.
+
+Security invariants:
+- All relative indexes must be non-negative.
+- `plgrLengthInputIdxs` must equal the true list length.
+- The constructor must not reorder or rewrite the supplied witness list.
+-}
 mkSeizeActRedeemerFromRelativeInputIdxs :: Integer -> [Integer] -> Integer -> ProgrammableLogicGlobalRedeemer
 mkSeizeActRedeemerFromRelativeInputIdxs directoryNodeIdx relativeInputIdxs outputsStartIdx
     | any (< 0) relativeInputIdxs = error "mkSeizeActRedeemerFromRelativeInputIdxs: negative relative index"
@@ -661,7 +866,18 @@ mkSeizeActRedeemerFromRelativeInputIdxs directoryNodeIdx relativeInputIdxs outpu
             , plgrLengthInputIdxs = fromIntegral (length relativeInputIdxs)
             }
 
--- | Construct a SeizeAct redeemer from absolute indexes.
+{- | Construct a `SeizeAct` redeemer from absolute input indexes.
+
+High-level purpose:
+- Provide the safer offchain API for seize witnesses by deriving the canonical
+  relative encoding automatically.
+
+Security invariants:
+- The absolute index list must satisfy the invariants of
+  `absoluteToRelativeInputIdxs`.
+- The resulting redeemer must address the same inputs as the original absolute
+  list.
+-}
 mkSeizeActRedeemerFromAbsoluteInputIdxs :: Integer -> [Integer] -> Integer -> ProgrammableLogicGlobalRedeemer
 mkSeizeActRedeemerFromAbsoluteInputIdxs directoryNodeIdx absoluteInputIdxs =
     mkSeizeActRedeemerFromRelativeInputIdxs
@@ -670,8 +886,10 @@ mkSeizeActRedeemerFromAbsoluteInputIdxs directoryNodeIdx absoluteInputIdxs =
 
 data PProgrammableLogicGlobalRedeemer (s :: S)
     = PTransferAct
-        { ptransferProofs :: Term s (PAsData (PBuiltinList (PAsData PTokenProof)))
-        , pmintProofs :: Term s (PAsData (PBuiltinList (PAsData PTokenProof)))
+        -- The witness lists contain reference-input indices for directory nodes.
+        -- Exact-match vs covering-node proofs are derived onchain from the referenced datum.
+        { ptransferProofs :: Term s (PAsData (PBuiltinList (PAsData PInteger)))
+        , pmintProofs :: Term s (PAsData (PBuiltinList (PAsData PInteger)))
         }
     | -- The proofs validate currency-symbol membership against the directory:
       -- ptransferProofs correspond to programmable input value entries.
@@ -691,6 +909,16 @@ deriving via
     instance
         PLiftable PProgrammableLogicGlobalRedeemer
 
+{- | Global stake validator for programmable-token transfers and third-party
+seizures.
+
+High-level purpose:
+- Enforce the mini-ledger security model for both ordinary `TransferAct`
+  transactions and privileged `SeizeAct` transactions.
+
+Security invariants:
+- The protocol-parameter reference input must be found and decoded correctly.
+-}
 mkProgrammableLogicGlobal :: Term s (PAsData PCurrencySymbol :--> PScriptContext :--> PUnit)
 mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
     PScriptContext{pscriptContext'txInfo, pscriptContext'redeemer, pscriptContext'scriptInfo} <- pmatch ctx
@@ -710,6 +938,12 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
     withdrawalEntries <- plet $ pto (pfromData ptxInfo'wdrl)
 
     pmatch red $ \case
+        -- `TransferAct` invariants:
+        -- - The expected programmable output value must equal the validated
+        --   programmable inputs plus validated programmable mint or burn.
+        -- - No programmable value may escape from outputs at `progLogicCred`.
+        -- - Transfer and mint proofs must be consumed in lockstep with the
+        --   programmable policies they witness.
         PTransferAct transferProofs mintProofs -> P.do
             cachedTransferScript0 <- plet $ pfstBuiltin # (phead @PBuiltinList # withdrawalEntries)
             totalProgTokenValue <-
@@ -752,6 +986,13 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                         (pfromData ptxInfo'outputs)
                         expectedProgrammableOutputValue
                 ]
+        -- `SeizeAct` invariants:
+        -- - Only the seized policy may change across paired programmable
+        --   inputs and outputs.
+        -- - The resulting seized-policy delta plus mint or burn for that
+        --   policy must remain inside the programmable outputs.
+        -- - Input witnesses must cover all script spends and match the
+        --   redeemer's declared witness count.
         PSeizeAct{pdirectoryNodeIdx, pinputIdxs, poutputsStartIdx, plengthInputIdxs} -> P.do
             inputIdxsLen <- plet $ pfromData plengthInputIdxs
             let inputIdxsData = punsafeCoerce (pfromData pinputIdxs) :: Term _ (PBuiltinList PData)
@@ -765,7 +1006,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                 } <-
                 pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto seizeDat'))
             mintValueNoGuarantees <- plet $ punsafeCoerce @(PValue 'Sorted 'NoGuarantees) (pfromData ptxInfo'mint)
-            seizeMintedTokens <- plet $ pmintTokensForCurrencySymbol # pfromData directoryNodeDatumFKey # mintValueNoGuarantees
+            seizeMintedTokens <- plet $ ptokensForCurrencySymbol # pfromData directoryNodeDatumFKey # mintValueNoGuarantees
             let conditions =
                     [ ptraceInfoIfFalse "mini-ledger invariants violated" $ processThirdPartyTransfer directoryNodeDatumFKey progLogicCred (pfromData ptxInfo'inputs) remainingOutputs inputIdxsData seizeMintedTokens
                     , ptraceInfoIfFalse "issuer logic script must be invoked" $ pisScriptInvokedEntries # directoryNodeDatumFIssuerLogicScript # withdrawalEntries
@@ -778,12 +1019,22 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                     ]
             pvalidateConditions conditions
 
-{- | Extract signed minted token pairs for a specific currency symbol from tx mint.
-Returns an empty list when the currency symbol is not minted/burned in the tx.
+{- | Extract the token-name map for one currency symbol from a sorted value.
+
+High-level purpose:
+- Avoid full-value reconstruction when only one policy entry is relevant to the
+  current check.
+
+Security invariants:
+- The input value must be sorted by currency symbol.
+- The returned token pairs must preserve the original sorted token-name order.
+- If the policy is absent, the result must be exactly empty rather than a
+  fabricated zero entry.
 -}
-pmintTokensForCurrencySymbol ::
-    Term s (PCurrencySymbol :--> PValue 'Sorted 'NoGuarantees :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
-pmintTokensForCurrencySymbol =
+ptokensForCurrencySymbol ::
+    forall anyAmount s.
+    Term s (PCurrencySymbol :--> PValue 'Sorted anyAmount :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
+ptokensForCurrencySymbol =
     phoistAcyclic $
         plam $ \targetCs mintValue ->
             let mintedEntries :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
@@ -801,6 +1052,69 @@ pmintTokensForCurrencySymbol =
                         remainingMintEntries
              in go # mintedEntries
 
+{- | Check whether `actualTokens` contains at least the signed quantities required
+by `requiredTokens`.
+
+High-level purpose:
+- Provide a policy-local containment check for seize-path balance invariants.
+
+Security invariants:
+- Both inputs must be sorted by token name.
+- Positive required quantities must only pass when enough quantity is present in
+  `actualTokens`.
+- Negative required quantities must be treated as already satisfied by zero, since
+  they represent value removed from the required remainder.
+- The helper must not introduce false positives by skipping unmatched positive
+  requirements.
+-}
+ptokenPairsContain ::
+    Term
+        s
+        ( PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))
+            :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))
+            :--> PBool
+        )
+ptokenPairsContain = phoistAcyclic $
+    pfix #$ plam $ \self actualTokens requiredTokens ->
+        pelimList
+            ( \requiredPair requiredRest ->
+                let requiredTokenName = pfromData (pfstBuiltin # requiredPair)
+                    requiredQty = pfromData (psndBuiltin # requiredPair)
+                 in pelimList
+                        ( \actualPair actualRest ->
+                            let actualTokenName = pfromData (pfstBuiltin # actualPair)
+                                actualQty = pfromData (psndBuiltin # actualPair)
+                             in pif
+                                    (actualTokenName #== requiredTokenName)
+                                    (pif (actualQty #>= requiredQty) (self # actualRest # requiredRest) (pconstant False))
+                                    ( pif
+                                        (actualTokenName #< requiredTokenName)
+                                        (self # actualRest # requiredTokens)
+                                        (pif (0 #>= requiredQty) (self # actualTokens # requiredRest) (pconstant False))
+                                    )
+                        )
+                        (pif (0 #>= requiredQty) (self # pnil # requiredRest) (pconstant False))
+                        actualTokens
+            )
+            (pconstant True)
+            requiredTokens
+
+{- | Validate one corresponding programmable input/output pair in the seize path
+and accumulate the delta for the seized policy.
+
+High-level purpose:
+- Prove that a witness-selected programmable input keeps the same address, datum,
+  and reference script in its paired output, with only the seized policy allowed
+  to change.
+
+Security invariants:
+- Only inputs at `progLogicCred` may be treated as programmable inputs.
+- The paired output must preserve address, datum, and reference script exactly.
+- All non-target policies must remain unchanged, enforced by
+  `pvalueEqualsDeltaCurrencySymbol`.
+- Witness indexes that point to pubkey inputs must fail.
+- The accumulated delta must contain only the seized policy.
+-}
 pcheckCorrespondingThirdPartyTransferInputsAndOutputs ::
     Term s PCurrencySymbol ->
     Term s PCredential ->
@@ -847,6 +1161,21 @@ pcheckCorrespondingThirdPartyTransferInputsAndOutputs programmableCS progLogicCr
                                                 (ptraceInfoError "input index points to pubkey input")
                                             )
 
+{- | Validate the full `SeizeAct` mini-ledger transformation.
+
+High-level purpose:
+- Consume the witness-selected programmable inputs and continuing outputs, compute
+  the net seized-policy delta, include mint/burn for that same policy, and prove
+  that the remainder still lives at programmable outputs.
+
+Security invariants:
+- The witness list must be interpreted as relative indexes over the remaining
+  input suffix.
+- Only the seized policy may vary across corresponding input/output pairs.
+- The final delta plus minted tokens for the seized policy must be contained in
+  the remaining programmable outputs.
+- Outputs at other payment credentials must never satisfy the balance invariant.
+-}
 processThirdPartyTransfer ::
     Term s (PAsData PCurrencySymbol) ->
     Term s PCredential ->
@@ -861,23 +1190,22 @@ processThirdPartyTransfer programmableCS progLogicCred inputs progOutputs inputI
         checkBalanceInvariant :: Term _ (PBuiltinList (PAsData PTxOut)) -> Term _ (PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))) -> Term _ PBool
         checkBalanceInvariant remainingOutputs deltaAccumulatorResult =
             let outputAccumulatorResult = go2 # remainingOutputs
-                deltaResultValue = punsafeCoerce @(PValue 'Sorted 'Positive) (pconsBuiltin # (ppairDataBuiltinRaw # pforgetData programmableCS # (pmapData # punsafeCoerce deltaAccumulatorResult)) # pnil)
              in pif
-                    (pvalueContains # outputAccumulatorResult # deltaResultValue)
+                    (ptokenPairsContain # outputAccumulatorResult # deltaAccumulatorResult)
                     (pconstant True)
                     perror
 
-        go2 :: Term _ (PBuiltinList (PAsData PTxOut) :--> PValue 'Sorted 'Positive)
+        go2 :: Term _ (PBuiltinList (PAsData PTxOut) :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
         go2 = pfix #$ plam $ \self programmableOutputs ->
             pelimList
                 ( \programmableOutput programmableOutputsRest ->
                     pmatch (pfromData programmableOutput) $ \(PTxOut{ptxOut'address = programmableOutputAddress, ptxOut'value = programmableOutputValue}) ->
                         pif
                             (paddressCredential programmableOutputAddress #== progLogicCred)
-                            (pvalueUnionFast # pfromData programmableOutputValue # (self # programmableOutputsRest))
-                            pmempty
+                            (ptokenPairsUnionFast # (ptokensForCurrencySymbol # programmableCS' # pfromData programmableOutputValue) # (self # programmableOutputsRest))
+                            (self # programmableOutputsRest)
                 )
-                pmempty
+                pnil
                 programmableOutputs
 
         go :: Term _ (PBuiltinList PData :--> PBuiltinList (PAsData PTxInInfo) :--> PBuiltinList (PAsData PTxOut) :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)) :--> PBool)
@@ -982,9 +1310,14 @@ processThirdPartyTransfer programmableCS progLogicCred inputs progOutputs inputI
 -- if (valueContains outputValueAccumulator accumulatedValue)
 --    constant True
 
-{- | Negates the quantity of each token in a list of token quantity pairs (ie. the inner map of a `PValue`).
-Example:
-pnegateTokens [("FooToken", 10), ("BarToken", 20)] = [("FooToken", -10), ("BarToken", -20)]
+{- | Negate every signed quantity in a sorted token-name map.
+
+High-level purpose:
+- Reuse the same token-pair representation for both positive and negative deltas.
+
+Security invariants:
+- Token names and ordering must be preserved exactly.
+- Each quantity must be negated exactly once.
 -}
 pnegateTokens :: Term _ (PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)) :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
 pnegateTokens = pfix #$ plam $ \self tokens ->
@@ -997,11 +1330,20 @@ pnegateTokens = pfix #$ plam $ \self tokens ->
         pnil
         tokens
 
-{- |
-`pvalueEqualsDeltaCurrencySymbol progCS inputUTxOValue outputUTxOValue` MUST check that inputUTxOValue is equal to outputUTxOValue for all tokens except those of currency symbol progCS.
-The function should return a value consisting of only tokens with the currency symbol progCS, this value is as follows: For each token t of currency symbol progCS, the quantity of the token
-in the return value rValue is the quantity of token t in inputUTxOValue minus the quantity of token t in outputUTxOValue.
-for the purposes of the subtraction ie. if inputUTxOValue has 0 FooToken and outputUTxOValue has 10 FooToken then rValue should have 0 - 10 = -10 FooToken.
+{- | Compare two values, require equality everywhere except one policy, and return
+that policy's signed delta.
+
+High-level purpose:
+- Encode the core seize-path invariant that only one currency symbol may change
+  across a corresponding input/output pair.
+
+Security invariants:
+- Any difference outside `progCS` must fail validation.
+- The returned token list must contain only entries for `progCS`.
+- Each returned quantity must equal `inputQty - outputQty`, including negative
+  results when the output gained more than the input held.
+- Zero deltas must be omitted so downstream unions and containment checks operate
+  on canonical sparse maps.
 -}
 pvalueEqualsDeltaCurrencySymbol ::
     forall anyOrder anyAmount s.

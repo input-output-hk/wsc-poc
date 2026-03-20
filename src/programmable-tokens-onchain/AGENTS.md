@@ -32,3 +32,38 @@ Update it whenever a benchmark-backed optimization insight is discovered.
 - Heuristic: prefer Haskell-level helpers when they are compile-time structure builders and do not duplicate large term fragments excessively.
 - Heuristic: prefer Plutarch-level (`plam`, `:-->`) when you need real on-chain abstraction/reuse across call sites or must control evaluation/strictness at UPLC runtime.
 - Heuristic: if a helper is called once in a hot path, Haskell-level specialization/inlining is often cheaper; if called many times with shared behavior, compare script-size growth vs runtime savings before deciding representation.
+
+## 2026-03-19
+
+- `processThirdPartyTransfer` in `ProgrammableLogicBase` is cheaper if the final balance-invariant accumulator tracks only token pairs for the seized `CurrencySymbol` instead of unioning full `Value`s from every remaining programmable output.
+- Safety condition: keep the existing per-input/output `pvalueEqualsDeltaCurrencySymbol` check. That earlier check already proves all non-target policies are unchanged, so the final accumulation step only needs to prove containment for the target policy delta.
+- Implementation pattern:
+  - reuse a generalized `ptokensForCurrencySymbol` to project one sorted policy entry out of a `PValue`
+  - accumulate those token pairs with `ptokenPairsUnionFast`
+  - replace `pvalueContains` over a synthetic one-policy `Value` with a direct sorted-list containment check over token pairs
+- Benchmark command:
+  - `nix develop -c bash -lc 'dist=$(cabal list-bin benchmark-onchain-scripts); "$dist"'`
+- Benchmark result against the original full-`Value` accumulator:
+  - `programmableLogicGlobal.SeizeAct1`: CPU `62,680,817 -> 61,968,985` (`-711,832`, `-1.14%`), Mem `183,994 -> 179,963` (`-4,031`, `-2.19%`)
+  - `programmableLogicGlobal.SeizeAct5`: CPU `152,303,493 -> 151,591,661` (`-711,832`, `-0.47%`), Mem `395,998 -> 391,967` (`-4,031`, `-1.02%`)
+  - `programmableLogicGlobal.SeizeAct10`: CPU `259,367,892 -> 258,656,060` (`-711,832`, `-0.27%`), Mem `640,773 -> 636,742` (`-4,031`, `-0.63%`)
+  - `programmableLogicGlobal.SeizeAct20`: CPU `470,967,642 -> 470,255,810` (`-711,832`, `-0.15%`), Mem `1,119,409 -> 1,115,378` (`-4,031`, `-0.36%`)
+- `programmableLogicGlobal.SeizeAct1.ExternalScriptAnd50PubKeyInputs`: CPU `81,716,505 -> 81,555,330` (`-161,175`, `-0.20%`), Mem `239,107 -> 237,240` (`-1,867`, `-0.78%`)
+- Full script-suite comparison showed no regressions; every changed row moved downward, including small fixed savings on some non-`SeizeAct` rows from the cheaper compiled `programmableLogicGlobal` script.
+
+## 2026-03-20
+
+- `TransferAct` does not need a sum-typed `TokenProof`. A witness list of reference-input indices is enough, because exact-match vs covering-node proof can be derived onchain from the referenced directory datum:
+  - positive proof iff `nodeKey == currCS`
+  - negative proof iff `nodeKey < currCS && currCS < nodeNext`
+- Performance-sensitive control-flow detail: branch on `nodeKey < currCS` first, not on equality first. That preserves the old cheap negative-proof path and only pays the equality check on the non-negative path. Equality-first caused a small regression on the `TokenDoesNotExist` benchmark case.
+- Offchain builder can also drop its own proof sum type and just emit the selected directory-node reference index.
+- Benchmark command:
+  - `nix develop -c bash -lc 'cabal build benchmark-onchain-scripts && dist=$(cabal list-bin benchmark-onchain-scripts); "$dist"'`
+- Benchmark result against the previous `TokenProof` version:
+  - `programmableLogicGlobal.TransferAct`: CPU `71,650,094 -> 70,310,138` (`-1,339,956`, `-1.87%`), Mem `203,044 -> 202,676` (`-368`, `-0.18%`)
+  - `programmableLogicGlobal.TransferAct.MixedMany`: CPU `128,201,309 -> 122,931,127` (`-5,270,182`, `-4.11%`), Mem `375,396 -> 368,888` (`-6,508`, `-1.73%`)
+  - `programmableLogicGlobal.TransferAct.Spend5Utxos`: CPU `190,571,194 -> 188,492,418` (`-2,078,776`, `-1.09%`), Mem `518,402 -> 515,100` (`-3,302`, `-0.64%`)
+  - `programmableLogicGlobal.TransferAct.TokenDoesNotExist`: CPU `36,098,125 -> 35,359,305` (`-738,820`, `-2.05%`), Mem `110,764 -> 107,830` (`-2,934`, `-2.65%`)
+  - `programmableLogicMinting.Burn`: CPU `98,089,703 -> 94,783,294` (`-3,306,409`, `-3.37%`), Mem `272,804 -> 269,870` (`-2,934`, `-1.08%`)
+- Full script-suite comparison showed no regressions; `SeizeAct` rows were unchanged and every changed row moved downward.

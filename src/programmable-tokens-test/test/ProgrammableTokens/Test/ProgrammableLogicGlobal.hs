@@ -43,7 +43,6 @@ import ProgrammableTokens.Test.ScriptContext.Builder (
  )
 import SmartTokens.Contracts.ProgrammableLogicBase (
     ProgrammableLogicGlobalRedeemer (TransferAct),
-    TokenProof (TokenExists),
     mkProgrammableLogicGlobal,
     mkSeizeActRedeemerFromRelativeInputIdxs,
     poutputsContainExpectedValueAtCred,
@@ -122,7 +121,7 @@ unit_transferAct_burn_with_mint_proof_succeeds :: Assertion
 unit_transferAct_burn_with_mint_proof_succeeds =
     assertScriptSucceeds $
         mkGlobalTransferMintCtx
-            (TransferAct [TokenExists 1] [TokenExists 1])
+            (TransferAct [1] [1])
             (-1)
             0
 
@@ -130,7 +129,7 @@ unit_transferAct_burn_without_mint_proof_rejected :: Assertion
 unit_transferAct_burn_without_mint_proof_rejected =
     assertScriptFails $
         mkGlobalTransferMintCtx
-            (TransferAct [TokenExists 1] [])
+            (TransferAct [1] [])
             (-1)
             0
 
@@ -142,7 +141,7 @@ unit_transferAct_mint_smuggle_rejected :: Assertion
 unit_transferAct_mint_smuggle_rejected =
     assertScriptFails $
         mkGlobalTransferMintCtx
-            (TransferAct [TokenExists 1] [TokenExists 1])
+            (TransferAct [1] [1])
             1
             1
 
@@ -150,7 +149,7 @@ unit_transferAct_mint_with_proof_and_containment_succeeds :: Assertion
 unit_transferAct_mint_with_proof_and_containment_succeeds =
     assertScriptSucceeds $
         mkGlobalTransferMintCtx
-            (TransferAct [TokenExists 1] [TokenExists 1])
+            (TransferAct [1] [1])
             1
             2
 
@@ -158,7 +157,7 @@ unit_transferAct_mint_without_mint_proof_rejected :: Assertion
 unit_transferAct_mint_without_mint_proof_rejected =
     assertScriptFails $
         mkGlobalTransferMintCtx
-            (TransferAct [TokenExists 1] [])
+            (TransferAct [1] [])
             1
             2
 
@@ -477,7 +476,7 @@ mkGlobalTransferEscapeCtx :: ScriptContext
 mkGlobalTransferEscapeCtx =
     buildBalancedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData $ TransferAct [TokenExists 1] [])
+            (PlutusTx.toBuiltinData $ TransferAct [1] [])
             globalCred
             0
             <> withSigner signerPkh

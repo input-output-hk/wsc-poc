@@ -112,6 +112,17 @@ executable benchmark-onchain-scripts
   import:         lang
   hs-source-dirs: exe
   main-is:        BenchmarkOnchainScripts.hs
+  other-modules:
+    BenchmarkOnchain.CardanoScriptHelpers
+    BenchmarkOnchain.Compile
+    BenchmarkOnchain.Formatting
+    BenchmarkOnchain.MainnetDexFixture
+    BenchmarkOnchain.ScriptFixtureIds
+    BenchmarkOnchain.ScriptHelpers
+    BenchmarkOnchain.ScriptRunner
+    BenchmarkOnchain.ScriptScenario
+    BenchmarkOnchain.TxD29Fixture
+
   build-depends:
     , base
     , bytestring
@@ -127,6 +138,16 @@ executable benchmark-onchain-aiken-scripts
   import:         lang
   hs-source-dirs: exe
   main-is:        BenchmarkOnchainAikenScripts.hs
+  other-modules:
+    BenchmarkOnchain.CardanoScriptHelpers
+    BenchmarkOnchain.Formatting
+    BenchmarkOnchain.MainnetDexFixture
+    BenchmarkOnchain.ScriptFixtureIds
+    BenchmarkOnchain.ScriptHelpers
+    BenchmarkOnchain.ScriptRunner
+    BenchmarkOnchain.ScriptScenario
+    BenchmarkOnchain.TxD29Fixture
+
   build-depends:
     , base
     , bytestring
@@ -142,6 +163,12 @@ executable benchmark-onchain-functions
   import:         lang
   hs-source-dirs: exe
   main-is:        BenchmarkOnchainFunctions.hs
+  other-modules:
+    BenchmarkOnchain.Compile
+    BenchmarkOnchain.Formatting
+    BenchmarkOnchain.ScriptHelpers
+    BenchmarkOnchain.SimpleRunner
+
   build-depends:
     , base
     , bytestring

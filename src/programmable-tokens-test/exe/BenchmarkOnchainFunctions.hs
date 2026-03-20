@@ -4,23 +4,15 @@
 
 module Main (main) where
 
+import BenchmarkOnchain.ScriptHelpers (bs28, mkValue, pubKeyAddress)
+import BenchmarkOnchain.SimpleRunner (BenchCase, mkTermCase, runSimpleBenchmark)
 import Data.ByteString qualified as BS
-import Data.Either (isRight)
-import Data.List (intercalate, sortOn)
-import Data.Word (Word8)
-import Numeric (showFFloat)
 import Plutarch.Core.Context (
     pscriptContextTxInfo,
     ptxInInfoResolved,
  )
 import Plutarch.Core.Internal.Builtins (pmapData, ppairDataBuiltinRaw)
 import Plutarch.Core.Utils
-import Plutarch.Evaluate (applyArguments, evalScript)
-import Plutarch.Internal.Term (
-    Config (NoTracing),
-    Script,
-    compile,
- )
 import Plutarch.LedgerApi.V3
 import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
@@ -28,13 +20,9 @@ import PlutusLedgerApi.V1 qualified as PV1
 import PlutusLedgerApi.V1.Value (Value, assetClass, assetClassValue)
 import PlutusLedgerApi.V3 (
     Address (Address),
-    BuiltinByteString,
     Credential (PubKeyCredential, ScriptCredential),
     CurrencySymbol (CurrencySymbol),
     Data,
-    ExBudget (ExBudget),
-    ExCPU (ExCPU),
-    ExMemory (ExMemory),
     PubKeyHash (PubKeyHash),
     ScriptContext,
     ScriptHash (ScriptHash),
@@ -42,153 +30,19 @@ import PlutusLedgerApi.V3 (
     TokenName (TokenName),
  )
 import PlutusTx qualified
-import ProgrammableTokens.Test (productionMaxTxExBudget)
 import ProgrammableTokens.Test.ScriptContext.Builder
 import SmartTokens.Contracts.ProgrammableLogicBase qualified as Actual
 
 main :: IO ()
-main = do
-    let ExBudget (ExCPU maxCpu) (ExMemory maxMem) = productionMaxTxExBudget
-    putStrLn "Onchain function benchmark (NoTracing, isolated utility terms)"
-    rows <- traverse runCase benchCases
-    let sorted = sortOn caseName rows
-    putStrLn $
-        "Max tx ex units: CPU "
-            <> formatUnits maxCpu
-            <> " | Mem "
-            <> formatUnits maxMem
-    putStrLn ""
-    mapM_ putStrLn (renderBenchTable sorted)
-  where
-    caseName BenchRow{brName = name} = name
-
-data BenchCase = BenchCase
-    { bcName :: String
-    , bcScript :: Script
-    , bcArgs :: [Data]
-    }
-
-data BenchRow = BenchRow
-    { brName :: String
-    , brSuccess :: Bool
-    , brBudget :: ExBudget
-    }
-
-runCase :: BenchCase -> IO BenchRow
-runCase bench = do
-    let (res, budget, logs) = evalScript (applyArguments (bcScript bench) (bcArgs bench))
-        ok = isRight res
-    if ok
-        then pure (BenchRow (bcName bench) ok budget)
-        else do
-            putStrLn ("failure logs for " <> bcName bench <> ": " <> show logs)
-            pure (BenchRow (bcName bench) ok budget)
-
-renderBenchTable :: [BenchRow] -> [String]
-renderBenchTable rows =
-    let header =
-            [ "Case"
-            , "Result"
-            , "CPU"
-            , "CPU %"
-            , "Mem"
-            , "Mem %"
-            ]
-        renderedRows = fmap renderBenchRow rows
-        allRows = header : renderedRows
-        widths = fmap maximumColumnWidth (transpose allRows)
-        separator = renderSeparator widths
-     in renderColumns widths header
-            : separator
-            : fmap (renderColumns widths) renderedRows
-
-renderBenchRow :: BenchRow -> [String]
-renderBenchRow BenchRow{brName = name, brSuccess = success, brBudget = budget} =
-    [ name
-    , if success then "PASS" else "FAIL"
-    , budgetCpuText budget
-    , formatPercent (budgetCpuPct budget)
-    , budgetMemText budget
-    , formatPercent (budgetMemPct budget)
-    ]
-
-renderColumns :: [Int] -> [String] -> String
-renderColumns widths cols =
-    intercalate " | " (zipWith renderColumn [0 ..] (zip widths cols))
-  where
-    renderColumn :: Int -> (Int, String) -> String
-    renderColumn idx (width, col)
-        | idx <= 1 = padRight width col
-        | otherwise = padLeft width col
-
-renderSeparator :: [Int] -> String
-renderSeparator widths =
-    intercalate "-+-" (fmap (`replicate` '-') widths)
-
-maximumColumnWidth :: [String] -> Int
-maximumColumnWidth = maximum . fmap length
-
-transpose :: [[a]] -> [[a]]
-transpose [] = []
-transpose ([] : _) = []
-transpose rows = fmap head rows : transpose (fmap tail rows)
-
-padLeft :: Int -> String -> String
-padLeft width s = replicate (width - length s) ' ' <> s
-
-padRight :: Int -> String -> String
-padRight width s = s <> replicate (width - length s) ' '
-
-budgetCpuText :: ExBudget -> String
-budgetCpuText (ExBudget (ExCPU cpu) _) = formatUnits cpu
-
-budgetMemText :: ExBudget -> String
-budgetMemText (ExBudget _ (ExMemory mem)) = formatUnits mem
-
-formatUnits :: (Show a) => a -> String
-formatUnits = formatThousands . show
-
-formatThousands :: String -> String
-formatThousands ('-' : rest) = '-' : formatThousands rest
-formatThousands digits =
-    intercalate "," . reverse . fmap reverse . chunksOf 3 . reverse $ digits
-
-chunksOf :: Int -> [a] -> [[a]]
-chunksOf _ [] = []
-chunksOf n xs =
-    let (prefix, suffix) = splitAt n xs
-     in prefix : chunksOf n suffix
-
-budgetCpuPct :: ExBudget -> Double
-budgetCpuPct (ExBudget (ExCPU cpu) _) =
-    let ExBudget (ExCPU maxCpu) _ = productionMaxTxExBudget
-     in percentage cpu maxCpu
-
-budgetMemPct :: ExBudget -> Double
-budgetMemPct (ExBudget _ (ExMemory mem)) =
-    let ExBudget _ (ExMemory maxMem) = productionMaxTxExBudget
-     in percentage mem maxMem
-
-percentage :: (Show a) => a -> a -> Double
-percentage numerator denominator =
-    (toDouble numerator * 100) / toDouble denominator
-  where
-    toDouble :: (Show a) => a -> Double
-    toDouble = read . show
-
-formatPercent :: Double -> String
-formatPercent pct = showFFloat (Just 2) pct "%"
-
-compileNoTracing :: (forall s. Term s a) -> Script
-compileNoTracing term =
-    either (error . ("compile failed: " <>) . show) id (compile NoTracing term)
+main =
+    runSimpleBenchmark
+        "Onchain function benchmark (NoTracing, isolated utility terms)"
+        benchCases
 
 mkCase :: String -> (forall s. Term s a) -> [Data] -> BenchCase
-mkCase name term args = BenchCase name (compileNoTracing term) args
+mkCase = mkTermCase
 
-bs28 :: Word8 -> BuiltinByteString
-bs28 w = PV1.toBuiltin (BS.replicate 28 w)
-
+-- Small synthetic fixture builders used to isolate specific helper terms.
 credentialAtSortedIndex :: Int -> Credential
 credentialAtSortedIndex idx =
     ScriptCredential (ScriptHash (bs28 (fromIntegral (idx + 1))))
@@ -532,9 +386,6 @@ currencySymbolAt idx = CurrencySymbol (bs28 (fromIntegral (idx + 1)))
 tokenNameAt :: Int -> TokenName
 tokenNameAt idx = TokenName (PV1.toBuiltin (BS.singleton (fromIntegral (idx + 1))))
 
-pubKeyAddress :: PubKeyHash -> Address
-pubKeyAddress pkh = Address (PubKeyCredential pkh) Nothing
-
 progWalletPubKeyOwnerAddress :: PubKeyHash -> Address
 progWalletPubKeyOwnerAddress pkh =
     Address progLogicBaseCred (Just (StakingHash (PubKeyCredential pkh)))
@@ -542,9 +393,6 @@ progWalletPubKeyOwnerAddress pkh =
 progWalletScriptOwnerAddress :: ScriptHash -> Address
 progWalletScriptOwnerAddress sh =
     Address progLogicBaseCred (Just (StakingHash (ScriptCredential sh)))
-
-mkValue :: [(CurrencySymbol, TokenName, Integer)] -> Value
-mkValue = foldMap (\(cs, tn, qty) -> assetClassValue (assetClass cs tn) qty)
 
 targetAssetValue :: Integer -> Value
 targetAssetValue qty = assetClassValue (assetClass (currencySymbolAt 0) (tokenNameAt 0)) qty
@@ -715,6 +563,7 @@ mkActualValueFromCredTerm cred cs tn expectedQty = plam $ \ctx ->
                     (pfromData $ ptxInfo'inputs txInfo)
          in passetQtyInValueBench # actualValue # pconstant cs # pconstant tn #== pconstant expectedQty
 
+-- Benchmark catalogue for the isolated utility-term harness.
 benchCases :: [BenchCase]
 benchCases =
     [ mkHasCredCase "withdrawalScan.equalsData.bestCase.n001" 1 0

@@ -20,6 +20,7 @@ module ProgrammableTokens.Test.ScriptContext.Builder (
     withSpendingScript,
     withRewardingScript,
     withRewardingScriptWithBuilder,
+    withRewardingScriptWitness,
     withOutput,
     withInput,
     withScriptInput,
@@ -421,6 +422,16 @@ withRewardingScriptWithBuilder mkRedeemer cred adaAmount =
                 , scbRedeemers = newRedeemers
                 , scbRedeemer = redeemer
                 , scbScriptInfo = RewardingScript cred
+                }
+
+withRewardingScriptWitness :: BuiltinData -> Credential -> Integer -> ScriptContextBuilder
+withRewardingScriptWitness redeemer cred adaAmount =
+    ScriptContextBuilder $ \scb ->
+        let newWdrl = Map.insert cred (fromIntegral adaAmount) (scbWdrl scb)
+            newRedeemers = Map.insert (Rewarding cred) (Redeemer redeemer) (scbRedeemers scb)
+         in scb
+                { scbWdrl = newWdrl
+                , scbRedeemers = newRedeemers
                 }
 
 withWithdrawal :: Credential -> Integer -> ScriptContextBuilder

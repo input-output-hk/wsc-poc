@@ -36,7 +36,6 @@ import SmartTokens.Contracts.Issuance (SmartTokenMintingAction (..))
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex)
 import SmartTokens.Contracts.ProgrammableLogicBase (
     ProgrammableLogicGlobalRedeemer (..),
-    TokenProof (..),
  )
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
@@ -172,7 +171,7 @@ registerTransferScripts = do
    witness is included in the final transaction.
 
    NOTE: If the token is not in the directory, then the function will
-   use a PDoesNotExist redeemer to prove that the token is not programmable
+   reference the covering directory node whose key/next range proves that the token is not programmable
 
    IMPORTANT: The caller should ensure that the destination address of the
    programmable token(s) in this transaction all correspond to the same
@@ -189,16 +188,16 @@ transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol director
 
     let sortedDirectoryNodes = sortOn (Down . key . uDatum) directoryNodes
 
-    let globalStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 globalStakeScript
+        globalStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 globalStakeScript
 
         transferProofs txBody =
-            [toTokenProof txBody (proofNodeForSymbol sortedDirectoryNodes programmableTokenSymbol)]
+            [proofNodeIndex txBody (proofNodeForSymbol sortedDirectoryNodes programmableTokenSymbol)]
 
-        mintProofs txBody = map (toTokenProof txBody . proofNodeForSymbol sortedDirectoryNodes) (mintedCurrencySymbols txBody)
+        mintProofs txBody = map (proofNodeIndex txBody . proofNodeForSymbol sortedDirectoryNodes) (mintedCurrencySymbols txBody)
 
-        mintProofReferences txBody = map (uIn . proofNodeUtxo . proofNodeForSymbol sortedDirectoryNodes) (mintedCurrencySymbols txBody)
+        mintProofReferences txBody = map (uIn . proofNodeForSymbol sortedDirectoryNodes) (mintedCurrencySymbols txBody)
 
-        transferProofReferences _ = map (uIn . proofNodeUtxo . proofNodeForSymbol sortedDirectoryNodes) [programmableTokenSymbol]
+        transferProofReferences _ = map (uIn . proofNodeForSymbol sortedDirectoryNodes) [programmableTokenSymbol]
 
         programmableLogicGlobalRedeemer txBody =
             TransferAct
@@ -228,31 +227,19 @@ transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol director
         (C.Quantity 0)
         $ C.ScriptWitness C.ScriptWitnessForStakeAddr . programmableGlobalWitness
 
-data ProofNode era
-    = MintProofExists (UTxODat era DirectorySetNode)
-    | MintProofDoesNotExist (UTxODat era DirectorySetNode)
-
-proofNodeUtxo :: ProofNode era -> UTxODat era DirectorySetNode
-proofNodeUtxo = \case
-    MintProofExists node -> node
-    MintProofDoesNotExist node -> node
-
-proofNodeForSymbol :: [UTxODat era DirectorySetNode] -> CurrencySymbol -> ProofNode era
+proofNodeForSymbol :: [UTxODat era DirectorySetNode] -> CurrencySymbol -> UTxODat era DirectorySetNode
 proofNodeForSymbol directoryNodes targetSymbol =
     case filter ((<= targetSymbol) . key . uDatum) directoryNodes of
         [] ->
             error $ "Missing directory coverage for mint policy: " <> show targetSymbol
         node : _ ->
-            if key (uDatum node) == targetSymbol
-                then MintProofExists node
-                else MintProofDoesNotExist node
+            node
 
-toTokenProof :: (C.IsBabbageBasedEra era) => C.TxBodyContent C.BuildTx era -> ProofNode era -> TokenProof
-toTokenProof txBody = \case
-    MintProofExists UTxODat{uIn} -> TokenExists (toRefIndex uIn)
-    MintProofDoesNotExist UTxODat{uIn} -> TokenDoesNotExist (toRefIndex uIn)
+proofNodeIndex :: (C.IsBabbageBasedEra era) => C.TxBodyContent C.BuildTx era -> UTxODat era DirectorySetNode -> Integer
+proofNodeIndex txBody UTxODat{uIn} =
+    toRefIndex uIn
   where
-    toRefIndex uIn = fromIntegral @Int @Integer $ BuildTx.findIndexReference uIn txBody
+    toRefIndex txInRef = fromIntegral @Int @Integer $ BuildTx.findIndexReference txInRef txBody
 
 mintedCurrencySymbols :: C.TxBodyContent C.BuildTx era -> [CurrencySymbol]
 mintedCurrencySymbols txBody =
