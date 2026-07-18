@@ -20,7 +20,7 @@ import Data.Either (fromRight)
 import GHC.Exts (IsList (..))
 import Plutarch.Evaluate (applyArguments)
 import Plutarch.Internal.Term (Config (..), compile)
-import Plutarch.Prelude (pconstant, (#))
+import Plutarch.Prelude (pconstant, pdata, (#))
 import Plutarch.Script (Script (..))
 import PlutusLedgerApi.V1
 import PlutusLedgerApi.V3 qualified as V3
@@ -35,15 +35,21 @@ import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (IssuanceCborHex))
 import SmartTokens.Types.Constants (issuanceCborHexToken)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 
-issuerPrefixPostfixBytes :: V3.Credential -> (BS.ByteString, BS.ByteString)
-issuerPrefixPostfixBytes progLogicCred =
+-- | The @directoryNodeCS@ argument (security S2) must be applied in the same
+-- position as on-chain so the compiled prefix matches; the minting-logic hash
+-- stays the last-applied argument and remains the CBOR split point.
+issuerPrefixPostfixBytes :: CurrencySymbol -> V3.Credential -> (BS.ByteString, BS.ByteString)
+issuerPrefixPostfixBytes directoryNodeCS progLogicCred =
   let
       placeholderMintingLogic = V3.ScriptHash $ stringToBuiltinByteStringHex "deadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeef"
       dummyHex = fromBuiltin $ BI.serialiseData $ PlutusTx.toBuiltinData placeholderMintingLogic
       progCred = fromRight (error "could not parse protocol params") $ unTransCredential progLogicCred
-      -- progLogicScriptCredential = fromRight (error "could not parse protocol params") $ unTransCredential progLogicCred
-      issuerScriptBase = -- programmableLogicMintingScript progLogicScriptCredential (transStakeCredential progLogicCred)
-        case compile NoTracing (mkProgrammableLogicMinting # pconstant (transCredential progCred)) of
+      -- Must mirror 'programmableLogicMintingScript' EXACTLY (same @pdata
+      -- (pconstant …)@ wrapping) so the compiled prefix/postfix match the real
+      -- issued policy id; otherwise the on-chain registration derivation
+      -- (_papplyHashedParameter) reconstructs a different hash.
+      issuerScriptBase =
+        case compile NoTracing (mkProgrammableLogicMinting # pdata (pconstant (transCredential progCred)) # pdata (pconstant directoryNodeCS)) of
           Right compiledScript -> compiledScript
           Left err -> error $ "Failed to compile issuer script: " <> show err
       dummyIssuerInstanceCborHex = SBS.fromShort . serialiseUPLC . unScript $ applyArguments issuerScriptBase [toData placeholderMintingLogic]
@@ -66,8 +72,8 @@ mintIssuanceCborHexNFT = Utils.inBabbage @era $ do
   txIn <- asks (Env.srIssuanceCborHexTxIn . Env.dsScriptRoot . Env.directoryEnv)
   netId <- queryNetworkId
   dir@DirectoryEnv{dsIssuanceCborHexMintingScript, dsIssuanceCborHexSpendingScript} <- asks Env.directoryEnv
-  let ProgrammableLogicGlobalParams {progLogicCred} = globalParams dir
-      (toBuiltin -> prefixCborHex, toBuiltin -> postfixCborHex) = issuerPrefixPostfixBytes progLogicCred
+  let ProgrammableLogicGlobalParams {directoryNodeCS, progLogicCred} = globalParams dir
+      (toBuiltin -> prefixCborHex, toBuiltin -> postfixCborHex) = issuerPrefixPostfixBytes directoryNodeCS progLogicCred
       issuanceCborHexDatum = IssuanceCborHex prefixCborHex postfixCborHex
 
   let policyId = scriptPolicyIdV3 dsIssuanceCborHexMintingScript

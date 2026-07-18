@@ -14,16 +14,23 @@ import PlutusLedgerApi.V1.Value (assetClass, assetClassValue)
 import PlutusLedgerApi.V3
 import PlutusTx qualified
 import ProgrammableTokens.Test.ScriptContext.Builder (
+    ScriptContextBuilder,
     buildBalancedScriptContext,
     mkAdaValue,
+    withAddress,
+    withInlineDatum,
     withMintingScript,
+    withOutRef,
     withOutput,
     withRedeemer,
+    withReferenceInput,
     withTxOutAddress,
     withTxOutValue,
+    withValue,
     withWithdrawal,
  )
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
+import SmartTokens.Types.PTokenDirectory (DirectorySetNode (DirectorySetNode))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, testCase)
 
@@ -35,7 +42,13 @@ tests =
         , testCase "unit_mint_to_pubkey_output_rejected" unit_mint_to_pubkey_output_rejected
         , testCase "unit_mint_split_between_base_and_pubkey_rejected" unit_mint_split_between_base_and_pubkey_rejected
         , testCase "unit_mint_to_base_without_stake_cred_rejected" unit_mint_to_base_without_stake_cred_rejected
+        , testCase "unit_mint_of_unregistered_policy_rejected" unit_mint_of_unregistered_policy_rejected
         ]
+
+-- | Security S2: minting a policy with no directory registration is rejected.
+unit_mint_of_unregistered_policy_rejected :: Assertion
+unit_mint_of_unregistered_policy_rejected =
+    assertScriptFails programmableMintUnregisteredCtx
 
 unit_mint_to_programmable_logic_output_succeeds :: Assertion
 unit_mint_to_programmable_logic_output_succeeds =
@@ -64,30 +77,22 @@ assertScriptFails :: ScriptContext -> Assertion
 assertScriptFails ctx =
     assertBool "expected script failure" (scriptFails ctx)
 
+mintArgs :: ScriptContext -> [Data]
+mintArgs ctx =
+    [ PlutusTx.toData progLogicBaseCred
+    , PlutusTx.toData directoryNodeCS
+    , PlutusTx.toData mintingLogicHash
+    , PlutusTx.toData ctx
+    ]
+
 scriptSucceeds :: ScriptContext -> Bool
 scriptSucceeds ctx =
-    let (res, _budget, _logs) =
-            evalScript
-                ( applyArguments
-                    mintingScript
-                    [ PlutusTx.toData progLogicBaseCred
-                    , PlutusTx.toData mintingLogicHash
-                    , PlutusTx.toData ctx
-                    ]
-                )
+    let (res, _budget, _logs) = evalScript (applyArguments mintingScript (mintArgs ctx))
      in isRight res
 
 scriptFails :: ScriptContext -> Bool
 scriptFails ctx =
-    let (res, _budget, _logs) =
-            evalScript
-                ( applyArguments
-                    mintingScript
-                    [ PlutusTx.toData progLogicBaseCred
-                    , PlutusTx.toData mintingLogicHash
-                    , PlutusTx.toData ctx
-                    ]
-                )
+    let (res, _budget, _logs) = evalScript (applyArguments mintingScript (mintArgs ctx))
      in isLeft res
 
 compileNoTracing :: (forall s. Term s a) -> Script
@@ -111,6 +116,35 @@ mintingLogicHash = ScriptHash (bs28 0x16)
 
 mintingPolicyCS :: CurrencySymbol
 mintingPolicyCS = CurrencySymbol (bs28 0x19)
+
+directoryNodeCS :: CurrencySymbol
+directoryNodeCS = CurrencySymbol (bs28 0x11)
+
+transferLogicHash :: ScriptHash
+transferLogicHash = ScriptHash (bs28 0x15)
+
+issuerCred :: Credential
+issuerCred = ScriptCredential (ScriptHash (bs28 0x18))
+
+tailCS :: CurrencySymbol
+tailCS = CurrencySymbol (PV1.toBuiltin (BS.replicate 28 0xff))
+
+-- | Registry node registering @mintingPolicyCS@ (security S2 proof of
+-- registration): the directory NFT named after the policy id, keyed on it.
+mintingRegistryNode :: DirectorySetNode
+mintingRegistryNode =
+    DirectorySetNode mintingPolicyCS tailCS (ScriptCredential transferLogicHash) issuerCred (CurrencySymbol "")
+
+registryNodeRefBuilder :: ScriptContextBuilder
+registryNodeRefBuilder =
+    withReferenceInput
+        ( withOutRef (TxOutRef (TxId (PV1.toBuiltin (BS.replicate 32 0xbb))) 0)
+            <> withAddress (pubKeyAddress signerPkh)
+            <> withValue (mkAdaValue 3_000_000 <> mintNamedNode)
+            <> withInlineDatum (PlutusTx.toBuiltinData mintingRegistryNode)
+        )
+  where
+    mintNamedNode = case mintingPolicyCS of CurrencySymbol bs -> assetClassValue (assetClass directoryNodeCS (TokenName bs)) 1
 
 signerPkh :: PubKeyHash
 signerPkh = PubKeyHash (bs28 0x01)
@@ -137,6 +171,23 @@ programmableMintCtx =
         ( withRedeemer mintRedeemer
             <> withMintingScript (mintValue 1) mintRedeemer
             <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+            <> registryNodeRefBuilder
+            <> withOutput
+                ( withTxOutAddress baseAddrWithStake
+                    <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)
+                )
+        )
+
+-- | Security S2: identical to the success case but with NO registry-node
+-- reference input — minting a policy that is not registered in the directory.
+-- Such tokens could later escape the mini-ledger via a covering-node transfer
+-- proof, so the mint must be rejected.
+programmableMintUnregisteredCtx :: ScriptContext
+programmableMintUnregisteredCtx =
+    buildBalancedScriptContext
+        ( withRedeemer mintRedeemer
+            <> withMintingScript (mintValue 1) mintRedeemer
+            <> withWithdrawal (ScriptCredential mintingLogicHash) 0
             <> withOutput
                 ( withTxOutAddress baseAddrWithStake
                     <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)
@@ -150,6 +201,7 @@ programmableMintNoStakeCtx =
         ( withRedeemer mintRedeemer
             <> withMintingScript (mintValue 1) mintRedeemer
             <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+            <> registryNodeRefBuilder
             <> withOutput
                 ( withTxOutAddress (Address progLogicBaseCred Nothing)
                     <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)
@@ -162,6 +214,7 @@ programmableMintEscapeCtx =
         ( withRedeemer mintRedeemer
             <> withMintingScript (mintValue 1) mintRedeemer
             <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+            <> registryNodeRefBuilder
             <> withOutput
                 ( withTxOutAddress (pubKeyAddress signerPkh)
                     <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)
@@ -174,6 +227,7 @@ programmableMintSplitEscapeCtx =
         ( withRedeemer mintRedeemer
             <> withMintingScript (mintValue 2) mintRedeemer
             <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+            <> registryNodeRefBuilder
             <> withOutput
                 ( withTxOutAddress (Address progLogicBaseCred Nothing)
                     <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)

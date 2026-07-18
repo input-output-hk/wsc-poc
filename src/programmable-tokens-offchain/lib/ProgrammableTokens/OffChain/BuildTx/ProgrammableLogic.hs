@@ -83,8 +83,15 @@ issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) udat@UTxODat{uDa
         then do
             -- Debug.Trace.traceM "NO insert directory node"
             mintPlutus mintingScript mintingLogicCred an q
+            -- Security S2: the mint validator now requires proof that the minted
+            -- policy is registered. The matching directory node is already this
+            -- UTxO, so reference it (Aiken's RefInput mode).
+            BuildTx.addReference (uIn udat)
         else do
             -- Debug.Trace.traceM "insert directory node"
+            -- Register-and-mint in one tx: insertDirectoryNode produces the new
+            -- node as an OUTPUT, which satisfies the mint validator's S2 check
+            -- via its output scan (Aiken's OutputIndex mode).
             mintPlutus mintingScript mintingLogicCred an q
             insertDirectoryNode paramsTxOut issuanceCborHexTxOut udat
 

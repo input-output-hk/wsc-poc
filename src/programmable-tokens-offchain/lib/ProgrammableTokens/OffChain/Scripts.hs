@@ -29,7 +29,7 @@ import Convex.PlutusLedger.V3 (transTxOutRef)
 import Plutarch.Evaluate (applyArguments)
 import Plutarch.Prelude (PByteString, Term, pconstant, pdata, pforgetData, (#))
 import Plutarch.Script (serialiseScript)
-import PlutusLedgerApi.V3 (Credential (..), ScriptHash, toData)
+import PlutusLedgerApi.V3 (Credential (..), CurrencySymbol, ScriptHash, toData)
 import SmartTokens.Contracts.AlwaysYields (palwaysSucceed)
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
 import SmartTokens.Contracts.IssuanceCborHex (mkIssuanceCborHexMinting)
@@ -120,11 +120,15 @@ alwaysSucceedsScript target =
   C.PlutusScriptSerialised $ serialiseScript $ Scripts.tryCompile target palwaysSucceed
 
 -- TODO: can we change the signature to just take the param policy id?
-programmableLogicMintingScript :: ScriptTarget -> C.PaymentCredential -> C.StakeCredential -> C.PlutusScript C.PlutusScriptV3
-programmableLogicMintingScript _target progLogicBaseSpndingCred mintingCred =
+programmableLogicMintingScript :: ScriptTarget -> C.PaymentCredential -> CurrencySymbol -> C.StakeCredential -> C.PlutusScript C.PlutusScriptV3
+programmableLogicMintingScript _target progLogicBaseSpndingCred directoryNodeCS mintingCred =
+  -- The minting-logic hash is applied LAST so the offchain issuance-cbor-hex
+  -- derivation (issuerPrefixPostfixBytes) can split the compiled CBOR around it;
+  -- directoryNodeCS (security S2) is baked into the prefix.
   let unappliedScript = Scripts.tryCompile Production
                $ mkProgrammableLogicMinting
                   # pdata (pconstant $ transCredential progLogicBaseSpndingCred)
+                  # pdata (pconstant directoryNodeCS)
       script = applyArguments unappliedScript [toData $ extractScriptHash $ transStakeCredential mintingCred]
   in C.PlutusScriptSerialised $ serialiseScript script
   where

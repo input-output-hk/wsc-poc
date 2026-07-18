@@ -11,17 +11,19 @@ module SmartTokens.Contracts.Issuance (
 
 import Generics.SOP qualified as SOP
 import GHC.Generics (Generic)
-import Plutarch.Core.Context (paddressCredential)
+import Plutarch.Core.Context (paddressCredential, ptxInInfoResolved)
 import Plutarch.Core.List (pheadSingleton)
 import Plutarch.Core.ValidationLogic (pvalidateConditions)
 import Plutarch.Core.Value (ptryLookupValue)
 import Plutarch.LedgerApi.AssocMap qualified as AssocMap
-import Plutarch.LedgerApi.V3 (PCredential (..), PMaybeData (PDJust, PDNothing),
+import Plutarch.LedgerApi.V3 (PCredential (..), PCurrencySymbol,
+                              PMaybeData (PDJust, PDNothing),
                               PRedeemer, PScriptContext (..),
                               PScriptHash, PScriptInfo (PMintingScript),
                               PScriptPurpose (..),
                               PStakingCredential (PStakingHash),
-                              PTxInfo (PTxInfo, ptxInfo'mint, ptxInfo'outputs, ptxInfo'wdrl),
+                              PTokenName (PTokenName),
+                              PTxInInfo, PTxInfo (PTxInfo, ptxInfo'mint, ptxInfo'outputs, ptxInfo'referenceInputs, ptxInfo'wdrl),
                               PTxOut (PTxOut, ptxOut'address, ptxOut'value),
                               ptxInfo'redeemers)
 import Plutarch.LedgerApi.Value (pvalueOf)
@@ -95,15 +97,43 @@ Each programmable token entry is represented in a directory with the following a
 @mintingLogicCred@ Script Credential for the script which must be invoked to perform minting/burning operations
 @ctx@ Script context containing transaction details
 -}
-mkProgrammableLogicMinting :: Term s (PAsData PCredential :--> PAsData PScriptHash :--> PScriptContext :--> PUnit)
-mkProgrammableLogicMinting = plam $ \(pfromData -> programmableLogicBase) mintingLogicCred' ctx -> P.do
+-- The @directoryNodeCS@ parameter sits between the base credential and the
+-- minting-logic hash so that the minting-logic hash remains the LAST applied
+-- argument — the offchain issuance-cbor-hex derivation splits the compiled
+-- script's CBOR around that placeholder, so its position must not change.
+mkProgrammableLogicMinting :: Term s (PAsData PCredential :--> PAsData PCurrencySymbol :--> PAsData PScriptHash :--> PScriptContext :--> PUnit)
+mkProgrammableLogicMinting = plam $ \(pfromData -> programmableLogicBase) directoryNodeCS mintingLogicCred' ctx -> P.do
   let mintingLogicCred = pdata $ pcon $ PScriptCredential mintingLogicCred'
   PScriptContext {pscriptContext'txInfo, pscriptContext'redeemer, pscriptContext'scriptInfo} <- pmatch ctx
-  PTxInfo {ptxInfo'outputs, ptxInfo'mint, ptxInfo'wdrl, ptxInfo'redeemers} <- pmatch pscriptContext'txInfo
+  PTxInfo {ptxInfo'referenceInputs, ptxInfo'outputs, ptxInfo'mint, ptxInfo'wdrl, ptxInfo'redeemers} <- pmatch pscriptContext'txInfo
 
   PMintingScript ownCS' <- pmatch pscriptContext'scriptInfo
   ownCS <- plet ownCS'
   mintedValue <- plet $ pfromData ptxInfo'mint
+
+  -- Registration binding (security S2, mirrors Aiken issuance_mint Finding 04):
+  -- the minted policy MUST be registered in the directory. Without this, an
+  -- issuer (or a compromised minting logic) could mint tokens for an
+  -- UNregistered policy; those tokens start in the mini-ledger but can then
+  -- escape it via a covering-node (`TokenDoesNotExist`) transfer proof — which
+  -- exists precisely because the policy is unregistered — defeating
+  -- freeze/seize control. Proof: a reference input holds the directory NFT named
+  -- after `ownCS` under the trusted `directoryNodeCS`. That NFT can only be
+  -- minted by the directory policy, which enforces token-name == node-key
+  -- (parseNodeOutputUtxo), so its mere presence proves a node keyed on `ownCS`
+  -- exists — no datum decode needed (cheaper than Aiken's node-datum parse).
+  ownAsTokenName <- plet $ pcon $ PTokenName (pto (pfromData ownCS))
+  nodeCSsym <- plet $ pfromData directoryNodeCS
+  hasRegistryNode <- plet $ plam $ \txOut ->
+        pmatch txOut $ \(PTxOut{ptxOut'value=nodeVal}) ->
+          pvalueOf # pfromData nodeVal # nodeCSsym # ownAsTokenName #== 1
+  -- Accept the node either as a reference input (already registered) OR as an
+  -- output (registered in this same tx — Aiken's OutputIndex mode). The
+  -- reference-input scan short-circuits first, so an ordinary mint of an
+  -- already-registered policy never pays for the output scan.
+  registrationProven <- plet $
+    (pany # plam (\txIn -> hasRegistryNode # ptxInInfoResolved (pfromData txIn)) # pfromData ptxInfo'referenceInputs)
+      #|| (pany # plam (\o -> hasRegistryNode # pfromData o) # pfromData ptxInfo'outputs)
 
   let ownTkPairs = ptryLookupValue # ownCS # mintedValue
   -- For ease of implementation of the POC we only allow one programmable token per instance of this minting policy.
@@ -147,6 +177,7 @@ mkProgrammableLogicMinting = plam $ \(pfromData -> programmableLogicBase) mintin
           [ pvalueOf # pfromData mintingToOutputFValue # pfromData ownCS # pfromData ownTokenName #== ownNumMinted
           , paddressCredential mintingToOutputFAddress #== programmableLogicBase
           , mintOutputHasInlineStake
+          , registrationProven
           , pelem # mintingLogicCred # invokedScripts
           , punsafeCoerce @(PAsData PCredential) (pto red) #== mintingLogicCred
           , psingleMintWithCredential # pdata red # pfromData ptxInfo'redeemers
@@ -155,7 +186,8 @@ mkProgrammableLogicMinting = plam $ \(pfromData -> programmableLogicBase) mintin
       (
         -- This branch is for validating the burning of tokens
         pvalidateConditions
-          [ pelem # mintingLogicCred # invokedScripts
+          [ registrationProven
+          , pelem # mintingLogicCred # invokedScripts
           , psingleMintWithCredential # pdata pscriptContext'redeemer # pfromData ptxInfo'redeemers
           ]
       )

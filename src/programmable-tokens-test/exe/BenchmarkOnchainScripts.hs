@@ -218,6 +218,21 @@ directoryMintingNode =
         issuerCred
         (CurrencySymbol "")
 
+-- | Security S2: the mint validator now requires a registry-node reference input
+-- proving the minted policy is registered — the directory NFT named after the
+-- policy id, under directoryNodeCS, with a node datum keyed on that policy.
+mintingPolicyNodeTokenName :: TokenName
+mintingPolicyNodeTokenName =
+    case mintingPolicyCS of CurrencySymbol bs -> TokenName bs
+
+mintingRegistryNodeRefBuilder :: ScriptContextBuilder
+mintingRegistryNodeRefBuilder =
+    withRefInputDatumValue
+        directoryMintingNodeRef
+        (pubKeyAddress signerPkh)
+        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, mintingPolicyNodeTokenName, 1)])
+        (PlutusTx.toBuiltinData directoryMintingNode)
+
 directoryProgrammableNode2 :: DirectorySetNode
 directoryProgrammableNode2 =
     DirectorySetNode
@@ -987,6 +1002,7 @@ programmableMintCtx =
                     ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
                     )
+                <> mintingRegistryNodeRefBuilder
             )
 
 programmableBurnCtx :: ScriptContext
@@ -1022,7 +1038,7 @@ programmableBurnCtx =
                     <> withRefInputDatumValue
                         directoryMintingNodeRef
                         (pubKeyAddress signerPkh)
-                        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, mintingPolicyNodeTokenName, 1)])
                         (PlutusTx.toBuiltinData directoryMintingNode)
                 )
 
@@ -1067,7 +1083,7 @@ programmableBurnRedeem10Ctx =
                     <> withRefInputDatumValue
                         directoryMintingNodeRef
                         (pubKeyAddress signerPkh)
-                        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, mintingPolicyNodeTokenName, 1)])
                         (PlutusTx.toBuiltinData directoryMintingNode)
                 )
 
@@ -1115,7 +1131,7 @@ programmableMintTopUpCtx =
                     <> withRefInputDatumValue
                         directoryMintingNodeRef
                         (pubKeyAddress signerPkh)
-                        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, mintingPolicyNodeTokenName, 1)])
                         (PlutusTx.toBuiltinData directoryMintingNode)
                 )
 
@@ -1204,6 +1220,7 @@ programmableMintBusyTxCtx =
                     ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
                     )
+                <> mintingRegistryNodeRefBuilder
             )
 
 -- | Mint alongside ten unrelated (pubkey reward-account) withdrawals.
@@ -1232,6 +1249,7 @@ programmableMintManyWithdrawalsCtx =
                     ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
                     )
+                <> mintingRegistryNodeRefBuilder
             )
 
 protocolParamsMintCtx :: ScriptContext
@@ -1496,12 +1514,12 @@ benchCases =
     , mkCase "programmableLogicGlobal.SeizeAct2.PartialSeizeWithNoise" (EvalAlwaysSucceedsReward "programmableSeize" seizeCredBench) mkProgrammableSeize [toData protocolParamsCS, toData globalSeizeNoiseCtx] globalSeizeNoiseCtx
     , mkCase "directoryNodeMinting.InitDirectory" (EvalDirectoryMint directoryPolicyCS) mkDirectoryNodeMP [toData initRef, toData issuancePolicyCS, toData directoryInitCtx] directoryInitCtx
     , mkCase "directoryNodeMinting.InsertDirectoryNode" (EvalDirectoryMint directoryPolicyCS) mkDirectoryNodeMP [toData initRef, toData issuancePolicyCS, toData directoryInsertCtx] directoryInsertCtx
-    , mkCase "programmableLogicMinting.Mint" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData mintingLogicHash, toData programmableMintCtx] programmableMintCtx
-    , mkCase "programmableLogicMinting.Mint.BusyTx20Outputs" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData mintingLogicHash, toData programmableMintBusyTxCtx] programmableMintBusyTxCtx
-    , mkCase "programmableLogicMinting.Mint.TenUnrelatedWithdrawals" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData mintingLogicHash, toData programmableMintManyWithdrawalsCtx] programmableMintManyWithdrawalsCtx
-    , mkCase "programmableLogicMinting.Mint.TopUpExistingTreasury" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData mintingLogicHash, toData programmableMintTopUpCtx] programmableMintTopUpCtx
-    , mkCase "programmableLogicMinting.Burn" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData mintingLogicHash, toData programmableBurnCtx] programmableBurnCtx
-    , mkCase "programmableLogicMinting.Burn.Redeem10Utxos" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData mintingLogicHash, toData programmableBurnRedeem10Ctx] programmableBurnRedeem10Ctx
+    , mkCase "programmableLogicMinting.Mint" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData directoryNodeCS, toData mintingLogicHash, toData programmableMintCtx] programmableMintCtx
+    , mkCase "programmableLogicMinting.Mint.BusyTx20Outputs" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData directoryNodeCS, toData mintingLogicHash, toData programmableMintBusyTxCtx] programmableMintBusyTxCtx
+    , mkCase "programmableLogicMinting.Mint.TenUnrelatedWithdrawals" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData directoryNodeCS, toData mintingLogicHash, toData programmableMintManyWithdrawalsCtx] programmableMintManyWithdrawalsCtx
+    , mkCase "programmableLogicMinting.Mint.TopUpExistingTreasury" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData directoryNodeCS, toData mintingLogicHash, toData programmableMintTopUpCtx] programmableMintTopUpCtx
+    , mkCase "programmableLogicMinting.Burn" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData directoryNodeCS, toData mintingLogicHash, toData programmableBurnCtx] programmableBurnCtx
+    , mkCase "programmableLogicMinting.Burn.Redeem10Utxos" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData directoryNodeCS, toData mintingLogicHash, toData programmableBurnRedeem10Ctx] programmableBurnRedeem10Ctx
     , mkCase "protocolParamsMinting" (EvalProtocolParamsMint protocolParamsCS) mkProtocolParametersMinting [toData protocolParamsInitRef, toData protocolParamsMintCtx] protocolParamsMintCtx
     , mkCase "issuanceCborHexMinting" (EvalIssuanceMint issuancePolicyCS) mkIssuanceCborHexMinting [toData issuanceInitRef, toData issuanceMintCtx] issuanceMintCtx
     , mkCase

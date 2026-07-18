@@ -58,10 +58,10 @@ instance (Env.Elem TransferLogicEnv els) => HasTransferLogicEnv (Env.HSet els) w
 -}
 programmableTokenMintingScript :: DirectoryEnv -> TransferLogicEnv -> C.PlutusScript C.PlutusScriptV3
 programmableTokenMintingScript dirEnv@DirectoryEnv{dsScriptRoot} TransferLogicEnv{tleMintingScript} =
-  let ProgrammableLogicGlobalParams {progLogicCred} = globalParams dirEnv
+  let ProgrammableLogicGlobalParams {directoryNodeCS, progLogicCred} = globalParams dirEnv
       DirectoryScriptRoot{srTarget} = dsScriptRoot
       progLogicScriptCredential = fromRight (error "could not parse protocol params") $ unTransCredential progLogicCred
-  in programmableLogicMintingScript srTarget progLogicScriptCredential (C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleMintingScript)
+  in programmableLogicMintingScript srTarget progLogicScriptCredential directoryNodeCS (C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleMintingScript)
 
 -- | The minting policy ID of the programmable token
 programmableTokenPolicyId :: (MonadReader env m, HasTransferLogicEnv env, HasDirectoryEnv env) => m C.PolicyId
