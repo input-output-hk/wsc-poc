@@ -582,6 +582,169 @@ globalTransfer10Ctx = mkGlobalTransferManyCtx 10
 globalTransfer15Ctx :: ScriptContext
 globalTransfer15Ctx = mkGlobalTransferManyCtx 15
 
+globalTransfer25Ctx :: ScriptContext
+globalTransfer25Ctx = mkGlobalTransferManyCtx 25
+
+globalTransfer50Ctx :: ScriptContext
+globalTransfer50Ctx = mkGlobalTransferManyCtx 50
+
+globalTransfer100Ctx :: ScriptContext
+globalTransfer100Ctx = mkGlobalTransferManyCtx 100
+
+-- | Mirrors the Aiken bench @many_tokens@ axis: a single mini-ledger UTxO
+-- carrying @tokenCount@ asset names under one programmable policy moves
+-- wholesale to a single recipient output.
+mkGlobalTransferManyTokensCtx :: Integer -> ScriptContext
+mkGlobalTransferManyTokensCtx tokenCount =
+    let manyTokensValue = mkValue [(programmableTransferCS, manyTokensTokenName i, 2) | i <- [0 .. (tokenCount - 1)]]
+     in buildBalancedScriptContext
+            ( withRewardingScript
+                (aikenTransferActRedeemerData [TokenExists 1])
+                globalCred
+                0
+                <> withSigner signerPkh
+                <> withAuxiliaryRewardingScript (ScriptCredential transferLogicHash) (PlutusTx.toBuiltinData ())
+                <> withScriptInput
+                    (PlutusTx.toBuiltinData ())
+                    ( withOutRef manyTokensInputRef
+                        <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
+                        <> withValue (mkAdaValue 10_000_000 <> manyTokensValue)
+                    )
+                <> withOutput
+                    ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash recipientPkh)
+                        <> withTxOutValue (mkAdaValue 3_000_000 <> manyTokensValue)
+                    )
+                <> withOutput
+                    ( withTxOutAddress (pubKeyAddress signerPkh)
+                        <> withTxOutValue (mkAdaValue 2_000_000)
+                    )
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    protocolParamsDatum
+                <> withRefInputDatumValue
+                    dirNodeRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    directoryProgrammableNode
+            )
+
+globalTransferManyTokens50Ctx :: ScriptContext
+globalTransferManyTokens50Ctx = mkGlobalTransferManyTokensCtx manyTokensCount
+
+-- | Mirrors the Aiken bench @many_outputs@ axis: a single mini-ledger input
+-- fans out to @outputCount@ mini-ledger recipient outputs (airdrop shape).
+mkGlobalTransferManyOutputsCtx :: Integer -> ScriptContext
+mkGlobalTransferManyOutputsCtx outputCount =
+    let recipientOutputBuilder =
+            withOutput
+                ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash recipientPkh)
+                    <> withTxOutValue (mkAdaValue 3_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 1)])
+                )
+        recipientOutputsBuilder = mconcat (replicate (fromIntegral outputCount) recipientOutputBuilder)
+     in buildBalancedScriptContext
+            ( withRewardingScript
+                (aikenTransferActRedeemerData [TokenExists 1])
+                globalCred
+                0
+                <> withSigner signerPkh
+                <> withAuxiliaryRewardingScript (ScriptCredential transferLogicHash) (PlutusTx.toBuiltinData ())
+                <> withScriptInput
+                    (PlutusTx.toBuiltinData ())
+                    ( withOutRef manyOutputsInputRef
+                        <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
+                        -- Enough ada to fund every fan-out output (outputCount x 3 ada
+                        -- + change) so the balanced context stays ledger-realizable.
+                        <> withValue (mkAdaValue 65_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", outputCount)])
+                    )
+                <> recipientOutputsBuilder
+                <> withOutput
+                    ( withTxOutAddress (pubKeyAddress signerPkh)
+                        <> withTxOutValue (mkAdaValue 2_000_000)
+                    )
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    protocolParamsDatum
+                <> withRefInputDatumValue
+                    dirNodeRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    directoryProgrammableNode
+            )
+
+globalTransferManyOutputs20Ctx :: ScriptContext
+globalTransferManyOutputs20Ctx = mkGlobalTransferManyOutputsCtx manyOutputsCount
+
+-- | Directory-node datum for the synthetic programmable policy at index @i@
+-- (see 'manyPolicyCS'), used by 'mkGlobalTransferManyPoliciesCtx'.
+manyPolicyNodeDatum :: Integer -> BuiltinData
+manyPolicyNodeDatum i =
+    aikenDirectoryNodeDatumData
+        (aikenCurrencySymbolBytes (manyPolicyCS i))
+        tailNodeBs
+        (ScriptCredential transferLogicHash)
+        issuerCred
+        ""
+
+-- | Mirrors the Aiken bench @many_policies@ axis: one input carries
+-- @policyCount@ distinct programmable policies, each needing its own
+-- positional proof and its own directory-node reference input (worst-case
+-- proof-list walk).
+mkGlobalTransferManyPoliciesCtx :: Integer -> ScriptContext
+mkGlobalTransferManyPoliciesCtx policyCount =
+    let idxs = [0 .. (policyCount - 1)]
+        manyPoliciesValue = mkValue [(manyPolicyCS i, TokenName "0c", 1) | i <- idxs]
+        -- Reference inputs are insertion-sorted by TxOutRef in the builder
+        -- (composition order is NOT what places them). paramRef's txId (0xaa…)
+        -- sorts before every manyPolicyNodeRef txId (0xbb 0x20+i…), and the
+        -- node txIds ascend with i, so paramRef sits at ref index 0 and the
+        -- node for policy i lands at ref index 1 + i, matching the positional
+        -- proofs. Adding a ref input with a differently sorting TxOutRef would
+        -- shift these indices.
+        policyNodeRefsBuilder =
+            mconcat
+                [ withRefInputDatumValue
+                    (manyPolicyNodeRef i)
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    (manyPolicyNodeDatum i)
+                | i <- idxs
+                ]
+     in buildBalancedScriptContext
+            ( withRewardingScript
+                (aikenTransferActRedeemerData [TokenExists (1 + i) | i <- idxs])
+                globalCred
+                0
+                <> withSigner signerPkh
+                <> withAuxiliaryRewardingScript (ScriptCredential transferLogicHash) (PlutusTx.toBuiltinData ())
+                <> withScriptInput
+                    (PlutusTx.toBuiltinData ())
+                    ( withOutRef manyPoliciesInputRef
+                        <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
+                        <> withValue (mkAdaValue 10_000_000 <> manyPoliciesValue)
+                    )
+                <> withOutput
+                    ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash recipientPkh)
+                        <> withTxOutValue (mkAdaValue 3_000_000 <> manyPoliciesValue)
+                    )
+                <> withOutput
+                    ( withTxOutAddress (pubKeyAddress signerPkh)
+                        <> withTxOutValue (mkAdaValue 2_000_000)
+                    )
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    protocolParamsDatum
+                <> policyNodeRefsBuilder
+            )
+
+globalTransferManyPolicies10Ctx :: ScriptContext
+globalTransferManyPolicies10Ctx = mkGlobalTransferManyPoliciesCtx manyPoliciesCount
+
 mkGlobalSeizeCtx :: Integer -> ScriptContext
 mkGlobalSeizeCtx seizeInputCount =
     let seizeInputIdxs = seizeInputIdxsFor seizeInputCount
@@ -622,6 +785,85 @@ globalSeize10Ctx = mkGlobalSeizeCtx 10
 
 globalSeize20Ctx :: ScriptContext
 globalSeize20Ctx = mkGlobalSeizeCtx 20
+
+globalSeize50Ctx :: ScriptContext
+globalSeize50Ctx = mkGlobalSeizeCtx 50
+
+globalSeize100Ctx :: ScriptContext
+globalSeize100Ctx = mkGlobalSeizeCtx 100
+
+globalSeize150Ctx :: ScriptContext
+globalSeize150Ctx = mkGlobalSeizeCtx 150
+
+-- | Mirrors the Aiken bench @baseline_3rd_party_2@ shape: two mini-ledger
+-- inputs carrying unrelated noise tokens beside the seized policy, with input
+-- 0 only partially seized (1 of its 2 seized tokens kept by the owner).
+globalSeizeNoiseCtx :: ScriptContext
+globalSeizeNoiseCtx =
+    let seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 [0, 1] 0
+     in stripZeroChangeOutput $
+            buildBalancedScriptContext
+                ( withRewardingScript
+                    (PlutusTx.toBuiltinData seizeRedeemer)
+                    globalCred
+                    0
+                    <> withAuxiliaryRewardingScript issuerCred (PlutusTx.toBuiltinData ())
+                    <> withScriptInput
+                        (PlutusTx.toBuiltinData ())
+                        ( withOutRef (TxOutRef seizeNoiseInputTxId 0)
+                            <> withAddress seizeInputAddr
+                            <> withValue
+                                ( mkAdaValue 3_000_000
+                                    <> mkValue
+                                        [ (programmableTransferCS, TokenName "0c", 2)
+                                        , (nonProgrammableCS, TokenName "np", 1)
+                                        ]
+                                )
+                        )
+                    <> withScriptInput
+                        (PlutusTx.toBuiltinData ())
+                        ( withOutRef (TxOutRef seizeNoiseInputTxId 1)
+                            <> withAddress seizeInputAddr
+                            <> withValue
+                                ( mkAdaValue 3_000_000
+                                    <> mkValue
+                                        [ (programmableTransferCS, TokenName "0c", 3)
+                                        , (nonProgrammableCS2, TokenName "np2", 5)
+                                        ]
+                                )
+                        )
+                    -- withOutput prepends, so the residual is composed first to
+                    -- land the final tx-output order at
+                    -- [paired-with-in0, paired-with-in1, residual].
+                    <> withOutput
+                        ( withTxOutAddress seizeInputAddr
+                            <> withTxOutValue (mkValue [(programmableTransferCS, TokenName "0c", 4)])
+                        )
+                    <> withOutput
+                        ( withTxOutAddress seizeInputAddr
+                            <> withTxOutValue (mkAdaValue 3_000_000 <> mkValue [(nonProgrammableCS2, TokenName "np2", 5)])
+                        )
+                    <> withOutput
+                        ( withTxOutAddress seizeInputAddr
+                            <> withTxOutValue
+                                ( mkAdaValue 3_000_000
+                                    <> mkValue
+                                        [ (programmableTransferCS, TokenName "0c", 1)
+                                        , (nonProgrammableCS, TokenName "np", 1)
+                                        ]
+                                )
+                        )
+                    <> withRefInputDatumValue
+                        paramRef
+                        (pubKeyAddress signerPkh)
+                        (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                        protocolParamsDatum
+                    <> withRefInputDatumValue
+                        dirNodeRef
+                        (pubKeyAddress signerPkh)
+                        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                        directoryProgrammableNode
+                )
 
 mkGlobalSeizeExternalScriptAndManyPubKeyCtx :: Integer -> ScriptContext
 mkGlobalSeizeExternalScriptAndManyPubKeyCtx pubKeyInputCount =
@@ -1071,6 +1313,24 @@ benchCases =
         (aikenRewardArgs globalTransferMixedManyCtx)
         globalTransferMixedManyCtx
     , mkAikenCase
+        "programmableLogicGlobal.TransferAct.ManyTokens50"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferManyTokens50Ctx)
+        globalTransferManyTokens50Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.ManyOutputs20"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferManyOutputs20Ctx)
+        globalTransferManyOutputs20Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.ManyPolicies10"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferManyPolicies10Ctx)
+        globalTransferManyPolicies10Ctx
+    , mkAikenCase
         "programmableLogicGlobal.TransferAct.Spend5Utxos"
         (EvalGlobalReward globalCred)
         (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
@@ -1088,6 +1348,24 @@ benchCases =
         (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
         (aikenRewardArgs globalTransfer15Ctx)
         globalTransfer15Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.Spend25Utxos"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransfer25Ctx)
+        globalTransfer25Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.Spend50Utxos"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransfer50Ctx)
+        globalTransfer50Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.Spend100Utxos"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransfer100Ctx)
+        globalTransfer100Ctx
     , mkAikenCase
         "programmableLogicGlobal.SeizeAct1"
         (EvalGlobalReward globalCred)
@@ -1118,6 +1396,30 @@ benchCases =
         (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
         (aikenRewardArgs globalSeize20Ctx)
         globalSeize20Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.SeizeAct50"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalSeize50Ctx)
+        globalSeize50Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.SeizeAct100"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalSeize100Ctx)
+        globalSeize100Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.SeizeAct150"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalSeize150Ctx)
+        globalSeize150Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.SeizeAct2.PartialSeizeWithNoise"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalSeizeNoiseCtx)
+        globalSeizeNoiseCtx
     , mkAikenCase
         "directoryNodeMinting.InitDirectory"
         (EvalDirectoryMint directoryPolicyCS)

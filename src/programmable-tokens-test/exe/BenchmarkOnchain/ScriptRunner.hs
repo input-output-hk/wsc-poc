@@ -12,7 +12,7 @@ import BenchmarkOnchain.Formatting (abbrev, budgetCpuPct, budgetCpuText, budgetM
 import Data.Either (isRight)
 import Data.List (foldl', intercalate, sortOn)
 import Data.ByteString.Short qualified as SBS
-import Plutarch.Evaluate (applyArguments, evalScript)
+import Plutarch.Evaluate (applyArguments, evalScript')
 import Plutarch.Script (Script, serialiseScript)
 import PlutusLedgerApi.V3 (Credential, CurrencySymbol, Data, ExBudget (ExBudget), ExCPU (ExCPU), ExMemory (ExMemory), ScriptContext, TxOutRef)
 import ProgrammableTokens.Test (productionMaxTxExBudget)
@@ -129,7 +129,11 @@ runCase scenarioEvalSpecsFromCtx bench = do
 
 runEvalSpec :: EvalSpec -> IO EvalResult
 runEvalSpec EvalSpec{esKind, esScript, esArgs} = do
-    let (res, budget, logs) = evalScript (applyArguments esScript esArgs)
+    -- Evaluate under the real protocol per-tx budget (10B CPU / 14M mem).
+    -- Plutarch's default 'evalScript' restricts memory to 10M — BELOW the tx
+    -- limit — which spuriously fails large-but-valid scenarios (e.g. a
+    -- 150-input seize needing ~10.7M mem).
+    let (res, budget, logs) = evalScript' productionMaxTxExBudget (applyArguments esScript esArgs)
     pure
         EvalResult
             { erKind = esKind

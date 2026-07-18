@@ -1,5 +1,6 @@
 module BenchmarkOnchain.ScriptHelpers (
     assetUnitHex,
+    bs2,
     bs28,
     currencySymbolHex,
     hexToBuiltin,
@@ -44,6 +45,11 @@ assetUnitHex unit quantity =
 
 bs28 :: Word8 -> BuiltinByteString
 bs28 w = PV1.toBuiltin (BS.replicate 28 w)
+
+-- | Two-byte bytestring; byte-wise lexicographic order equals numeric order of
+-- the (hi, lo) pair, which keeps generated token names canonically sorted.
+bs2 :: Word8 -> Word8 -> BuiltinByteString
+bs2 hi lo = PV1.toBuiltin (BS.pack [hi, lo])
 
 currencySymbolHex :: String -> CurrencySymbol
 currencySymbolHex = CurrencySymbol . hexToBuiltin

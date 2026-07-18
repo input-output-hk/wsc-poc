@@ -74,7 +74,7 @@ import Wst.Offchain.Env (
     BlacklistEnv (..),
     BlacklistTransferLogicScriptRoot (..),
     DirectoryEnv (..),
-    DirectoryScriptRoot (DirectoryScriptRoot),
+    DirectoryScriptRoot (..),
     HasBlacklistEnv (..),
     HasDirectoryEnv (directoryEnv),
     TransferLogicEnv (..),

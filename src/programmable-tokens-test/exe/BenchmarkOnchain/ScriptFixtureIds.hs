@@ -24,7 +24,16 @@ module BenchmarkOnchain.ScriptFixtureIds (
     mainnetDexFeeInputRef,
     mainnetDexPoolInputRef,
     mainnetDexSwapInputTxId,
+    manyOutputsCount,
+    manyOutputsInputRef,
+    manyPoliciesCount,
+    manyPoliciesInputRef,
+    manyPolicyCS,
+    manyPolicyNodeRef,
     manyPubKeyInputCount,
+    manyTokensCount,
+    manyTokensInputRef,
+    manyTokensTokenName,
     mintingLogicHash,
     mintingPolicyCS,
     nonProgrammableCS,
@@ -42,12 +51,13 @@ module BenchmarkOnchain.ScriptFixtureIds (
     protocolParamsInitRef,
     recipientPkh,
     seizeInputTxId,
+    seizeNoiseInputTxId,
     signerPkh,
     transferLogicHash,
     transferManyInputTxId,
 ) where
 
-import BenchmarkOnchain.ScriptHelpers (bs28, txId32, txOutRef32)
+import BenchmarkOnchain.ScriptHelpers (bs2, bs28, txId32, txOutRef32)
 import PlutusLedgerApi.V3
 
 signerPkh :: PubKeyHash
@@ -166,6 +176,46 @@ initRef = txOutRef32 0x1a 0x1a 0
 
 insertNodeInRef :: TxOutRef
 insertNodeInRef = txOutRef32 0xc0 0xde 0
+
+-- Scale-stress fixture identities (Aiken bench-axis parity scenarios).
+
+-- | Scenario sizes for the scale-stress transfer axes.
+manyTokensCount :: Integer
+manyTokensCount = 50
+
+manyOutputsCount :: Integer
+manyOutputsCount = 20
+
+manyPoliciesCount :: Integer
+manyPoliciesCount = 10
+
+manyTokensInputRef :: TxOutRef
+manyTokensInputRef = txOutRef32 0xcc 0x01 0
+
+manyOutputsInputRef :: TxOutRef
+manyOutputsInputRef = txOutRef32 0xcc 0x02 0
+
+manyPoliciesInputRef :: TxOutRef
+manyPoliciesInputRef = txOutRef32 0xcc 0x03 0
+
+seizeNoiseInputTxId :: TxId
+seizeNoiseInputTxId = txId32 0x5e 0x13
+
+-- | Distinct programmable policies for the many-policies axis; ascending byte
+-- patterns keep the generated currency symbols in canonical (lexicographic)
+-- order, clear of every other fixture policy (0x10..0x1e).
+manyPolicyCS :: Integer -> CurrencySymbol
+manyPolicyCS i = CurrencySymbol (bs28 (0x60 + fromIntegral i))
+
+-- | One directory-node reference input per many-policies policy.
+manyPolicyNodeRef :: Integer -> TxOutRef
+manyPolicyNodeRef i = txOutRef32 0xbb (0x20 + fromIntegral i) 0
+
+-- | Distinct sorted token names for the many-tokens axis (two-byte names in
+-- numeric = lexicographic order).
+manyTokensTokenName :: Integer -> TokenName
+manyTokensTokenName i =
+    TokenName (bs2 (fromIntegral (i `div` 256)) (fromIntegral (i `mod` 256)))
 
 issuanceRef :: TxOutRef
 issuanceRef = txOutRef32 0xc0 0xfe 0
