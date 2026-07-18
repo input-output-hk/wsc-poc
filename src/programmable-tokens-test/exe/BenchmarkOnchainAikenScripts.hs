@@ -21,9 +21,7 @@ import PlutusTx.Builtins qualified as BI
 import ProgrammableTokens.OffChain.AikenProgrammableTokenScripts qualified as Aiken
 import ProgrammableTokens.OffChain.Scripts qualified as OffchainScripts
 import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buildBalancedScriptContext, mkAdaValue, withAddress, withFee, withInlineDatum, withInput, withMint, withMintingScript, withOutRef, withOutput, withRedeemer, withRewardingScript, withScriptInput, withSigner, withTxOutAddress, withTxOutInlineDatum, withTxOutValue, withValue, withWithdrawal)
-import SmartTokens.Contracts.ProgrammableLogicBase (mkSeizeActRedeemerFromAbsoluteInputIdxs)
 import SmartTokens.Core.Scripts (ScriptTarget (Production))
-import SmartTokens.LinkedList.MintDirectory (DirectoryNodeAction (InsertDirectoryNode))
 import SmartTokens.Types.Constants (issuanceCborHexToken, protocolParamsToken)
 
 data AikenTokenProof
@@ -87,7 +85,7 @@ scenarioBackend =
             \env cs purposeCtx ->
                 EvalSpec
                     (EvalDirectoryMint cs)
-                    (cardanoApiScriptToScript (Aiken.aikenDirectoryNodeMintingScript (Scenario.sseInitRef env) (Scenario.sseIssuanceInitRef env)))
+                    (cardanoApiScriptToScript (Aiken.aikenDirectoryNodeMintingScript (Scenario.sseInitRef env) (Scenario.sseIssuanceInitRef env) (ScriptCredential (Scenario.sseDirectorySpendHash env))))
                     (aikenMintArgs purposeCtx)
         , Scenario.ssbDirectorySpendSpec =
             \_ paramsCs outRef purposeCtx ->
@@ -121,7 +119,7 @@ scenarioBackend =
             \env cs purposeCtx ->
                 EvalSpec
                     (EvalProgrammableMint cs)
-                    (cardanoApiScriptToScript (Aiken.aikenProgrammableLogicMintingScript (Scenario.sseProgLogicBaseCred env) (ScriptCredential (Scenario.sseMintingLogicHash env))))
+                    (cardanoApiScriptToScript (Aiken.aikenProgrammableLogicMintingScript (Scenario.sseProgLogicBaseCred env) (Scenario.sseDirectoryPolicyCS env) (ScriptCredential (Scenario.sseMintingLogicHash env)) (Scenario.sseGlobalCred env)))
                     (aikenMintArgs purposeCtx)
         , Scenario.ssbProtocolParamsMintSpec =
             \env cs purposeCtx ->
@@ -164,12 +162,20 @@ aikenConstr :: Integer -> [PlutusTx.Data] -> BuiltinData
 aikenConstr tag fields =
     PlutusTx.dataToBuiltinData (PlutusTx.Constr tag fields)
 
+-- | Post-audit @ProgrammableLogicGlobalParams@ (params.ak) gained a third field,
+-- @unfracking_cred@ (Finding 17). It is fully parsed by protocol_params_mint and
+-- registry_spend, so it must always be present; no benchmarked path exercises
+-- unfracking, so a fixed well-formed script credential suffices.
+aikenUnfrackingCred :: Credential
+aikenUnfrackingCred = ScriptCredential (ScriptHash (bs28 0x46))
+
 aikenProtocolParamsDatumData :: CurrencySymbol -> Credential -> BuiltinData
 aikenProtocolParamsDatumData registryNodeCs progLogicCredential =
     aikenConstr
         0
         [ PlutusTx.toData registryNodeCs
         , PlutusTx.toData progLogicCredential
+        , PlutusTx.toData aikenUnfrackingCred
         ]
 
 aikenIssuanceDatumData :: BuiltinByteString -> BuiltinByteString -> BuiltinData
@@ -183,6 +189,15 @@ aikenIssuanceDatumData prefix postfix =
 aikenCurrencySymbolBytes :: CurrencySymbol -> BuiltinByteString
 aikenCurrencySymbolBytes (CurrencySymbol bs) = bs
 
+-- | Post-audit @RegistryNode@ (registry_node.ak) is a 7-field @Constr 0@:
+-- @key, next, minting_logic_script, transfer_logic_script,
+-- third_party_transfer_logic_script, global_state_cs, protected_prefixes@.
+-- The pre-audit encoder had 5 fields; @minting_logic_script@ (index 2) and
+-- @protected_prefixes@ (index 6) are new, and the field previously called
+-- "issuer" is the third-party (seize) logic at index 4. This 5-arg wrapper
+-- keeps existing call sites intact and supplies a benign script
+-- @minting_logic_script@ (not compared on the transfer/seize paths) and an
+-- empty @protected_prefixes@.
 aikenDirectoryNodeDatumData ::
     BuiltinByteString ->
     BuiltinByteString ->
@@ -190,14 +205,36 @@ aikenDirectoryNodeDatumData ::
     Credential ->
     BuiltinByteString ->
     BuiltinData
-aikenDirectoryNodeDatumData key next transferLogicScript issuerLogicScript globalStateCs =
+aikenDirectoryNodeDatumData key next transferLogicScript thirdPartyLogicScript globalStateCs =
+    aikenDirectoryNodeDatumDataFull
+        key
+        next
+        (ScriptCredential mintingLogicHash)
+        transferLogicScript
+        thirdPartyLogicScript
+        globalStateCs
+
+-- | Full 7-field encoder with an explicit @minting_logic_script@ — required by
+-- the registry-insert fixture, whose inserted node's @minting_logic_script@ must
+-- equal the @RegistryInsert@ redeemer credential (linked_list.ak:133).
+aikenDirectoryNodeDatumDataFull ::
+    BuiltinByteString ->
+    BuiltinByteString ->
+    Credential ->
+    Credential ->
+    Credential ->
+    BuiltinByteString ->
+    BuiltinData
+aikenDirectoryNodeDatumDataFull key next mintingLogicScript transferLogicScript thirdPartyLogicScript globalStateCs =
     aikenConstr
         0
         [ PlutusTx.toData key
         , PlutusTx.toData next
+        , PlutusTx.toData mintingLogicScript
         , PlutusTx.toData transferLogicScript
-        , PlutusTx.toData issuerLogicScript
+        , PlutusTx.toData thirdPartyLogicScript
         , PlutusTx.toData globalStateCs
+        , PlutusTx.List []
         ]
 
 aikenTransferProofData :: AikenTokenProof -> PlutusTx.Data
@@ -211,9 +248,25 @@ aikenTransferActRedeemerData :: [AikenTokenProof] -> BuiltinData
 aikenTransferActRedeemerData proofs =
     aikenConstr 0 [PlutusTx.List (fmap aikenTransferProofData proofs)]
 
-aikenMintingActionRedeemerData :: Credential -> BuiltinData
-aikenMintingActionRedeemerData mintingLogicCredential =
-    aikenConstr 0 [PlutusTx.toData mintingLogicCredential]
+-- | Post-audit @ThirdPartyAct@ (types.ak): @Constr 1 [registry_node_idx,
+-- outputs_start_idx]@. The pre-audit input-index list is gone — the validator
+-- walks every PLB input.
+aikenThirdPartyActRedeemerData :: Integer -> Integer -> BuiltinData
+aikenThirdPartyActRedeemerData registryNodeIdx outputsStartIdx =
+    aikenConstr 1 [PlutusTx.I registryNodeIdx, PlutusTx.I outputsStartIdx]
+
+-- | Post-audit @issuance_mint@ redeemer is a @MintingRegistryProof@
+-- (types.ak): @RefInput { index }@ = @Constr 0 [I]@ proves registration via a
+-- reference input; @OutputIndex { index }@ = @Constr 1 [I]@ proves it via an
+-- output (first-mint-with-registration). The pre-audit credential-carrying
+-- redeemer is gone (the credential is a compile-time parameter now).
+aikenRefInputProofData :: Integer -> BuiltinData
+aikenRefInputProofData index =
+    aikenConstr 0 [PlutusTx.I index]
+
+aikenOutputIndexProofData :: Integer -> BuiltinData
+aikenOutputIndexProofData index =
+    aikenConstr 1 [PlutusTx.I index]
 
 policyIdCurrencySymbol :: C.PolicyId -> CurrencySymbol
 policyIdCurrencySymbol =
@@ -747,9 +800,11 @@ globalTransferManyPolicies10Ctx = mkGlobalTransferManyPoliciesCtx manyPoliciesCo
 
 mkGlobalSeizeCtx :: Integer -> ScriptContext
 mkGlobalSeizeCtx seizeInputCount =
-    let seizeInputIdxs = seizeInputIdxsFor seizeInputCount
-        seizeInputRefs = [0 .. (seizeInputCount - 1)]
-        seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 seizeInputIdxs 0
+    let seizeInputRefs = [0 .. (seizeInputCount - 1)]
+        -- Post-audit ThirdPartyAct: registry node at ref index 1 (params at 0),
+        -- outputs paired from index 0; the validator walks every PLB input, so
+        -- no explicit input-index list.
+        seizeRedeemer = aikenThirdPartyActRedeemerData 1 0
         seizeInputsBuilder = mconcat (map seizeInputBuilder seizeInputRefs)
         correspondingOutputsBuilder = mconcat (replicate (fromIntegral seizeInputCount) seizeCorrespondingOutputBuilder)
      in stripZeroChangeOutput $
@@ -800,7 +855,7 @@ globalSeize150Ctx = mkGlobalSeizeCtx 150
 -- 0 only partially seized (1 of its 2 seized tokens kept by the owner).
 globalSeizeNoiseCtx :: ScriptContext
 globalSeizeNoiseCtx =
-    let seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 [0, 1] 0
+    let seizeRedeemer = aikenThirdPartyActRedeemerData 1 0
      in stripZeroChangeOutput $
             buildBalancedScriptContext
                 ( withRewardingScript
@@ -868,14 +923,10 @@ globalSeizeNoiseCtx =
 mkGlobalSeizeExternalScriptAndManyPubKeyCtx :: Integer -> ScriptContext
 mkGlobalSeizeExternalScriptAndManyPubKeyCtx pubKeyInputCount =
     let pubKeyInputIdxs = [0 .. (pubKeyInputCount - 1)]
-        seizeRedeemer =
-            mkSeizeActRedeemerFromAbsoluteInputIdxs
-                1
-                -- The Aiken ThirdPartyAct validator only allows indexed inputs to
-                -- be programmable inputs. The external script spend is present in
-                -- the transaction, but it is not listed in input_idxs.
-                [pubKeyInputCount]
-                0
+        -- Post-audit ThirdPartyAct walks every PLB input and skips non-PLB inputs
+        -- (the 50 pubkey inputs and the external script input), so no input-index
+        -- list: the single PLB seize input is the only acted-on input.
+        seizeRedeemer = aikenThirdPartyActRedeemerData 1 0
         pubKeyInputsBuilder = mconcat (map leadingPubKeyInputBuilder pubKeyInputIdxs)
      in buildBalancedScriptContext
             ( withRewardingScript
@@ -909,9 +960,14 @@ directoryInitCtx :: ScriptContext
 directoryInitCtx =
     let mintValue = mkValue [(directoryPolicyCS, TokenName "", 1)]
         emptyNodeDatum =
-            aikenDirectoryNodeDatumData
+            -- Canonical origin node: ALL THREE credentials must be the empty
+            -- verification key (Constr 0 [B ""]), next = 30-byte sentinel,
+            -- global_state_cs = "", protected_prefixes = []. RegistryInit does a
+            -- single record-equality against this exact shape (linked_list.ak).
+            aikenDirectoryNodeDatumDataFull
                 ""
                 tailNodeBs
+                (PubKeyCredential (PubKeyHash ""))
                 (PubKeyCredential (PubKeyHash ""))
                 (PubKeyCredential (PubKeyHash ""))
                 ""
@@ -931,11 +987,29 @@ directoryInitCtx =
                     )
             )
 
+-- | Post-audit @issuance_mint@ requires a registry-node proof. The
+-- @directoryMintingNode@ ref input must carry EXACTLY Ada + one registry NFT
+-- (has_nft_strict) whose asset NAME equals the minted policy id bytes, with an
+-- inline 7-field RegistryNode datum keyed on that policy. This is a genuine
+-- extra cost of Aiken's mint-binds-to-registration design (Finding 04) that the
+-- Plutarch minting policy does not incur.
+mintingPolicyNodeTokenName :: TokenName
+mintingPolicyNodeTokenName = TokenName (aikenCurrencySymbolBytes mintingPolicyCS)
+
+mintingRegistryNodeRefBuilder :: ScriptContextBuilder
+mintingRegistryNodeRefBuilder =
+    withRefInputDatumValue
+        directoryMintingNodeRef
+        (pubKeyAddress signerPkh)
+        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, mintingPolicyNodeTokenName, 1)])
+        directoryMintingNode
+
 programmableMintCtx :: ScriptContext
 programmableMintCtx =
-    let scriptRedeemer = aikenMintingActionRedeemerData (ScriptCredential mintingLogicHash)
+    let scriptRedeemer = aikenRefInputProofData 0
         mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
-     in buildBalancedScriptContext
+     in stripZeroChangeOutput $
+            buildBalancedScriptContext
             ( withFee 0
                 <> withRedeemer scriptRedeemer
                 <> withMintingScript mintValue scriptRedeemer
@@ -946,6 +1020,7 @@ programmableMintCtx =
                     ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
                     )
+                <> mintingRegistryNodeRefBuilder
             )
 
 -- | Mint inside a "busy" transaction: the full mint lands in the FIRST output
@@ -953,7 +1028,7 @@ programmableMintCtx =
 -- @no_delegate_many_outputs@ issuance axis. Twin of the Plutarch-side fixture.
 programmableMintBusyTxCtx :: ScriptContext
 programmableMintBusyTxCtx =
-    let scriptRedeemer = aikenMintingActionRedeemerData (ScriptCredential mintingLogicHash)
+    let scriptRedeemer = aikenRefInputProofData 0
         mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
         extraOutputBuilder =
             withOutput
@@ -963,7 +1038,8 @@ programmableMintBusyTxCtx =
         -- withOutput prepends: compose the filler outputs FIRST so the
         -- minted-to output (composed last) stays at tx-output index 0.
         extraOutputsBuilder = mconcat (replicate 19 extraOutputBuilder)
-     in buildBalancedScriptContext
+     in stripZeroChangeOutput $
+            buildBalancedScriptContext
             ( withFee 0
                 <> withRedeemer scriptRedeemer
                 <> withMintingScript mintValue scriptRedeemer
@@ -975,6 +1051,7 @@ programmableMintBusyTxCtx =
                     ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
                     )
+                <> mintingRegistryNodeRefBuilder
             )
 
 -- | Mint alongside ten unrelated (pubkey reward-account) withdrawals.
@@ -982,14 +1059,15 @@ programmableMintBusyTxCtx =
 -- axis. Twin of the Plutarch-side fixture.
 programmableMintManyWithdrawalsCtx :: ScriptContext
 programmableMintManyWithdrawalsCtx =
-    let scriptRedeemer = aikenMintingActionRedeemerData (ScriptCredential mintingLogicHash)
+    let scriptRedeemer = aikenRefInputProofData 0
         mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
         unrelatedWithdrawalsBuilder =
             mconcat
                 [ withWithdrawal (PubKeyCredential (PubKeyHash (bs28 w))) 0
                 | w <- [0x70 .. 0x79]
                 ]
-     in buildBalancedScriptContext
+     in stripZeroChangeOutput $
+            buildBalancedScriptContext
             ( withFee 0
                 <> withRedeemer scriptRedeemer
                 <> withMintingScript mintValue scriptRedeemer
@@ -1001,11 +1079,12 @@ programmableMintManyWithdrawalsCtx =
                     ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
                     )
+                <> mintingRegistryNodeRefBuilder
             )
 
 programmableBurnCtx :: ScriptContext
 programmableBurnCtx =
-    let scriptRedeemer = aikenMintingActionRedeemerData (ScriptCredential mintingLogicHash)
+    let scriptRedeemer = aikenRefInputProofData 1
         burnValue = mkValue [(mintingPolicyCS, TokenName "0c", -1)]
         remainingValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
         burnInputValue = mkAdaValue 10_000_000 <> mkValue [(mintingPolicyCS, TokenName "0c", 2)]
@@ -1036,7 +1115,7 @@ programmableBurnCtx =
                     <> withRefInputDatumValue
                         directoryMintingNodeRef
                         (pubKeyAddress signerPkh)
-                        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, mintingPolicyNodeTokenName, 1)])
                         directoryMintingNode
                 )
 
@@ -1053,7 +1132,7 @@ burnRedeemInputBuilder idx =
 -- Twin of the Plutarch-side fixture.
 programmableBurnRedeem10Ctx :: ScriptContext
 programmableBurnRedeem10Ctx =
-    let scriptRedeemer = aikenMintingActionRedeemerData (ScriptCredential mintingLogicHash)
+    let scriptRedeemer = aikenRefInputProofData 1
         burnValue = mkValue [(mintingPolicyCS, TokenName "0c", -10)]
         remainingValue = mkValue [(mintingPolicyCS, TokenName "0c", 10)]
         globalRedeemer = aikenTransferActRedeemerData [TokenExists 1]
@@ -1079,7 +1158,7 @@ programmableBurnRedeem10Ctx =
                     <> withRefInputDatumValue
                         directoryMintingNodeRef
                         (pubKeyAddress signerPkh)
-                        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, mintingPolicyNodeTokenName, 1)])
                         directoryMintingNode
                 )
 
@@ -1088,7 +1167,7 @@ programmableBurnRedeem10Ctx =
 -- minted amount; the pre-existing tokens continue in the second output).
 programmableMintTopUpCtx :: ScriptContext
 programmableMintTopUpCtx =
-    let scriptRedeemer = aikenMintingActionRedeemerData (ScriptCredential mintingLogicHash)
+    let scriptRedeemer = aikenRefInputProofData 1
         mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 5)]
         existingValue = mkValue [(mintingPolicyCS, TokenName "0c", 5)]
         globalRedeemer = aikenTransferActRedeemerData [TokenExists 1]
@@ -1125,7 +1204,7 @@ programmableMintTopUpCtx =
                     <> withRefInputDatumValue
                         directoryMintingNodeRef
                         (pubKeyAddress signerPkh)
-                        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, mintingPolicyNodeTokenName, 1)])
                         directoryMintingNode
                 )
 
@@ -1244,10 +1323,18 @@ aikenDirectoryInsertCtx =
         insertedCsBs = case insertedCs of
             CurrencySymbol bs -> bs
         insertedToken = TokenName insertedCsBs
-        insertRedeemer = InsertDirectoryNode insertedCs (ScriptHash hashedMintingParam)
+        mintingLogicCred = ScriptCredential (ScriptHash hashedMintingParam)
+        -- Post-audit RegistryInsert { key, minting_logic_script :: Credential }
+        -- = Constr 1 [B key, Constr 0/1 [B hash]]. The second field is a full
+        -- Credential (not bare hash bytes) and must equal the inserted node's
+        -- minting_logic_script field (linked_list.ak:133).
+        insertRedeemer = aikenConstr 1 [PlutusTx.toData insertedCsBs, PlutusTx.toData mintingLogicCred]
         nodeMintValue = mkValue [(directoryPolicyCS, insertedToken, 1)]
         registeredAssetMintValue = mkValue [(insertedCs, TokenName "0b", 1)]
-        registeredAssetRedeemer = aikenMintingActionRedeemerData (ScriptCredential (ScriptHash hashedMintingParam))
+        -- The registered-asset mint is validated by issuance_mint, which the
+        -- harness does not evaluate for this (registry_mint) scenario; any
+        -- well-formed MintingRegistryProof suffices as its redeemer.
+        registeredAssetRedeemer = aikenOutputIndexProofData 1
         coveringNode =
             aikenDirectoryNodeDatumData
                 ""
@@ -1263,15 +1350,16 @@ aikenDirectoryInsertCtx =
                 issuerCred
                 ""
         insertedNode =
-            aikenDirectoryNodeDatumData
+            aikenDirectoryNodeDatumDataFull
                 (aikenCurrencySymbolBytes insertedCs)
                 tailNodeBs
+                mintingLogicCred
                 (ScriptCredential transferLogicHash)
                 issuerCred
                 ""
      in buildBalancedScriptContext
-            ( withRedeemer (PlutusTx.toBuiltinData insertRedeemer)
-                <> withMintingScript nodeMintValue (PlutusTx.toBuiltinData insertRedeemer)
+            ( withRedeemer insertRedeemer
+                <> withMintingScript nodeMintValue insertRedeemer
                 <> withMint registeredAssetMintValue registeredAssetRedeemer
                 <> withSigner signerPkh
                 <> withAuxiliaryRewardingScript (ScriptCredential (ScriptHash hashedMintingParam)) registeredAssetRedeemer
@@ -1457,12 +1545,18 @@ txD29RefDatum1Data =
 
 txD29DirectoryNodeDatumData :: BuiltinData
 txD29DirectoryNodeDatumData =
+    -- Post-audit 7-field RegistryNode: minting_logic_script (index 2, unread on
+    -- the transfer path), global_state_cs (index 5) and protected_prefixes
+    -- (index 6) added; transfer logic stays at index 3, third-party at index 4.
     aikenConstr
         0
         [ PlutusTx.toData txD29ProgrammableAssetCS
         , PlutusTx.toData txD29DirectoryNodeNext
+        , PlutusTx.toData (ScriptCredential (ScriptHash (bs28 0x15)))
         , PlutusTx.toData txD29TransferLogicStakeCred
         , PlutusTx.toData txD29DirectoryNodeIssuerCred
+        , PlutusTx.B ""
+        , PlutusTx.List []
         ]
 
 txD29Payloads :: TxD29Payloads
@@ -1632,49 +1726,49 @@ benchCases =
     , mkAikenCase
         "directoryNodeMinting.InitDirectory"
         (EvalDirectoryMint directoryPolicyCS)
-        (Aiken.aikenDirectoryNodeMintingScript initRef issuanceInitRef)
+        (Aiken.aikenDirectoryNodeMintingScript initRef issuanceInitRef (ScriptCredential (ScriptHash (bs28 0x44))))
         (aikenMintArgs directoryInitCtx)
         directoryInitCtx
     , mkAikenCase
         "directoryNodeMinting.InsertDirectoryNode"
         (EvalDirectoryMint directoryPolicyCS)
-        (Aiken.aikenDirectoryNodeMintingScript initRef issuanceInitRef)
+        (Aiken.aikenDirectoryNodeMintingScript initRef issuanceInitRef (ScriptCredential (ScriptHash (bs28 0x44))))
         (aikenMintArgs aikenDirectoryInsertCtx)
         aikenDirectoryInsertCtx
     , mkAikenCase
         "programmableLogicMinting.Mint"
         (EvalProgrammableMint mintingPolicyCS)
-        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred (ScriptCredential mintingLogicHash))
+        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred directoryNodeCS (ScriptCredential mintingLogicHash) globalCred)
         (aikenMintArgs programmableMintCtx)
         programmableMintCtx
     , mkAikenCase
         "programmableLogicMinting.Mint.BusyTx20Outputs"
         (EvalProgrammableMint mintingPolicyCS)
-        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred (ScriptCredential mintingLogicHash))
+        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred directoryNodeCS (ScriptCredential mintingLogicHash) globalCred)
         (aikenMintArgs programmableMintBusyTxCtx)
         programmableMintBusyTxCtx
     , mkAikenCase
         "programmableLogicMinting.Mint.TenUnrelatedWithdrawals"
         (EvalProgrammableMint mintingPolicyCS)
-        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred (ScriptCredential mintingLogicHash))
+        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred directoryNodeCS (ScriptCredential mintingLogicHash) globalCred)
         (aikenMintArgs programmableMintManyWithdrawalsCtx)
         programmableMintManyWithdrawalsCtx
     , mkAikenCase
         "programmableLogicMinting.Mint.TopUpExistingTreasury"
         (EvalProgrammableMint mintingPolicyCS)
-        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred (ScriptCredential mintingLogicHash))
+        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred directoryNodeCS (ScriptCredential mintingLogicHash) globalCred)
         (aikenMintArgs programmableMintTopUpCtx)
         programmableMintTopUpCtx
     , mkAikenCase
         "programmableLogicMinting.Burn"
         (EvalProgrammableMint mintingPolicyCS)
-        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred (ScriptCredential mintingLogicHash))
+        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred directoryNodeCS (ScriptCredential mintingLogicHash) globalCred)
         (aikenMintArgs programmableBurnCtx)
         programmableBurnCtx
     , mkAikenCase
         "programmableLogicMinting.Burn.Redeem10Utxos"
         (EvalProgrammableMint mintingPolicyCS)
-        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred (ScriptCredential mintingLogicHash))
+        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred directoryNodeCS (ScriptCredential mintingLogicHash) globalCred)
         (aikenMintArgs programmableBurnRedeem10Ctx)
         programmableBurnRedeem10Ctx
     , mkAikenCase

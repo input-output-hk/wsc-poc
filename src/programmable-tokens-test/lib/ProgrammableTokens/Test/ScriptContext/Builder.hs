@@ -262,13 +262,29 @@ mkMintingScriptWithPurpose mintValue redeemer =
 negateValue :: Value -> Value
 negateValue (Value val) = Value $ Map.mapWithKey (\_ -> Map.mapWithKey (\_ x -> negate x)) val
 
+-- | Drop zero-quantity asset entries (and any policy left empty) from a value.
+-- A balanced change output computed as @mint + inputs - outputs@ can leave a
+-- phantom @(policy, name, 0)@ entry because the Value semigroup does not prune
+-- zeros. Real ledger values never carry zero entries, and such a phantom entry
+-- makes an on-chain @is_empty@ / token-presence check see a token that is not
+-- there — so normalise the change value to the canonical zero-free form.
+pruneZeroValue :: Value -> Value
+pruneZeroValue (Value m) =
+    Value $
+        Map.unsafeFromList
+            [ (cs, inner')
+            | (cs, inner) <- Map.toList m
+            , let inner' = Map.unsafeFromList [(tn, q) | (tn, q) <- Map.toList inner, q /= 0]
+            , not (Map.null inner')
+            ]
+
 addChangeOutput :: PubKeyHash -> ScriptContext -> ScriptContext
 addChangeOutput signerPkh ctx =
     let totalInputValue = foldMap (txOutValue . txInInfoResolved) (txInfoInputs $ scriptContextTxInfo ctx)
         totalOutputValue = foldMap txOutValue (txInfoOutputs $ scriptContextTxInfo ctx)
         feeValue = mkAdaValue $ fromIntegral $ getLovelace $ txInfoFee $ scriptContextTxInfo ctx
         mintedValue = Value $ mintValueToMap (txInfoMint (scriptContextTxInfo ctx))
-        changeValue = mintedValue <> totalInputValue <> negateValue feeValue <> negateValue totalOutputValue
+        changeValue = pruneZeroValue (mintedValue <> totalInputValue <> negateValue feeValue <> negateValue totalOutputValue)
         changeOutput = TxOut (pubKeyHashAddress signerPkh) changeValue NoOutputDatum Nothing
      in ctx{scriptContextTxInfo = (scriptContextTxInfo ctx){txInfoOutputs = changeOutput : txInfoOutputs (scriptContextTxInfo ctx)}}
 
@@ -282,7 +298,7 @@ balanceWithChangeOutput ctx =
         totalOutputValue = foldMap txOutValue (txInfoOutputs $ scriptContextTxInfo ctx)
         feeValue = mkAdaValue $ fromIntegral $ getLovelace $ txInfoFee $ scriptContextTxInfo ctx
         mintedValue = Value $ mintValueToMap (txInfoMint (scriptContextTxInfo ctx))
-        changeValue = mintedValue <> totalInputValue <> negateValue feeValue <> negateValue totalOutputValue
+        changeValue = pruneZeroValue (mintedValue <> totalInputValue <> negateValue feeValue <> negateValue totalOutputValue)
         changeOutput = TxOut (pubKeyHashAddress signerPkh) changeValue NoOutputDatum Nothing
      in ctx{scriptContextTxInfo = (scriptContextTxInfo ctx){txInfoOutputs = txInfoOutputs (scriptContextTxInfo ctx) <> [changeOutput]}}
   where
