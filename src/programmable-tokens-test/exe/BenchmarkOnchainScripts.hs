@@ -22,7 +22,7 @@ import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buil
 import SmartTokens.Contracts.AlwaysYields (palwaysSucceed)
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (IssuanceCborHex), mkIssuanceCborHexMinting)
-import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedeemer (TransferAct), mkProgrammableLogicBase, mkProgrammableLogicGlobal, mkSeizeActRedeemerFromAbsoluteInputIdxs)
+import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedeemer (TransferAct), mkProgrammableLogicBase, mkProgrammableLogicGlobal, mkProgrammableSeize, mkSeizeActRedeemerFromAbsoluteInputIdxs)
 import SmartTokens.Contracts.ProtocolParams (mkProtocolParametersMinting)
 import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import SmartTokens.LinkedList.MintDirectory (DirectoryNodeAction (InitDirectory, InsertDirectoryNode), mkDirectoryNodeMP)
@@ -74,7 +74,7 @@ scenarioBackend =
                 EvalSpec
                     (EvalBaseSpend outRef)
                     (compileNoTracing mkProgrammableLogicBase)
-                    [toData globalStakeCred, toData purposeCtx]
+                    [toData globalStakeCred, toData seizeCredBench, toData purposeCtx]
         , Scenario.ssbDirectoryMintSpec =
             \env cs purposeCtx ->
                 EvalSpec
@@ -92,6 +92,15 @@ scenarioBackend =
                 EvalSpec
                     (EvalGlobalReward cred)
                     (compileNoTracing mkProgrammableLogicGlobal)
+                    [toData paramsCs, toData purposeCtx]
+        , Scenario.ssbSeizeRewardSpec =
+            \_ paramsCs cred purposeCtx ->
+                EvalSpec
+                    -- Labelled "programmableSeize" so it appears as its own row in
+                    -- the breakdown/size tables. Runs the real standalone seize
+                    -- validator so its CPU + serialised size are honestly measured.
+                    (EvalAlwaysSucceedsReward "programmableSeize" cred)
+                    (compileNoTracing mkProgrammableSeize)
                     [toData paramsCs, toData purposeCtx]
         , Scenario.ssbIssuanceMintSpec =
             \env cs purposeCtx ->
@@ -131,6 +140,7 @@ scenarioEnv =
         , Scenario.sseProgLogicBaseHash = progLogicBaseHash
         , Scenario.sseProtocolParamsCS = protocolParamsCS
         , Scenario.sseProtocolParamsInitRef = protocolParamsInitRef
+        , Scenario.sseSeizeCred = seizeCredBench
         , Scenario.sseTransferLogicHash = transferLogicHash
         , Scenario.sseTxD29BaseScriptCred = txD29BaseScriptCred
         , Scenario.sseTxD29GlobalStakeCred = txD29GlobalStakeCred
@@ -140,6 +150,14 @@ scenarioEnv =
 
 -- Common mini-ledger fixture constants shared by the synthetic contexts below.
 maxBs28 :: BuiltinByteString
+-- | Placeholder seize-validator credential for the global's new seizeLogicCred
+-- script parameter. Transfer scenarios never exercise seize, so any fixed
+-- credential suffices there. Seize scenarios that omit it from withdrawals will
+-- (correctly) be rejected by the global's delegation check until the seize
+-- validator is wired into those scenarios.
+seizeCredBench :: Credential
+seizeCredBench = ScriptCredential (ScriptHash (bs28 0x40))
+
 maxBs28 = bs28 0xff
 
 computeRegisteredCs :: BuiltinByteString -> BuiltinByteString -> BuiltinByteString -> CurrencySymbol
@@ -523,7 +541,7 @@ mkGlobalSeizeCtx seizeInputCount =
             buildBalancedScriptContext
                 ( withRewardingScript
                     (PlutusTx.toBuiltinData seizeRedeemer)
-                    globalCred
+                    seizeCredBench
                     0
                     <> withAuxiliaryRewardingScript issuerCred (PlutusTx.toBuiltinData ())
                     <> seizeInputsBuilder
@@ -573,7 +591,7 @@ mkGlobalSeizeExternalScriptAndManyPubKeyCtx pubKeyInputCount =
      in buildBalancedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData seizeRedeemer)
-                globalCred
+                seizeCredBench
                 0
                 <> withSigner signerPkh
                 <> withAuxiliaryRewardingScript issuerCred (PlutusTx.toBuiltinData ())
@@ -899,7 +917,12 @@ mainnetDexGlobalTransferCtx =
             buildBalancedScriptContext
                 ( withFee mainnetDexFeeAda
                     <> withRewardingScript
-                        (PlutusTx.toBuiltinData $ TransferAct [2, 1] [])
+                        -- Proofs are positional over the aggregated programmable input
+                        -- value in CANONICAL (ledger) currency-symbol order:
+                        -- nonProgrammableCS (0x1a) then programmableTransferCS (0x1b).
+                        -- So proof[0]=1 (covering/does-not-exist for 0x1a) and
+                        -- proof[1]=2 (exists for the registered 0x1b node).
+                        (PlutusTx.toBuiltinData $ TransferAct [1, 2] [])
                         globalCred
                         0
                     <> withSigner signerPkh
@@ -997,16 +1020,16 @@ benchCases =
     , mkCase "programmableLogicGlobal.TransferAct.Spend5Utxos" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransfer5Ctx] globalTransfer5Ctx
     , mkCase "programmableLogicGlobal.TransferAct.Spend10Utxos" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransfer10Ctx] globalTransfer10Ctx
     , mkCase "programmableLogicGlobal.TransferAct.Spend15Utxos" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransfer15Ctx] globalTransfer15Ctx
-    , mkCase "programmableLogicGlobal.SeizeAct1" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalSeize1Ctx] globalSeize1Ctx
+    , mkCase "programmableLogicGlobal.SeizeAct1" (EvalAlwaysSucceedsReward "programmableSeize" seizeCredBench) mkProgrammableSeize [toData protocolParamsCS, toData globalSeize1Ctx] globalSeize1Ctx
     , mkCase
         "programmableLogicGlobal.SeizeAct1.ExternalScriptAnd50PubKeyInputs"
-        (EvalGlobalReward globalCred)
-        mkProgrammableLogicGlobal
+        (EvalAlwaysSucceedsReward "programmableSeize" seizeCredBench)
+        mkProgrammableSeize
         [toData protocolParamsCS, toData globalSeize1ExternalScript50PubKeyCtx]
         globalSeize1ExternalScript50PubKeyCtx
-    , mkCase "programmableLogicGlobal.SeizeAct5" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalSeize5Ctx] globalSeize5Ctx
-    , mkCase "programmableLogicGlobal.SeizeAct10" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalSeize10Ctx] globalSeize10Ctx
-    , mkCase "programmableLogicGlobal.SeizeAct20" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalSeize20Ctx] globalSeize20Ctx
+    , mkCase "programmableLogicGlobal.SeizeAct5" (EvalAlwaysSucceedsReward "programmableSeize" seizeCredBench) mkProgrammableSeize [toData protocolParamsCS, toData globalSeize5Ctx] globalSeize5Ctx
+    , mkCase "programmableLogicGlobal.SeizeAct10" (EvalAlwaysSucceedsReward "programmableSeize" seizeCredBench) mkProgrammableSeize [toData protocolParamsCS, toData globalSeize10Ctx] globalSeize10Ctx
+    , mkCase "programmableLogicGlobal.SeizeAct20" (EvalAlwaysSucceedsReward "programmableSeize" seizeCredBench) mkProgrammableSeize [toData protocolParamsCS, toData globalSeize20Ctx] globalSeize20Ctx
     , mkCase "directoryNodeMinting.InitDirectory" (EvalDirectoryMint directoryPolicyCS) mkDirectoryNodeMP [toData initRef, toData issuancePolicyCS, toData directoryInitCtx] directoryInitCtx
     , mkCase "directoryNodeMinting.InsertDirectoryNode" (EvalDirectoryMint directoryPolicyCS) mkDirectoryNodeMP [toData initRef, toData issuancePolicyCS, toData directoryInsertCtx] directoryInsertCtx
     , mkCase "programmableLogicMinting.Mint" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData mintingLogicHash, toData programmableMintCtx] programmableMintCtx

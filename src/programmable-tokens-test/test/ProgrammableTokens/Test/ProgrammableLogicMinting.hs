@@ -34,6 +34,7 @@ tests =
         [ testCase "unit_mint_to_programmable_logic_output_succeeds" unit_mint_to_programmable_logic_output_succeeds
         , testCase "unit_mint_to_pubkey_output_rejected" unit_mint_to_pubkey_output_rejected
         , testCase "unit_mint_split_between_base_and_pubkey_rejected" unit_mint_split_between_base_and_pubkey_rejected
+        , testCase "unit_mint_to_base_without_stake_cred_rejected" unit_mint_to_base_without_stake_cred_rejected
         ]
 
 unit_mint_to_programmable_logic_output_succeeds :: Assertion
@@ -47,6 +48,13 @@ unit_mint_to_pubkey_output_rejected =
 unit_mint_split_between_base_and_pubkey_rejected :: Assertion
 unit_mint_split_between_base_and_pubkey_rejected =
     assertScriptFails programmableMintSplitEscapeCtx
+
+-- | Item 4: minting to a base-credential output that carries NO staking
+-- credential must be rejected — such a UTxO can never be attributed to an owner
+-- and would be permanently locked.
+unit_mint_to_base_without_stake_cred_rejected :: Assertion
+unit_mint_to_base_without_stake_cred_rejected =
+    assertScriptFails programmableMintNoStakeCtx
 
 assertScriptSucceeds :: ScriptContext -> Assertion
 assertScriptSucceeds ctx =
@@ -117,8 +125,27 @@ mintValue quantity =
 mintRedeemer :: BuiltinData
 mintRedeemer = PlutusTx.toBuiltinData (ScriptCredential mintingLogicHash)
 
+-- | Base address WITH an inline stake credential (the owner). Programmable-token
+-- outputs must carry one so the transfer path can attribute ownership.
+baseAddrWithStake :: Address
+baseAddrWithStake =
+    Address progLogicBaseCred (Just (StakingHash (PubKeyCredential signerPkh)))
+
 programmableMintCtx :: ScriptContext
 programmableMintCtx =
+    buildBalancedScriptContext
+        ( withRedeemer mintRedeemer
+            <> withMintingScript (mintValue 1) mintRedeemer
+            <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+            <> withOutput
+                ( withTxOutAddress baseAddrWithStake
+                    <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)
+                )
+        )
+
+-- | Same as the success case but the base output has no staking credential.
+programmableMintNoStakeCtx :: ScriptContext
+programmableMintNoStakeCtx =
     buildBalancedScriptContext
         ( withRedeemer mintRedeemer
             <> withMintingScript (mintValue 1) mintRedeemer

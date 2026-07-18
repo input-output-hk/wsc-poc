@@ -53,7 +53,7 @@ module ProgrammableTokens.Test.ScriptContext.Builder (
 ) where
 
 import Data.Function (on)
-import Data.List (insert, insertBy, sortBy)
+import Data.List (insert, insertBy, sortBy, sortOn)
 import Data.Ord (comparing)
 import GHC.Generics (Generic)
 import PlutusLedgerApi.V1.Address
@@ -76,10 +76,29 @@ data UnitTestArgs = UnitTestArgs
 mkAdaValue :: Int -> Value
 mkAdaValue i = assetClassValue (assetClass adaSymbol adaToken) (fromIntegral i)
 
+-- | Canonicalise a 'Value' so its currency-symbol map and each token-name map are
+-- ordered exactly as the ledger presents them on-chain. The builder otherwise
+-- assembles values via list-order @foldMap@, which is not guaranteed to be sorted,
+-- so applying this to every value that enters a context ensures the benchmarks/tests
+-- measure LEDGER-VALID transactions (the on-chain code relies on canonical value
+-- maps: strip-ADA-first, first-non-Ada state token, sorted merges).
+--
+-- The ledger orders MultiAsset maps by PolicyID/AssetName using their bytewise
+-- (lexicographic) Ord — which is exactly the CurrencySymbol/TokenName Ord here, so a
+-- plain ascending @sortOn fst@ reproduces the on-chain canonical order.
+normalizeValue :: Value -> Value
+normalizeValue (Value m) =
+    Value $
+        Map.unsafeFromList $
+            sortOn fst
+                [ (cs, Map.unsafeFromList $ sortOn fst (Map.toList inner))
+                | (cs, inner) <- Map.toList m
+                ]
+
 addMint :: ScriptContext -> Value -> BuiltinData -> ScriptContext
 addMint ctx newMint redeemer =
     let existingMint = Value $ mintValueToMap (txInfoMint (scriptContextTxInfo ctx))
-        mergedMint = UnsafeMintValue $ getValue $ existingMint <> newMint
+        mergedMint = UnsafeMintValue $ getValue $ normalizeValue (existingMint <> newMint)
         mintCS = head $ Map.keys $ getValue newMint
         existingRedeemers = txInfoRedeemers (scriptContextTxInfo ctx)
         updatedRedeemers = Map.insert (Minting mintCS) (Redeemer redeemer) existingRedeemers
@@ -157,7 +176,7 @@ mkInput (InputBuilder modify) =
             , txInInfoResolved =
                 TxOut
                     { txOutAddress = ibAddress builder
-                    , txOutValue = ibValue builder
+                    , txOutValue = normalizeValue (ibValue builder)
                     , txOutDatum = ibDatum builder
                     , txOutReferenceScript = ibReferenceScript builder
                     }
@@ -204,7 +223,7 @@ mkTxOut (TxOutBuilder modify) =
     let finalState = modify defaultTxOutBuilderState
      in TxOut
             { txOutAddress = tobAddress finalState
-            , txOutValue = tobValue finalState
+            , txOutValue = normalizeValue (tobValue finalState)
             , txOutDatum = tobDatum finalState
             , txOutReferenceScript = tobReferenceScript finalState
             }
@@ -226,7 +245,7 @@ mkMintingScriptWithPurpose mintValue redeemer =
             , txInfoReferenceInputs = mempty
             , txInfoOutputs = mempty
             , txInfoFee = 0
-            , txInfoMint = UnsafeMintValue $ getValue mintValue
+            , txInfoMint = UnsafeMintValue $ getValue (normalizeValue mintValue)
             , txInfoTxCerts = mempty
             , txInfoWdrl = Map.empty
             , txInfoValidRange = always
@@ -450,7 +469,7 @@ buildScriptContext modify =
                 { txInfoInputs = reverse $ scbInputs finalState
                 , txInfoReferenceInputs = reverse $ scbReferenceInputs finalState
                 , txInfoOutputs = reverse $ scbOutputs finalState
-                , txInfoMint = UnsafeMintValue $ getValue (scbMint finalState)
+                , txInfoMint = UnsafeMintValue $ getValue (normalizeValue (scbMint finalState))
                 , txInfoRedeemers = scbRedeemers finalState
                 , txInfoFee = fromIntegral (scbFee finalState)
                 , txInfoSignatories = scbSignatories finalState
@@ -484,7 +503,7 @@ buildBalancedScriptContext modify =
                 { txInfoInputs = scbInputs finalState
                 , txInfoReferenceInputs = scbReferenceInputs finalState
                 , txInfoOutputs = scbOutputs finalState
-                , txInfoMint = UnsafeMintValue $ getValue (scbMint finalState)
+                , txInfoMint = UnsafeMintValue $ getValue (normalizeValue (scbMint finalState))
                 , txInfoRedeemers = Map.unsafeFromList $ sortBy (comparePurposeLedger `on` fst) $ Map.toList $ scbRedeemers finalState
                 , txInfoFee = fromIntegral (scbFee finalState)
                 , txInfoSignatories = scbSignatories finalState

@@ -366,3 +366,52 @@ awk -F '\t' -v max_cpu="$max_cpu" -v max_mem="$max_mem" '
     }
   }
 ' "$tmpdir/diff.tsv" "$tmpdir/breakdown-diff.tsv"
+
+# ---------------------------------------------------------------------------
+# Script size comparison (serialised/deployed bytes). Extracted directly from
+# the Per-script breakdown "Size" column of each raw output, deduplicated per
+# script. x = Aiken/Plutarch, so x > 1.00 means the Plutarch script is smaller.
+# ---------------------------------------------------------------------------
+extract_sizes() {
+  awk -F ' \\| ' '
+    function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+    $0 == "Per-script breakdown" { in_table = 1; next }
+    in_table && index($0, " | ") && NF >= 6 {
+      script = trim($2)
+      size = trim($6)
+      if (script == "Script" || script == "") next
+      if (!(script in seen)) { seen[script] = size; order[++n] = script }
+    }
+    END { for (i = 1; i <= n; i++) print order[i] "\t" seen[order[i]] }
+  ' "$1"
+}
+
+extract_sizes "$tmpdir/plutarch.out" > "$tmpdir/plutarch-size.tsv"
+extract_sizes "$tmpdir/aiken.out" > "$tmpdir/aiken-size.tsv"
+
+printf '\n\n'
+printf 'Script size comparison (serialised bytes; x = Aiken/Plutarch, >1.00 = Plutarch smaller)\n'
+printf '%s\n' "================================================================================"
+
+awk -F '\t' '
+  NR == FNR { p_size[$1] = $2; order[++count] = $1; next }
+  { a_size[$1] = $2 }
+  END {
+    printf "%-28s %14s %14s %10s\n", "Script", "Plutarch", "Aiken", "x"
+    never_larger = 1
+    for (i = 1; i <= count; i++) {
+      script = order[i]
+      p = p_size[script] + 0
+      a = (script in a_size) ? a_size[script] + 0 : 0
+      ratio = (p > 0 && a > 0) ? sprintf("%.2fx", a / p) : "n/a"
+      # Only a genuine regression (Plutarch strictly larger) is a violation.
+      # Trivial equal stubs (transferLogic/issuer/minting/alwaysSucceeds, 6 bytes
+      # both) are benchmark placeholders, not real counterpart validators.
+      flag = (a > 0 && p > a) ? "  <-- LARGER (violation)" : ""
+      if (a > 0 && p > a) never_larger = 0
+      printf "%-28s %14d %14d %10s%s\n", script, p, a, ratio, flag
+    }
+    printf "%s\n", "--------------------------------------------------------------------------------"
+    printf "Plutarch never larger than Aiken on any counterpart script: %s\n", (never_larger ? "YES" : "NO")
+  }
+' "$tmpdir/plutarch-size.tsv" "$tmpdir/aiken-size.tsv"

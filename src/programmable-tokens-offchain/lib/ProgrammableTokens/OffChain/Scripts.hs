@@ -8,6 +8,7 @@ module ProgrammableTokens.OffChain.Scripts(
 
   programmableLogicBaseScript,
   programmableLogicGlobalScript,
+  programmableSeizeScript,
   programmableLogicMintingScript,
 
   -- * Issuance Cbor Hex Script
@@ -33,7 +34,8 @@ import SmartTokens.Contracts.AlwaysYields (palwaysSucceed)
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
 import SmartTokens.Contracts.IssuanceCborHex (mkIssuanceCborHexMinting)
 import SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicBase,
-                                                    mkProgrammableLogicGlobal)
+                                                    mkProgrammableLogicGlobal,
+                                                    mkProgrammableSeize)
 import SmartTokens.Contracts.ProtocolParams (alwaysFailScript,
                                              mkProtocolParametersMinting)
 import SmartTokens.Core.Scripts (ScriptTarget (..))
@@ -83,9 +85,27 @@ directoryNodeSpendingScript target paramsPolId =
   let script = Scripts.tryCompile target $ pmkDirectorySpending # pdata (pconstant $ transPolicyId paramsPolId)
   in C.PlutusScriptSerialised $ serialiseScript script
 
-programmableLogicBaseScript :: ScriptTarget -> C.StakeCredential -> C.PlutusScript C.PlutusScriptV3 -- Parameterized by the stake cred of the global script
-programmableLogicBaseScript target globalCred =
-  let script = Scripts.tryCompile target $ mkProgrammableLogicBase # pdata (pconstant $ transStakeCredential globalCred)
+-- | Parameterized by the stake cred of the global (transfer) script AND the
+-- protocol-params policy id (used to derive the seize validator's credential).
+-- A programmable-token spend is authorized when EITHER the global or the seize
+-- validator runs, so the base carries both credentials.
+programmableLogicBaseScript :: ScriptTarget -> C.StakeCredential -> C.PolicyId -> C.PlutusScript C.PlutusScriptV3
+programmableLogicBaseScript target globalCred paramsPolId =
+  let seizeScript = programmableSeizeScript target paramsPolId
+      seizeHash = C.hashScript (C.PlutusScript C.PlutusScriptV3 seizeScript)
+      seizeCred = transCredential (C.PaymentCredentialByScript seizeHash)
+      script = Scripts.tryCompile target $
+                 mkProgrammableLogicBase
+                   # pdata (pconstant $ transStakeCredential globalCred)
+                   # pdata (pconstant seizeCred)
+  in C.PlutusScriptSerialised $ serialiseScript script
+
+-- | The standalone seize (mini-ledger clawback) validator, parameterized by the
+-- protocol-params NFT policy id. Hosted separately from the global validator so
+-- neither script carries the other's serialised bytes.
+programmableSeizeScript :: ScriptTarget -> C.PolicyId -> C.PlutusScript C.PlutusScriptV3
+programmableSeizeScript target paramsPolId =
+  let script = Scripts.tryCompile target $ mkProgrammableSeize # pdata (pconstant $ transPolicyId paramsPolId)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 programmableLogicGlobalScript :: ScriptTarget -> C.PolicyId -> C.PlutusScript C.PlutusScriptV3 -- Parameterized by the CS holding protocol params datum

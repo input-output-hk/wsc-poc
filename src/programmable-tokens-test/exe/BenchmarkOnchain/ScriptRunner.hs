@@ -11,8 +11,9 @@ module BenchmarkOnchain.ScriptRunner (
 import BenchmarkOnchain.Formatting (abbrev, budgetCpuPct, budgetCpuText, budgetMemPct, budgetMemText, formatPercent, formatUnits, indentLines, renderTable, scenarioSeparator, uniquePreservingOrder)
 import Data.Either (isRight)
 import Data.List (foldl', intercalate, sortOn)
+import Data.ByteString.Short qualified as SBS
 import Plutarch.Evaluate (applyArguments, evalScript)
-import Plutarch.Script (Script)
+import Plutarch.Script (Script, serialiseScript)
 import PlutusLedgerApi.V3 (Credential, CurrencySymbol, Data, ExBudget (ExBudget), ExCPU (ExCPU), ExMemory (ExMemory), ScriptContext, TxOutRef)
 import ProgrammableTokens.Test (productionMaxTxExBudget)
 
@@ -44,6 +45,9 @@ data ScriptBreakdown = ScriptBreakdown
     , sbScriptName :: String
     , sbCount :: Int
     , sbBudget :: ExBudget
+    , sbSize :: Int
+    -- ^ serialised (deployed) script size in bytes; constant across witnesses of
+    -- the same script.
     }
 
 data EvalKind
@@ -69,6 +73,7 @@ data EvalResult = EvalResult
     , erSuccess :: Bool
     , erBudget :: ExBudget
     , erLogText :: String
+    , erSize :: Int
     }
 
 mkBenchCase :: String -> EvalKind -> Script -> [Data] -> ScriptContext -> BenchCase
@@ -131,6 +136,7 @@ runEvalSpec EvalSpec{esKind, esScript, esArgs} = do
             , erSuccess = isRight res
             , erBudget = budget
             , erLogText = show logs
+            , erSize = SBS.length (serialiseScript esScript)
             }
 
 sumBudgets :: [ExBudget] -> ExBudget
@@ -157,7 +163,7 @@ aggregateBreakdown :: String -> [EvalResult] -> [ScriptBreakdown]
 aggregateBreakdown caseName =
     foldl' step []
   where
-    step acc EvalResult{erKind, erBudget} =
+    step acc EvalResult{erKind, erBudget, erSize} =
         let scriptName = scriptNameForEvalKind erKind
          in case break ((== scriptName) . sbScriptName) acc of
                 (prefix, current : suffix) ->
@@ -175,6 +181,7 @@ aggregateBreakdown caseName =
                                 , sbScriptName = scriptName
                                 , sbCount = 1
                                 , sbBudget = erBudget
+                                , sbSize = erSize
                                 }
                            ]
 
@@ -263,12 +270,13 @@ renderBenchTable rows =
         (fmap renderBenchRow rows)
 
 renderBreakdownRow :: ScriptBreakdown -> [String]
-renderBreakdownRow ScriptBreakdown{sbCaseName, sbScriptName, sbCount, sbBudget} =
+renderBreakdownRow ScriptBreakdown{sbCaseName, sbScriptName, sbCount, sbBudget, sbSize} =
     [ sbCaseName
     , sbScriptName
     , show sbCount
     , budgetCpuText sbBudget
     , budgetMemText sbBudget
+    , show sbSize
     ]
 
 renderBreakdownTable :: [BenchRow] -> [String]
@@ -279,6 +287,7 @@ renderBreakdownTable rows =
         , "Count"
         , "CPU"
         , "Mem"
+        , "Size"
         ]
         (fmap renderBreakdownRow (concatMap brBreakdown rows))
 

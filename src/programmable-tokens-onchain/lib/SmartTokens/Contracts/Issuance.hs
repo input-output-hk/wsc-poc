@@ -16,9 +16,11 @@ import Plutarch.Core.List (pheadSingleton)
 import Plutarch.Core.ValidationLogic (pvalidateConditions)
 import Plutarch.Core.Value (ptryLookupValue)
 import Plutarch.LedgerApi.AssocMap qualified as AssocMap
-import Plutarch.LedgerApi.V3 (PCredential (..), PRedeemer, PScriptContext (..),
+import Plutarch.LedgerApi.V3 (PCredential (..), PMaybeData (PDJust, PDNothing),
+                              PRedeemer, PScriptContext (..),
                               PScriptHash, PScriptInfo (PMintingScript),
                               PScriptPurpose (..),
+                              PStakingCredential (PStakingHash),
                               PTxInfo (PTxInfo, ptxInfo'mint, ptxInfo'outputs, ptxInfo'wdrl),
                               PTxOut (PTxOut, ptxOut'address, ptxOut'value),
                               ptxInfo'redeemers)
@@ -122,12 +124,29 @@ mkProgrammableLogicMinting = plam $ \(pfromData -> programmableLogicBase) mintin
   -- All transfers of the token will be validated by either the transferLogicScript or the issuerLogicScript.
   -- Registration can only occurr once per instance of this minting policy since the directory contracts do not permit duplicate
   -- entries.
+  -- Item 4: the minted-to base output must carry an INLINE stake credential.
+  -- Minting to a base-cred output with no (or a pointer) staking credential would
+  -- create a UTxO the transfer path can never attribute to an owner — permanently
+  -- locked. Extract the address's staking credential via raw field access (mirrors
+  -- `pvalueFromCred` in ProgrammableLogicBase).
+  let mintOutputStakingCredMaybe =
+        punsafeCoerce @(PMaybeData PStakingCredential)
+          (phead # (ptail # (psndBuiltin # (pasConstr # pforgetData (pdata mintingToOutputFAddress)))))
+      mintOutputHasInlineStake =
+        pmatch mintOutputStakingCredMaybe $ \case
+          PDJust scData ->
+            pmatch (pfromData scData) $ \case
+              PStakingHash _ -> pconstant True
+              _ -> pconstant False
+          PDNothing -> pconstant False
+
   pif (ownNumMinted #> 0)
       (
         -- This branch is for validating the minting of tokens
         pvalidateConditions
           [ pvalueOf # pfromData mintingToOutputFValue # pfromData ownCS # pfromData ownTokenName #== ownNumMinted
           , paddressCredential mintingToOutputFAddress #== programmableLogicBase
+          , mintOutputHasInlineStake
           , pelem # mintingLogicCred # invokedScripts
           , punsafeCoerce @(PAsData PCredential) (pto red) #== mintingLogicCred
           , psingleMintWithCredential # pdata red # pfromData ptxInfo'redeemers

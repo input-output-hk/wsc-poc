@@ -275,11 +275,13 @@ data PDirectoryCommon (s :: S) = MkCommon
     deriving stock (Generic)
 
 _pisProgrammableTokenRegistration :: Term s PByteString -> Term s PByteString -> Term s PByteString -> Term s (PAsData PByteString) -> Term s (PValue 'Sorted 'NonZero) -> Term s PBool
-_pisProgrammableTokenRegistration csToInsert prefixScriptBytes postfixScriptBytes hashedParam mintValue =
-    pand'List
-        [ pdebug "must mint registered token" $ phasCS # mintValue # pcon (PCurrencySymbol csToInsert)
-        , pdebug "must have hashed parameter applied" $ _papplyHashedParameter prefixScriptBytes postfixScriptBytes hashedParam #== csToInsert
-        ]
+_pisProgrammableTokenRegistration csToInsert prefixScriptBytes postfixScriptBytes hashedParam _mintValue =
+    -- Item 34 (register-without-mint): the programmable token need NOT be minted in
+    -- the registration transaction. The blake2b preimage binding below already
+    -- proves `csToInsert` IS the real parameterized issuance policy id, and custody
+    -- is enforced by that policy at actual mint time — so requiring a mint here only
+    -- prevented the (intended) workflow of preparing registry entries before launch.
+    _papplyHashedParameter prefixScriptBytes postfixScriptBytes hashedParam #== csToInsert
 
 _papplyHashedParameter ::
     Term s PByteString ->

@@ -101,6 +101,16 @@ scenarioBackend =
                     (EvalGlobalReward cred)
                     (cardanoApiScriptToScript (Aiken.aikenProgrammableLogicGlobalScript paramsCs))
                     (aikenRewardArgs purposeCtx)
+        , -- Aiken performs seize monolithically inside its global validator, so
+          -- there is no separate seize script and this hook is never invoked (the
+          -- Aiken seize contexts carry no seize withdrawal). Provided only to
+          -- satisfy the shared backend record.
+          Scenario.ssbSeizeRewardSpec =
+            \_ paramsCs cred purposeCtx ->
+                EvalSpec
+                    (EvalGlobalReward cred)
+                    (cardanoApiScriptToScript (Aiken.aikenProgrammableLogicGlobalScript paramsCs))
+                    (aikenRewardArgs purposeCtx)
         , Scenario.ssbIssuanceMintSpec =
             \env cs purposeCtx ->
                 EvalSpec
@@ -139,6 +149,9 @@ scenarioEnv =
         , Scenario.sseProgLogicBaseHash = progLogicBaseHash
         , Scenario.sseProtocolParamsCS = protocolParamsCS
         , Scenario.sseProtocolParamsInitRef = protocolParamsInitRef
+        , -- No separate Aiken seize script; this credential never appears in an
+          -- Aiken seize context's withdrawals, so the seize hook is never taken.
+          Scenario.sseSeizeCred = ScriptCredential (ScriptHash (bs28 0x40))
         , Scenario.sseTransferLogicHash = transferLogicHash
         , Scenario.sseTxD29BaseScriptCred = txD29BaseScriptCred
         , Scenario.sseTxD29GlobalStakeCred = txD29GlobalStakeCred
@@ -946,7 +959,10 @@ mainnetDexGlobalTransferCtx =
             buildBalancedScriptContext
                 ( withFee mainnetDexFeeAda
                     <> withRewardingScript
-                        (aikenTransferActRedeemerData [TokenExists 2, TokenDoesNotExist 1])
+                        -- Proofs positional over the aggregated programmable input value
+                        -- in CANONICAL currency-symbol order: nonProgrammableCS (0x1a)
+                        -- then programmableTransferCS (0x1b).
+                        (aikenTransferActRedeemerData [TokenDoesNotExist 1, TokenExists 2])
                         globalCred
                         0
                     <> withSigner signerPkh

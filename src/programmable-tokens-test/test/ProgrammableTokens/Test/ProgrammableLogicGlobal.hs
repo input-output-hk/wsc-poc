@@ -33,6 +33,7 @@ import ProgrammableTokens.Test.ScriptContext.Builder (
     withReferenceScript,
     withRewardingScript,
     withScriptInput,
+    withSpendingScript,
     withSigner,
     withTxOutAddress,
     withTxOutInlineDatum,
@@ -44,9 +45,11 @@ import ProgrammableTokens.Test.ScriptContext.Builder (
 import SmartTokens.Contracts.ProgrammableLogicBase (
     ProgrammableLogicGlobalRedeemer (TransferAct),
     mkProgrammableLogicGlobal,
+    mkProgrammableSeize,
     mkSeizeActRedeemerFromRelativeInputIdxs,
     poutputsContainExpectedValueAtCred,
  )
+import SmartTokens.LinkedList.SpendDirectory (pmkDirectorySpending)
 import SmartTokens.Types.Constants (protocolParamsToken)
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (DirectorySetNode))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (ProgrammableLogicGlobalParams))
@@ -60,7 +63,7 @@ tests =
     testGroup
         "ProgrammableLogicGlobal unit/property tests"
         [ testCase "unit_seizeAct_complete_indices_succeeds" unit_seizeAct_complete_indices_succeeds
-        , testCase "unit_seizeAct_pubkey_index_rejected" unit_seizeAct_pubkey_index_rejected
+        , testCase "unit_seizeAct_leading_pubkey_input_skipped_succeeds" unit_seizeAct_leading_pubkey_input_skipped_succeeds
         , testCase "unit_seizeAct_omitted_index_rejected" unit_seizeAct_omitted_index_rejected
         , testCase "unit_seizeAct_datum_mismatch_rejected" unit_seizeAct_datum_mismatch_rejected
         , testCase "unit_seizeAct_reference_script_mismatch_rejected" unit_seizeAct_reference_script_mismatch_rejected
@@ -74,6 +77,12 @@ tests =
         , testCase "unit_transferAct_mint_with_proof_and_containment_succeeds" unit_transferAct_mint_with_proof_and_containment_succeeds
         , testCase "unit_transferAct_mint_without_mint_proof_rejected" unit_transferAct_mint_without_mint_proof_rejected
         , testCase "unit_seizeAct_escape_to_pubkey_rejected" unit_seizeAct_escape_to_pubkey_rejected
+        , testCase "unit_seizeAct_full_seizure_to_pubkey_rejected" unit_seizeAct_full_seizure_to_pubkey_rejected
+        , testCase "unit_seizeAct_partial_name_seizure_to_pubkey_rejected" unit_seizeAct_partial_name_seizure_to_pubkey_rejected
+        , testCase "unit_seizeAct_full_seizure_to_base_output_succeeds" unit_seizeAct_full_seizure_to_base_output_succeeds
+        , testCase "unit_seizeAct_input_without_seized_policy_rejected" unit_seizeAct_input_without_seized_policy_rejected
+        , testCase "unit_registrySpend_minting_own_key_rejected" unit_registrySpend_minting_own_key_rejected
+        , testCase "unit_registrySpend_without_own_key_mint_succeeds" unit_registrySpend_without_own_key_mint_succeeds
         , testCase "unit_outputsContain_single_asset_split_across_prog_outputs_succeeds" unit_outputsContain_single_asset_split_across_prog_outputs_succeeds
         , testCase "unit_outputsContain_single_asset_pubkey_output_ignored" unit_outputsContain_single_asset_pubkey_output_ignored
         , testCase "unit_outputsContain_multi_asset_succeeds" unit_outputsContain_multi_asset_succeeds
@@ -84,38 +93,41 @@ tests =
 
 unit_seizeAct_complete_indices_succeeds :: Assertion
 unit_seizeAct_complete_indices_succeeds =
-    assertScriptSucceeds $
+    assertSeizeSucceeds $
         mkGlobalSeizeCtx 3 [0, 0, 0]
 
-unit_seizeAct_pubkey_index_rejected :: Assertion
-unit_seizeAct_pubkey_index_rejected =
-    assertScriptFails $
+-- | Item 2 (walk all inputs): a leading pubkey (fee) input is skipped, not an
+-- error. The seize now walks every input and classifies by credential, so
+-- ordinary funding inputs coexist with the seized programmable inputs.
+unit_seizeAct_leading_pubkey_input_skipped_succeeds :: Assertion
+unit_seizeAct_leading_pubkey_input_skipped_succeeds =
+    assertSeizeSucceeds $
         mkGlobalSeizeCtxWithLeadingPubKey 1 [0]
 
 unit_seizeAct_omitted_index_rejected :: Assertion
 unit_seizeAct_omitted_index_rejected =
-    assertScriptFails $
+    assertSeizeFails $
         mkGlobalSeizeCtx 3 [0, 0]
 
 unit_seizeAct_datum_mismatch_rejected :: Assertion
 unit_seizeAct_datum_mismatch_rejected =
-    assertScriptFails mkGlobalSeizeDatumMismatchCtx
+    assertSeizeFails mkGlobalSeizeDatumMismatchCtx
 
 unit_seizeAct_reference_script_mismatch_rejected :: Assertion
 unit_seizeAct_reference_script_mismatch_rejected =
-    assertScriptFails mkGlobalSeizeReferenceScriptMismatchCtx
+    assertSeizeFails mkGlobalSeizeReferenceScriptMismatchCtx
 
 unit_seizeAct_burn_offsets_delta_succeeds :: Assertion
 unit_seizeAct_burn_offsets_delta_succeeds =
-    assertScriptSucceeds mkGlobalSeizeBurnCtx
+    assertSeizeSucceeds mkGlobalSeizeBurnCtx
 
 unit_seizeAct_mint_with_containment_succeeds :: Assertion
 unit_seizeAct_mint_with_containment_succeeds =
-    assertScriptSucceeds mkGlobalSeizeMintContainedCtx
+    assertSeizeSucceeds mkGlobalSeizeMintContainedCtx
 
 unit_seizeAct_mint_smuggle_rejected :: Assertion
 unit_seizeAct_mint_smuggle_rejected =
-    assertScriptFails mkGlobalSeizeMintEscapeCtx
+    assertSeizeFails mkGlobalSeizeMintEscapeCtx
 
 unit_transferAct_burn_with_mint_proof_succeeds :: Assertion
 unit_transferAct_burn_with_mint_proof_succeeds =
@@ -163,7 +175,84 @@ unit_transferAct_mint_without_mint_proof_rejected =
 
 unit_seizeAct_escape_to_pubkey_rejected :: Assertion
 unit_seizeAct_escape_to_pubkey_rejected =
-    assertScriptFails mkGlobalSeizeDirectEscapeCtx
+    assertSeizeFails mkGlobalSeizeDirectEscapeCtx
+
+-- | Item 1 (goOuter nil-branch drop): fully seizing a policy from a base input
+-- (paired output loses the progCS entry entirely) while the tokens reappear at a
+-- pubkey output must be rejected. The paired base output holds only ADA, so
+-- conservation across base outputs cannot cover the +5 delta.
+unit_seizeAct_full_seizure_to_pubkey_rejected :: Assertion
+unit_seizeAct_full_seizure_to_pubkey_rejected =
+    assertSeizeFails mkGlobalSeizeFullToPubKeyCtx
+
+-- | Item 1 (psubtractTokens nil-branch drop): seizing a single token-name out of
+-- a multi-name progCS holding, sending it to a pubkey output, must be rejected.
+unit_seizeAct_partial_name_seizure_to_pubkey_rejected :: Assertion
+unit_seizeAct_partial_name_seizure_to_pubkey_rejected =
+    assertSeizeFails mkGlobalSeizePartialNameToPubKeyCtx
+
+-- | Positive control: a legitimate full seizure that relocates the tokens to
+-- another base (progLogicCred) output must still succeed after the fix.
+unit_seizeAct_full_seizure_to_base_output_succeeds :: Assertion
+unit_seizeAct_full_seizure_to_base_output_succeeds =
+    assertSeizeSucceeds mkGlobalSeizeFullToBaseCtx
+
+-- | Item 3 / Aiken Finding 12: seizing from a base input that does not hold the
+-- seized policy (here ADA-only) must be rejected — the issuer cannot pair, and
+-- thereby contaminate, a UTxO that never held the seized token.
+unit_seizeAct_input_without_seized_policy_rejected :: Assertion
+unit_seizeAct_input_without_seized_policy_rejected =
+    assertSeizeFails mkGlobalSeizeNoProgCSInputCtx
+
+-- | Item 7 / Aiken R-01: while a registry node is being spent, the transaction
+-- must not mint or burn that node's own programmable-token policy (its key).
+unit_registrySpend_minting_own_key_rejected :: Assertion
+unit_registrySpend_minting_own_key_rejected =
+    assertBool
+        "expected registry spend to reject minting the spent node's own key"
+        (not (dirSpendSucceeds (mkDirSpendCtx True)))
+
+unit_registrySpend_without_own_key_mint_succeeds :: Assertion
+unit_registrySpend_without_own_key_mint_succeeds =
+    assertBool
+        "expected registry spend to succeed when the spent node's own key is not minted"
+        (dirSpendSucceeds (mkDirSpendCtx False))
+
+directorySpendScript :: Script
+directorySpendScript = compileNoTracing pmkDirectorySpending
+
+dirSpendSucceeds :: ScriptContext -> Bool
+dirSpendSucceeds ctx =
+    let (res, _budget, _logs) = evalScript (applyArguments directorySpendScript [PlutusTx.toData protocolParamsCS, PlutusTx.toData ctx])
+     in isRight res
+
+dirNodeSpendAddr :: Address
+dirNodeSpendAddr = Address (ScriptCredential (ScriptHash (bs28 0x44))) Nothing
+
+-- | Spend the covering directory node (datum key = programmableTransferCS) during
+-- an insert (directory NFT minted). If @mintOwnKey@, the transaction also mints
+-- the node's own key — which the R-01 guard must reject.
+mkDirSpendCtx :: Bool -> ScriptContext
+mkDirSpendCtx mintOwnKey =
+    buildBalancedScriptContext
+        ( withSpendingScript
+            (PlutusTx.toBuiltinData ())
+            ( withOutRef (TxOutRef "dd00" 0)
+                <> withAddress dirNodeSpendAddr
+                <> withValue (mkAdaValue 2_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                <> withInlineDatum (PlutusTx.toBuiltinData directoryProgrammableNode)
+            )
+            <> withMint (mkValue [(directoryNodeCS, TokenName "0d", 1)]) (PlutusTx.toBuiltinData ())
+            <> ( if mintOwnKey
+                    then withMint (mkValue [(programmableTransferCS, TokenName "0c", 1)]) (PlutusTx.toBuiltinData ())
+                    else mempty
+               )
+            <> withRefInputDatumValue
+                paramRef
+                (pubKeyAddress signerPkh)
+                (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                (PlutusTx.toBuiltinData protocolParamsDatum)
+        )
 
 unit_outputsContain_single_asset_split_across_prog_outputs_succeeds :: Assertion
 unit_outputsContain_single_asset_split_across_prog_outputs_succeeds =
@@ -210,7 +299,7 @@ prop_seizeAct_complete_indices_succeeds =
         let n = fromIntegral nInt
             idxs = replicate nInt 0
          in QC.counterexample ("n=" <> show n <> ", idxs=" <> show idxs) $
-                scriptSucceeds (mkGlobalSeizeCtx n idxs) QC.=== True
+                seizeSucceeds (mkGlobalSeizeCtx n idxs) QC.=== True
 
 prop_seizeAct_omitted_index_rejected :: QC.Property
 prop_seizeAct_omitted_index_rejected =
@@ -218,7 +307,7 @@ prop_seizeAct_omitted_index_rejected =
         let n = fromIntegral nInt
             idxs = replicate (nInt - 1) 0
          in QC.counterexample ("n=" <> show n <> ", idxs=" <> show idxs) $
-                scriptFails (mkGlobalSeizeCtx n idxs) QC.=== True
+                seizeFails (mkGlobalSeizeCtx n idxs) QC.=== True
 
 assertScriptSucceeds :: ScriptContext -> Assertion
 assertScriptSucceeds ctx =
@@ -245,6 +334,29 @@ scriptFails :: ScriptContext -> Bool
 scriptFails ctx =
     let (res, _budget, _logs) = evalScript (applyArguments globalScript [PlutusTx.toData protocolParamsCS, PlutusTx.toData ctx])
      in isLeft res
+
+-- | Seize logic now lives in the standalone `mkProgrammableSeize` validator; the
+-- seize unit tests drive it directly.
+seizeScript :: Script
+seizeScript = compileNoTracing mkProgrammableSeize
+
+seizeSucceeds :: ScriptContext -> Bool
+seizeSucceeds ctx =
+    let (res, _budget, _logs) = evalScript (applyArguments seizeScript [PlutusTx.toData protocolParamsCS, PlutusTx.toData ctx])
+     in isRight res
+
+seizeFails :: ScriptContext -> Bool
+seizeFails ctx =
+    let (res, _budget, _logs) = evalScript (applyArguments seizeScript [PlutusTx.toData protocolParamsCS, PlutusTx.toData ctx])
+     in isLeft res
+
+assertSeizeSucceeds :: ScriptContext -> Assertion
+assertSeizeSucceeds ctx =
+    assertBool "expected successful seize evaluation" (seizeSucceeds ctx)
+
+assertSeizeFails :: ScriptContext -> Assertion
+assertSeizeFails ctx =
+    assertBool "expected seize script failure" (seizeFails ctx)
 
 outputsContainSucceeds :: Credential -> [TxOut] -> Value -> Bool
 outputsContainSucceeds cred outputs expected =
@@ -691,6 +803,167 @@ mkGlobalSeizeMintEscapeCtx =
                         <> withTxOutValue (mkValue [(programmableTransferCS, TokenName "0c", 1)])
                     )
                 <> withMint (mkValue [(programmableTransferCS, TokenName "0c", 1)]) (PlutusTx.toBuiltinData ())
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    (PlutusTx.toBuiltinData protocolParamsDatum)
+                <> withRefInputDatumValue
+                    dirNodeRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    (PlutusTx.toBuiltinData directoryProgrammableNode)
+            )
+
+seizeInputValue5 :: Value
+seizeInputValue5 =
+    mkAdaValue 3_000_000
+        <> mkValue [(programmableTransferCS, TokenName "0c", 5)]
+
+seizeInputValueMultiName :: Value
+seizeInputValueMultiName =
+    mkAdaValue 3_000_000
+        <> mkValue
+            [ (programmableTransferCS, TokenName "0c", 5)
+            , (programmableTransferCS, TokenName "0d", 3)
+            ]
+
+-- | Full seizure: paired base output loses the progCS entry entirely, tokens
+-- reappear at a pubkey output. Builder reverses output order, so listing the
+-- pubkey output first yields final order [paired, pubkey]; the paired output is
+-- the head consumed by pairing, leaving no base residual to cover the delta.
+mkGlobalSeizeFullToPubKeyCtx :: ScriptContext
+mkGlobalSeizeFullToPubKeyCtx =
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+     in buildBalancedScriptContext
+            ( withRewardingScript
+                (PlutusTx.toBuiltinData seizeRedeemer)
+                globalCred
+                0
+                <> withWithdrawal issuerCred 0
+                <> withScriptInput
+                    (PlutusTx.toBuiltinData ())
+                    ( withOutRef (TxOutRef "5e12" 0)
+                        <> withAddress seizeInputAddr
+                        <> withValue seizeInputValue5
+                    )
+                <> withOutput
+                    ( withTxOutAddress (pubKeyAddress signerPkh)
+                        <> withTxOutValue (mkValue [(programmableTransferCS, TokenName "0c", 5)])
+                    )
+                <> withOutput
+                    ( withTxOutAddress seizeInputAddr
+                        <> withTxOutValue (mkAdaValue 3_000_000)
+                    )
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    (PlutusTx.toBuiltinData protocolParamsDatum)
+                <> withRefInputDatumValue
+                    dirNodeRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    (PlutusTx.toBuiltinData directoryProgrammableNode)
+            )
+
+-- | Partial-name seizure: input holds progCS {0c:5, 0d:3}; paired base output
+-- keeps {0c:5} but drops 0d; the 0d token reappears at a pubkey output.
+mkGlobalSeizePartialNameToPubKeyCtx :: ScriptContext
+mkGlobalSeizePartialNameToPubKeyCtx =
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+     in buildBalancedScriptContext
+            ( withRewardingScript
+                (PlutusTx.toBuiltinData seizeRedeemer)
+                globalCred
+                0
+                <> withWithdrawal issuerCred 0
+                <> withScriptInput
+                    (PlutusTx.toBuiltinData ())
+                    ( withOutRef (TxOutRef "5e12" 0)
+                        <> withAddress seizeInputAddr
+                        <> withValue seizeInputValueMultiName
+                    )
+                <> withOutput
+                    ( withTxOutAddress (pubKeyAddress signerPkh)
+                        <> withTxOutValue (mkValue [(programmableTransferCS, TokenName "0d", 3)])
+                    )
+                <> withOutput
+                    ( withTxOutAddress seizeInputAddr
+                        <> withTxOutValue (mkAdaValue 3_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 5)])
+                    )
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    (PlutusTx.toBuiltinData protocolParamsDatum)
+                <> withRefInputDatumValue
+                    dirNodeRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    (PlutusTx.toBuiltinData directoryProgrammableNode)
+            )
+
+-- | Positive control: full seizure relocating tokens to another base output.
+-- Final output order [paired(ADA only), residual(progCS:5 at base)]; go2 sums
+-- the residual so conservation holds. Must succeed before and after the fix.
+mkGlobalSeizeFullToBaseCtx :: ScriptContext
+mkGlobalSeizeFullToBaseCtx =
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+     in buildBalancedScriptContext
+            ( withRewardingScript
+                (PlutusTx.toBuiltinData seizeRedeemer)
+                globalCred
+                0
+                <> withWithdrawal issuerCred 0
+                <> withScriptInput
+                    (PlutusTx.toBuiltinData ())
+                    ( withOutRef (TxOutRef "5e12" 0)
+                        <> withAddress seizeInputAddr
+                        <> withValue seizeInputValue5
+                    )
+                <> withOutput
+                    ( withTxOutAddress seizeInputAddr
+                        <> withTxOutValue (mkValue [(programmableTransferCS, TokenName "0c", 5)])
+                    )
+                <> withOutput
+                    ( withTxOutAddress seizeInputAddr
+                        <> withTxOutValue (mkAdaValue 3_000_000)
+                    )
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    (PlutusTx.toBuiltinData protocolParamsDatum)
+                <> withRefInputDatumValue
+                    dirNodeRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    (PlutusTx.toBuiltinData directoryProgrammableNode)
+            )
+
+-- | Seize input holds only ADA (no seized programmable token); the paired output
+-- is identical. Conservation is trivially satisfied, but the non-contamination
+-- guard must reject the pairing because the input holds none of the seized policy.
+mkGlobalSeizeNoProgCSInputCtx :: ScriptContext
+mkGlobalSeizeNoProgCSInputCtx =
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+     in buildBalancedScriptContext
+            ( withRewardingScript
+                (PlutusTx.toBuiltinData seizeRedeemer)
+                globalCred
+                0
+                <> withWithdrawal issuerCred 0
+                <> withScriptInput
+                    (PlutusTx.toBuiltinData ())
+                    ( withOutRef (TxOutRef "5e12" 0)
+                        <> withAddress seizeInputAddr
+                        <> withValue (mkAdaValue 3_000_000)
+                    )
+                <> withOutput
+                    ( withTxOutAddress seizeInputAddr
+                        <> withTxOutValue (mkAdaValue 3_000_000)
+                    )
                 <> withRefInputDatumValue
                     paramRef
                     (pubKeyAddress signerPkh)

@@ -26,6 +26,7 @@ data ScriptScenarioEnv = ScriptScenarioEnv
     , sseProgLogicBaseHash :: ScriptHash
     , sseProtocolParamsCS :: CurrencySymbol
     , sseProtocolParamsInitRef :: TxOutRef
+    , sseSeizeCred :: Credential
     , sseTransferLogicHash :: ScriptHash
     , sseTxD29BaseScriptCred :: Credential
     , sseTxD29GlobalStakeCred :: Credential
@@ -40,6 +41,7 @@ data ScriptScenarioBackend = ScriptScenarioBackend
     , ssbDirectoryMintSpec :: ScriptScenarioEnv -> CurrencySymbol -> ScriptContext -> EvalSpec
     , ssbDirectorySpendSpec :: ScriptScenarioEnv -> CurrencySymbol -> TxOutRef -> ScriptContext -> EvalSpec
     , ssbGlobalRewardSpec :: ScriptScenarioEnv -> CurrencySymbol -> Credential -> ScriptContext -> EvalSpec
+    , ssbSeizeRewardSpec :: ScriptScenarioEnv -> CurrencySymbol -> Credential -> ScriptContext -> EvalSpec
     , ssbIssuanceMintSpec :: ScriptScenarioEnv -> CurrencySymbol -> ScriptContext -> EvalSpec
     , ssbProgrammableMintSpec :: ScriptScenarioEnv -> CurrencySymbol -> ScriptContext -> EvalSpec
     , ssbProtocolParamsMintSpec :: ScriptScenarioEnv -> CurrencySymbol -> ScriptContext -> EvalSpec
@@ -78,6 +80,8 @@ scenarioEvalSpecsFromCtx backend env ctx@(ScriptContext txInfo _ _) =
             Just (ssbGlobalRewardSpec backend env (sseProtocolParamsCS env) cred (rewardingPurposeCtx ctx cred))
         | cred == sseTxD29GlobalStakeCred env =
             Just (ssbGlobalRewardSpec backend env (sseTxD29ProtocolParamsCS env) cred (rewardingPurposeCtx ctx cred))
+        | cred == sseSeizeCred env =
+            Just (ssbSeizeRewardSpec backend env (sseProtocolParamsCS env) cred (rewardingPurposeCtx ctx cred))
         | cred == sseTxD29TransferLogicStakeCred env =
             Just (ssbAlwaysSucceedsRewardSpec backend "transferLogicScript" cred (rewardingPurposeCtx ctx cred))
         | otherwise =

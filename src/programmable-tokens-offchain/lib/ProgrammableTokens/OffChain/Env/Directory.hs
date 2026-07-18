@@ -133,7 +133,7 @@ mkDirectoryEnv dsScriptRoot@DirectoryScriptRoot{srTxIn, srIssuanceCborHexTxIn, s
         dsIssuanceCborHexMintingScript = issuanceCborHexMintingScript srTarget srIssuanceCborHexTxIn
         dsIssuanceCborHexSpendingScript = issuanceCborHexSpendingScript srTarget
         dsDirectorySpendingScript = directoryNodeSpendingScript srTarget (protocolParamsPolicyId result)
-        dsProgrammableLogicBaseScript = programmableLogicBaseScript srTarget (programmableLogicStakeCredential result) -- Parameterized by the stake cred of the global script
+        dsProgrammableLogicBaseScript = programmableLogicBaseScript srTarget (programmableLogicStakeCredential result) (protocolParamsPolicyId result) -- global stake cred + params policy id (to derive the seize cred)
         dsProgrammableLogicGlobalScript = programmableLogicGlobalScript srTarget (protocolParamsPolicyId result) -- Parameterized by the CS holding protocol params datum
         result =
             DirectoryEnv
