@@ -128,7 +128,7 @@ makeCommon ctx' = do
     ------------------------------
     -- Preparing info needed for validation:
     PScriptContext{pscriptContext'txInfo, pscriptContext'scriptInfo} <- pmatchC ctx'
-    PTxInfo{ptxInfo'inputs, ptxInfo'referenceInputs, ptxInfo'outputs, ptxInfo'mint} <- pmatchC pscriptContext'txInfo
+    PTxInfo{ptxInfo'inputs, ptxInfo'referenceInputs, ptxInfo'outputs, ptxInfo'mint, ptxInfo'wdrl} <- pmatchC pscriptContext'txInfo
 
     ownCS <- tcont . plet $ P.do
         PMintingScript mintRecord <- pmatch pscriptContext'scriptInfo
@@ -168,6 +168,7 @@ makeCommon ctx' = do
                 , nodeInputs
                 , nodeOutputs
                 , referenceInputs = pfromData ptxInfo'referenceInputs
+                , withdrawals = pto $ pfromData ptxInfo'wdrl
                 }
     pure common
 
@@ -227,6 +228,23 @@ pInsert issuanceCborHexCS common = plam $ \keyToInsert hashedParam -> P.do
     passert "Registry Entry must be valid programmable asset" $ _pisProgrammableTokenRegistration keyToInsert (pfromData pprefixCborHex) (pfromData ppostfixCborHex) hashedParam common.mint
     passert "Key to insert must be valid Currency Symbol" $ ptraceInfoIfFalse (pshow keyToInsert) $ plengthBS # keyToInsert #== 28
 
+    -- Registration authorization (security S1, mirrors Aiken registry_mint
+    -- Finding 03): the policy id is a public blake2b of the substandard's
+    -- minting-logic hash, so without this check ANY party could register the
+    -- policy with attacker-chosen transfer/issuer logic (permanent hijack, since
+    -- there is no node-update path). Require the substandard's minting-logic
+    -- script to be invoked (its credential present in the tx withdrawals) — i.e.
+    -- proof of instance / consent from the party who controls that script. The
+    -- `hashedParam` bytes ARE that script hash (they derive the policy id above).
+    let mintingLogicScriptCred =
+            pdata $
+                pcon $
+                    PScriptCredential (pdata $ pcon $ PScriptHash (pfromData hashedParam))
+    passert "Registration not authorized by the substandard minting logic" $
+        pany
+            # plam (\wdrl -> (pfstBuiltin # wdrl) #== mintingLogicScriptCred)
+            # common.withdrawals
+
     -- Input Checks:
     -- There is only one spent node (tx inputs contains only one node UTxO)
     let coveringDatum = pheadSingleton # common.nodeInputs
@@ -271,6 +289,8 @@ data PDirectoryCommon (s :: S) = MkCommon
     -- ^ node outputs in the tx
     , referenceInputs :: Term s (PBuiltinList (PAsData PTxInInfo))
     -- ^ reference inputs in the tx
+    , withdrawals :: Term s (PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace)))
+    -- ^ withdrawal entries in the tx (used to authorize registration)
     }
     deriving stock (Generic)
 

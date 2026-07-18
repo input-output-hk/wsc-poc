@@ -81,6 +81,7 @@ test-suite programmable-tokens-test
   hs-source-dirs: test
   main-is:        Spec.hs
   other-modules:
+    ProgrammableTokens.Test.DirectoryMint
     ProgrammableTokens.Test.DirectorySet
     ProgrammableTokens.Test.Error
     ProgrammableTokens.Test.ProgrammableLogicGlobal

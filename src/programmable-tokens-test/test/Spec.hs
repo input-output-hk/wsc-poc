@@ -3,6 +3,7 @@ module Main (
     main,
 ) where
 
+import ProgrammableTokens.Test.DirectoryMint qualified as DirectoryMint
 import ProgrammableTokens.Test.DirectorySet qualified as DirectorySet
 import ProgrammableTokens.Test.ProgrammableLogicGlobal qualified as ProgrammableLogicGlobal
 import ProgrammableTokens.Test.ProgrammableLogicMinting qualified as ProgrammableLogicMinting
@@ -13,7 +14,8 @@ main =
     defaultMain $
         testGroup
             "programmable-tokens"
-            [ DirectorySet.tests
+            [ DirectoryMint.tests
+            , DirectorySet.tests
             , ProgrammableLogicGlobal.tests
             , ProgrammableLogicMinting.tests
             ]
