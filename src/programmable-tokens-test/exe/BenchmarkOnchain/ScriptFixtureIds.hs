@@ -1,4 +1,5 @@
 module BenchmarkOnchain.ScriptFixtureIds (
+    burnRedeemInputTxId,
     directoryInsertFundingRef,
     directoryMintingNodeRef,
     directoryNodeCS,
@@ -35,6 +36,7 @@ module BenchmarkOnchain.ScriptFixtureIds (
     manyTokensInputRef,
     manyTokensTokenName,
     mintingLogicHash,
+    mixedOwnersInputTxId,
     mintingPolicyCS,
     nonProgrammableCS,
     nonProgrammableCS2,
@@ -53,6 +55,8 @@ module BenchmarkOnchain.ScriptFixtureIds (
     seizeInputTxId,
     seizeNoiseInputTxId,
     signerPkh,
+    thirdSignerPkh,
+    topUpInputRef,
     transferLogicHash,
     transferManyInputTxId,
 ) where
@@ -200,6 +204,23 @@ manyPoliciesInputRef = txOutRef32 0xcc 0x03 0
 
 seizeNoiseInputTxId :: TxId
 seizeNoiseInputTxId = txId32 0x5e 0x13
+
+-- | Batch-redemption (burn from many collected UTxOs) fixture inputs.
+burnRedeemInputTxId :: TxId
+burnRedeemInputTxId = txId32 0x5e 0x14
+
+-- | Mixed-ownership batch fixture inputs (different stake owners per input).
+mixedOwnersInputTxId :: TxId
+mixedOwnersInputTxId = txId32 0xcc 0x04
+
+-- | Existing-treasury input for the mint top-up fixture.
+topUpInputRef :: TxOutRef
+topUpInputRef = txOutRef32 0xcc 0x05 0
+
+-- | Third pubkey-stake owner for the mixed-ownership fixture (sorts after
+-- signerPkh 0x01 and recipientPkh 0x02, keeping signatories canonical).
+thirdSignerPkh :: PubKeyHash
+thirdSignerPkh = PubKeyHash (bs28 0x03)
 
 -- | Distinct programmable policies for the many-policies axis; ascending byte
 -- patterns keep the generated currency symbols in canonical (lexicographic)

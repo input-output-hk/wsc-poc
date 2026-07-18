@@ -1040,6 +1040,148 @@ programmableBurnCtx =
                         directoryMintingNode
                 )
 
+burnRedeemInputBuilder :: Integer -> ScriptContextBuilder
+burnRedeemInputBuilder idx =
+    withScriptInput
+        (PlutusTx.toBuiltinData ())
+        ( withOutRef (TxOutRef burnRedeemInputTxId idx)
+            <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
+            <> withValue (mkAdaValue 3_000_000 <> mkValue [(mintingPolicyCS, TokenName "0c", 2)])
+        )
+
+-- | Batch redemption: burn 10 tokens collected across 10 mini-ledger UTxOs.
+-- Twin of the Plutarch-side fixture.
+programmableBurnRedeem10Ctx :: ScriptContext
+programmableBurnRedeem10Ctx =
+    let scriptRedeemer = aikenMintingActionRedeemerData (ScriptCredential mintingLogicHash)
+        burnValue = mkValue [(mintingPolicyCS, TokenName "0c", -10)]
+        remainingValue = mkValue [(mintingPolicyCS, TokenName "0c", 10)]
+        globalRedeemer = aikenTransferActRedeemerData [TokenExists 1]
+        inputsBuilder = mconcat (map burnRedeemInputBuilder [0 .. 9])
+     in stripZeroChangeOutput $
+            buildBalancedScriptContext
+                ( withRedeemer scriptRedeemer
+                    <> withMintingScript burnValue scriptRedeemer
+                    <> withSigner signerPkh
+                    <> withAuxiliaryRewardingScript globalCred globalRedeemer
+                    <> withAuxiliaryRewardingScript (ScriptCredential transferLogicHash) (PlutusTx.toBuiltinData ())
+                    <> withAuxiliaryRewardingScript (ScriptCredential mintingLogicHash) scriptRedeemer
+                    <> inputsBuilder
+                    <> withOutput
+                        ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
+                            <> withTxOutValue (mkAdaValue 30_000_000 <> remainingValue)
+                        )
+                    <> withRefInputDatumValue
+                        paramRef
+                        (pubKeyAddress signerPkh)
+                        (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                        protocolParamsDatum
+                    <> withRefInputDatumValue
+                        directoryMintingNodeRef
+                        (pubKeyAddress signerPkh)
+                        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                        directoryMintingNode
+                )
+
+-- | Supply top-up: mint additional tokens alongside an existing treasury
+-- input. Twin of the Plutarch-side fixture (first output carries exactly the
+-- minted amount; the pre-existing tokens continue in the second output).
+programmableMintTopUpCtx :: ScriptContext
+programmableMintTopUpCtx =
+    let scriptRedeemer = aikenMintingActionRedeemerData (ScriptCredential mintingLogicHash)
+        mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 5)]
+        existingValue = mkValue [(mintingPolicyCS, TokenName "0c", 5)]
+        globalRedeemer = aikenTransferActRedeemerData [TokenExists 1]
+     in stripZeroChangeOutput $
+            buildBalancedScriptContext
+                ( withRedeemer scriptRedeemer
+                    <> withMintingScript mintValue scriptRedeemer
+                    <> withSigner signerPkh
+                    <> withAuxiliaryRewardingScript globalCred globalRedeemer
+                    <> withAuxiliaryRewardingScript (ScriptCredential transferLogicHash) (PlutusTx.toBuiltinData ())
+                    <> withAuxiliaryRewardingScript (ScriptCredential mintingLogicHash) scriptRedeemer
+                    <> withScriptInput
+                        (PlutusTx.toBuiltinData ())
+                        ( withOutRef topUpInputRef
+                            <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
+                            <> withValue (mkAdaValue 6_000_000 <> existingValue)
+                        )
+                    -- withOutput prepends: continuing-treasury output composed
+                    -- first (landing second), minted-to output composed last
+                    -- (landing first).
+                    <> withOutput
+                        ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
+                            <> withTxOutValue (mkAdaValue 3_000_000 <> existingValue)
+                        )
+                    <> withOutput
+                        ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
+                            <> withTxOutValue (mkAdaValue 3_000_000 <> mintValue)
+                        )
+                    <> withRefInputDatumValue
+                        paramRef
+                        (pubKeyAddress signerPkh)
+                        (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                        protocolParamsDatum
+                    <> withRefInputDatumValue
+                        directoryMintingNodeRef
+                        (pubKeyAddress signerPkh)
+                        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                        directoryMintingNode
+                )
+
+-- | Mixed-ownership batch: five mini-ledger inputs owned by three pubkey
+-- owners (all signing) and two script owners (invoked via withdrawals).
+-- Twin of the Plutarch-side fixture.
+globalTransferMixedOwners5Ctx :: ScriptContext
+globalTransferMixedOwners5Ctx =
+    let ownerStakes =
+            [ PubKeyCredential signerPkh
+            , PubKeyCredential recipientPkh
+            , PubKeyCredential thirdSignerPkh
+            , ScriptCredential externalAlwaysSucceedsHash
+            , ScriptCredential externalAlwaysSucceedsHash2
+            ]
+        inputBuilder (idx, stakeCred) =
+            withScriptInput
+                (PlutusTx.toBuiltinData ())
+                ( withOutRef (TxOutRef mixedOwnersInputTxId idx)
+                    <> withAddress (scriptAddressWithStakeCredential progLogicBaseHash stakeCred)
+                    <> withValue (mkAdaValue 3_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 1)])
+                )
+        inputsBuilder = mconcat (map inputBuilder (zip [0 ..] ownerStakes))
+     in buildBalancedScriptContext
+            ( withRewardingScript
+                (aikenTransferActRedeemerData [TokenExists 1])
+                globalCred
+                0
+                <> withSigner signerPkh
+                <> withSigner recipientPkh
+                <> withSigner thirdSignerPkh
+                <> withAuxiliaryRewardingScript (ScriptCredential transferLogicHash) (PlutusTx.toBuiltinData ())
+                <> withAuxiliaryRewardingScript (ScriptCredential externalAlwaysSucceedsHash) (PlutusTx.toBuiltinData ())
+                <> withAuxiliaryRewardingScript (ScriptCredential externalAlwaysSucceedsHash2) (PlutusTx.toBuiltinData ())
+                <> inputsBuilder
+                <> withOutput
+                    ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
+                        <> withTxOutValue (mkAdaValue 3_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 5)])
+                    )
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    protocolParamsDatum
+                <> withRefInputDatumValue
+                    dirNodeRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    directoryProgrammableNode
+                )
+
+-- | Capacity showcase: 120 same-token inputs (~89% of the tx memory limit for
+-- this implementation). Twin of the Plutarch-side fixture.
+globalTransfer120Ctx :: ScriptContext
+globalTransfer120Ctx = mkGlobalTransferManyCtx 120
+
 aikenIssuanceDatum :: BuiltinData
 aikenIssuanceDatum = aikenIssuanceDatumData "0d" "0e"
 
@@ -1422,6 +1564,18 @@ benchCases =
         (aikenRewardArgs globalTransfer100Ctx)
         globalTransfer100Ctx
     , mkAikenCase
+        "programmableLogicGlobal.TransferAct.Spend120Utxos"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransfer120Ctx)
+        globalTransfer120Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.MixedOwners5"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferMixedOwners5Ctx)
+        globalTransferMixedOwners5Ctx
+    , mkAikenCase
         "programmableLogicGlobal.SeizeAct1"
         (EvalGlobalReward globalCred)
         (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
@@ -1506,11 +1660,23 @@ benchCases =
         (aikenMintArgs programmableMintManyWithdrawalsCtx)
         programmableMintManyWithdrawalsCtx
     , mkAikenCase
+        "programmableLogicMinting.Mint.TopUpExistingTreasury"
+        (EvalProgrammableMint mintingPolicyCS)
+        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred (ScriptCredential mintingLogicHash))
+        (aikenMintArgs programmableMintTopUpCtx)
+        programmableMintTopUpCtx
+    , mkAikenCase
         "programmableLogicMinting.Burn"
         (EvalProgrammableMint mintingPolicyCS)
         (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred (ScriptCredential mintingLogicHash))
         (aikenMintArgs programmableBurnCtx)
         programmableBurnCtx
+    , mkAikenCase
+        "programmableLogicMinting.Burn.Redeem10Utxos"
+        (EvalProgrammableMint mintingPolicyCS)
+        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred (ScriptCredential mintingLogicHash))
+        (aikenMintArgs programmableBurnRedeem10Ctx)
+        programmableBurnRedeem10Ctx
     , mkAikenCase
         "protocolParamsMinting"
         (EvalProtocolParamsMint protocolParamsCS)
