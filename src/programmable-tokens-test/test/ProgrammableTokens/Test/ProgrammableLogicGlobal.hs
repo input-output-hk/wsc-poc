@@ -73,6 +73,10 @@ tests =
         , testCase "unit_transferAct_burn_with_mint_proof_succeeds" unit_transferAct_burn_with_mint_proof_succeeds
         , testCase "unit_transferAct_burn_without_mint_proof_rejected" unit_transferAct_burn_without_mint_proof_rejected
         , testCase "unit_transferAct_escape_to_pubkey_rejected" unit_transferAct_escape_to_pubkey_rejected
+        , testCase "unit_transferAct_two_policies_wholesale_succeeds" unit_transferAct_two_policies_wholesale_succeeds
+        , testCase "unit_transferAct_two_policies_partial_escape_rejected" unit_transferAct_two_policies_partial_escape_rejected
+        , testCase "unit_transferAct_two_policies_mint_containment_succeeds" unit_transferAct_two_policies_mint_containment_succeeds
+        , testCase "unit_transferAct_two_policies_mint_smuggle_rejected" unit_transferAct_two_policies_mint_smuggle_rejected
         , testCase "unit_transferAct_mint_smuggle_rejected" unit_transferAct_mint_smuggle_rejected
         , testCase "unit_transferAct_mint_with_proof_and_containment_succeeds" unit_transferAct_mint_with_proof_and_containment_succeeds
         , testCase "unit_transferAct_mint_without_mint_proof_rejected" unit_transferAct_mint_without_mint_proof_rejected
@@ -148,6 +152,60 @@ unit_transferAct_burn_without_mint_proof_rejected =
 unit_transferAct_escape_to_pubkey_rejected :: Assertion
 unit_transferAct_escape_to_pubkey_rejected =
     assertScriptFails mkGlobalTransferEscapeCtx
+
+-- Regression guard: the transfer-proof walk cons-builds its multi-policy
+-- accumulator, which once left the expected value in DESCENDING order and made
+-- the (order-sensitive) containment walk reject valid two-policy transfers.
+unit_transferAct_two_policies_wholesale_succeeds :: Assertion
+unit_transferAct_two_policies_wholesale_succeeds =
+    assertScriptSucceeds $
+        mkGlobalTransferTwoPoliciesCtx
+            (TransferAct [1, 2] [])
+            []
+            ( mkValue
+                [ (programmableTransferCS, TokenName "0c", 3)
+                , (programmableTransferCS2, TokenName "1c", 5)
+                ]
+            )
+
+unit_transferAct_two_policies_partial_escape_rejected :: Assertion
+unit_transferAct_two_policies_partial_escape_rejected =
+    assertScriptFails $
+        mkGlobalTransferTwoPoliciesCtx
+            (TransferAct [1, 2] [])
+            []
+            ( mkValue
+                [ (programmableTransferCS, TokenName "0c", 3)
+                , (programmableTransferCS2, TokenName "1c", 4)
+                ]
+            )
+
+-- Regression guard for the mint-delta union: with a mis-ordered accumulator the
+-- sorted merge of transfer value and mint delta would mis-sum per-policy
+-- requirements for multi-policy transfers that also mint.
+unit_transferAct_two_policies_mint_containment_succeeds :: Assertion
+unit_transferAct_two_policies_mint_containment_succeeds =
+    assertScriptSucceeds $
+        mkGlobalTransferTwoPoliciesCtx
+            (TransferAct [1, 2] [2])
+            [(programmableTransferCS2, TokenName "1c", 2)]
+            ( mkValue
+                [ (programmableTransferCS, TokenName "0c", 3)
+                , (programmableTransferCS2, TokenName "1c", 7)
+                ]
+            )
+
+unit_transferAct_two_policies_mint_smuggle_rejected :: Assertion
+unit_transferAct_two_policies_mint_smuggle_rejected =
+    assertScriptFails $
+        mkGlobalTransferTwoPoliciesCtx
+            (TransferAct [1, 2] [2])
+            [(programmableTransferCS2, TokenName "1c", 2)]
+            ( mkValue
+                [ (programmableTransferCS, TokenName "0c", 3)
+                , (programmableTransferCS2, TokenName "1c", 5)
+                ]
+            )
 
 unit_transferAct_mint_smuggle_rejected :: Assertion
 unit_transferAct_mint_smuggle_rejected =
@@ -434,6 +492,12 @@ issuerCred = ScriptCredential issuerLogicHash
 programmableTransferCS :: CurrencySymbol
 programmableTransferCS = CurrencySymbol (bs28 0x1b)
 
+-- | Second registered policy; sorts after 'programmableTransferCS' so
+-- two-policy fixtures exercise the multi-policy (canonically ordered)
+-- aggregation and containment paths end to end.
+programmableTransferCS2 :: CurrencySymbol
+programmableTransferCS2 = CurrencySymbol (bs28 0x1c)
+
 signerPkh :: PubKeyHash
 signerPkh = PubKeyHash (bs28 0x01)
 
@@ -442,6 +506,11 @@ paramRef = TxOutRef "aa00" 0
 
 dirNodeRef :: TxOutRef
 dirNodeRef = TxOutRef "bb00" 0
+
+-- | Sorts after 'dirNodeRef' (reference inputs are ordered by TxOutRef), so
+-- with 'paramRef' at index 0 the two directory nodes sit at ref indices 1, 2.
+dirNode2Ref :: TxOutRef
+dirNode2Ref = TxOutRef "bb01" 0
 
 scriptAddressWithSignerStake :: ScriptHash -> PubKeyHash -> Address
 scriptAddressWithSignerStake sh pkh =
@@ -476,6 +545,15 @@ directoryProgrammableNode :: DirectorySetNode
 directoryProgrammableNode =
     DirectorySetNode
         programmableTransferCS
+        (CurrencySymbol (bs28 0xff))
+        (ScriptCredential (ScriptHash (bs28 0x15)))
+        issuerCred
+        (CurrencySymbol "")
+
+directoryProgrammableNode2 :: DirectorySetNode
+directoryProgrammableNode2 =
+    DirectorySetNode
+        programmableTransferCS2
         (CurrencySymbol (bs28 0xff))
         (ScriptCredential (ScriptHash (bs28 0x15)))
         issuerCred
@@ -582,6 +660,55 @@ mkGlobalTransferMintCtx globalRedeemer mintedQty transferOutputQty =
                 (pubKeyAddress signerPkh)
                 (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
                 (PlutusTx.toBuiltinData directoryProgrammableNode)
+        )
+
+-- | Two-policy transfer fixture: one mini-ledger input carrying BOTH registered
+-- policies (3x "0c" under CS1, 5x "1c" under CS2), one mini-ledger output whose
+-- programmable value is caller-chosen, optional mint, positional proofs [1, 2].
+-- Exercises the multi-policy aggregation accumulator, its canonical ordering,
+-- the mint-delta union, and the multi-asset containment walk END TO END —
+-- the paths a single-policy fixture cannot reach.
+mkGlobalTransferTwoPoliciesCtx :: ProgrammableLogicGlobalRedeemer -> [(CurrencySymbol, TokenName, Integer)] -> Value -> ScriptContext
+mkGlobalTransferTwoPoliciesCtx globalRedeemer mintEntries progOutputVal =
+    buildBalancedScriptContext
+        ( withRewardingScript
+            (PlutusTx.toBuiltinData globalRedeemer)
+            globalCred
+            0
+            <> withSigner signerPkh
+            <> withWithdrawal transferCred 0
+            <> withScriptInput
+                (PlutusTx.toBuiltinData ())
+                ( withOutRef transferInputRef
+                    <> withAddress seizeInputAddr
+                    <> withValue
+                        ( mkAdaValue 10_000_000
+                            <> mkValue
+                                [ (programmableTransferCS, TokenName "0c", 3)
+                                , (programmableTransferCS2, TokenName "1c", 5)
+                                ]
+                        )
+                )
+            <> withOutput
+                ( withTxOutAddress seizeInputAddr
+                    <> withTxOutValue (mkAdaValue 10_000_000 <> progOutputVal)
+                )
+            <> (if null mintEntries then mempty else withMint (mkValue mintEntries) (PlutusTx.toBuiltinData ()))
+            <> withRefInputDatumValue
+                paramRef
+                (pubKeyAddress signerPkh)
+                (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                (PlutusTx.toBuiltinData protocolParamsDatum)
+            <> withRefInputDatumValue
+                dirNodeRef
+                (pubKeyAddress signerPkh)
+                (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                (PlutusTx.toBuiltinData directoryProgrammableNode)
+            <> withRefInputDatumValue
+                dirNode2Ref
+                (pubKeyAddress signerPkh)
+                (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                (PlutusTx.toBuiltinData directoryProgrammableNode2)
         )
 
 mkGlobalTransferEscapeCtx :: ScriptContext

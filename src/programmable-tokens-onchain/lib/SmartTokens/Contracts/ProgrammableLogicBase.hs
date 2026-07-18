@@ -234,6 +234,92 @@ pcurrencyPairsUnionFast = phoistAcyclic $
             csPairsB
             csPairsA
 
+{- | Drop non-positive entries from a sorted currency-pair list (and any policy
+whose token map becomes empty).
+
+High-level purpose:
+- Normalize a mint/burn-adjusted expected value so downstream containment checks
+  can assume strictly positive quantities: a fully burned asset (quantity zero)
+  or an over-burned asset (negative) requires nothing to remain at the
+  mini-ledger outputs, exactly as a `>= non-positive` lookup would conclude.
+
+Security invariants:
+- Only entries with quantity <= 0 may be removed; positive entries must be
+  preserved verbatim and in order.
+- The result must remain canonically sorted.
+-}
+pfilterPositiveCurrencyPairs ::
+    Term
+        s
+        ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
+            :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
+        )
+pfilterPositiveCurrencyPairs = phoistAcyclic $
+    let filterTokens ::
+            Term
+                _
+                ( PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))
+                    :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))
+                )
+        filterTokens = pfix #$ plam $ \self tokenPairs ->
+            pelimList
+                ( \tokenPair tokenPairsRest ->
+                    pif
+                        (pfromData (psndBuiltin # tokenPair) #<= 0)
+                        (self # tokenPairsRest)
+                        (pcons # tokenPair # (self # tokenPairsRest))
+                )
+                pnil
+                tokenPairs
+     in pfix #$ plam $ \self csPairs ->
+            pelimList
+                ( \csPair csPairsRest ->
+                    plet (filterTokens # pto (pfromData (psndBuiltin # csPair))) $ \positiveTokens ->
+                        pelimList
+                            ( \_ _ ->
+                                pcons
+                                    # punsafeCoerce
+                                        ( ppairDataBuiltinRaw
+                                            # pforgetData (pfstBuiltin # csPair)
+                                            # (pmapData # punsafeCoerce positiveTokens)
+                                        )
+                                    # (self # csPairsRest)
+                            )
+                            (self # csPairsRest)
+                            positiveTokens
+                )
+                pnil
+                csPairs
+
+{- | Reverse a currency-pair list (accumulator-based, linear).
+
+High-level purpose:
+- The transfer/mint proof walks cons matched policies while traversing their
+  ascending inputs, so their accumulators come out DESCENDING; this restores
+  canonical ascending order before the lists reach order-sensitive consumers.
+
+Security invariants:
+- Every downstream consumer of an aggregated programmable value — the mint-delta
+  union ('pcurrencyPairsUnionFast') and the output-containment subtract walk —
+  REQUIRES canonically sorted input; feeding a reversed list would corrupt the
+  merge and could under-require outputs. Callers must apply this reverse to any
+  cons-built accumulator before exposing it.
+- The reverse must neither drop, duplicate, nor alter entries.
+-}
+preverseCurrencyPairs ::
+    Term
+        s
+        ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
+            :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
+        )
+preverseCurrencyPairs = phoistAcyclic $
+    plam $ \csPairs ->
+        ( pfix #$ plam $ \self acc remaining ->
+            pelimList (\x xs -> self # (pcons # x # acc) # xs) acc remaining
+        )
+            # pnil
+            # csPairs
+
 {- | Add two non-Ada sorted `Value`s while preserving canonical ordering.
 
 High-level purpose:
@@ -401,8 +487,17 @@ mini-ledger; it only proves that the specific value passed in still remains at
 
 Implementation note: if `expectedValue` contains exactly one non-Ada asset, the
 function takes a single-asset fast path that scans outputs and accumulates only that
-asset quantity. Otherwise it aggregates the full non-Ada value at `progLogicCred`
-outputs and checks each expected asset against that aggregate.
+asset quantity. Otherwise it walks the outputs ONCE, subtracting each mini-ledger
+output's non-Ada assets from the remaining expected list via a sorted linear merge
+and exiting early once nothing remains. Neither path allocates an aggregated
+output value, and neither re-scans outputs per expected asset (which degenerates
+to O(assets x outputs x value-size) with many token names).
+
+PRECONDITION: every quantity in `expectedValue` must be strictly positive. The
+transfer-input aggregation satisfies this by construction (input values are
+positive); the mint branch filters non-positive entries out of the merged
+mint/burn delta before calling this helper (a fully burned asset needs no
+remaining output, exactly as a `>= 0` lookup would conclude).
 
 Security invariants:
 
@@ -411,7 +506,7 @@ Security invariants:
 - No value at other payment credentials may satisfy the requirement.
 - This helper assumes the caller has already validated that `expectedValue`
   represents the value that must remain inside the mini-ledger.
-- The single-asset fast path and the multi-asset path must be semantically
+- The single-asset fast path and the subtract-walk path must be semantically
   equivalent.
 -}
 poutputsContainExpectedValueAtCred ::
@@ -470,77 +565,136 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
                     (currentQty #>= requiredQty)
                     remainingOutputs
                 )
-        -- Verify each expected (cs, tn) requirement by SCANNING the outputs for that
-        -- single asset (with early exit once the quota is met) rather than building a
-        -- full aggregated output value. This eliminates the intermediate
-        -- @pvalueToCred@ allocation — a significant memory saving on multi-policy
-        -- transfers — at the cost of re-scanning outputs per asset (CPU), which is a
-        -- net win because the transaction is memory-bound. Both loops are single
-        -- top-level fixpoints, so no per-iteration closure is allocated.
-        checkTokensForCs = pfix #$ plam $ \self cs remainingTnPairs ->
+        -- General path: walk the outputs ONCE, subtracting each mini-ledger
+        -- output's non-Ada assets from the remaining-expected list via sorted
+        -- linear merges, and succeed as soon as nothing remains. Both lists are
+        -- canonically sorted, so each merge is linear; a wholesale multi-asset
+        -- transfer is satisfied by the first matching output. This replaces both
+        -- the per-asset output re-scan (O(assets x outputs), catastrophic with
+        -- many token names) and the aggregate-then-lookup fallback (which
+        -- allocated a full output aggregate). PRECONDITION: remaining quantities
+        -- are strictly positive (see the haddock).
+        --
+        -- Subtract one output's token list from the remaining token list of one
+        -- currency symbol; entries that reach zero or below are dropped.
+        psubtractTokenPairs = pfix #$ plam $ \self remTokens outTokens ->
             pelimList
-                ( \tnPair tnRest ->
-                    ( hasAtLeastAssetInProgOutputs
-                        # pfromData (psndBuiltin # tnPair)
-                        # 0
-                        # cs
-                        # pfromData (pfstBuiltin # tnPair)
-                        # txOutputs
-                    )
-                        #&& (self # cs # tnRest)
+                ( \remPair remRest ->
+                    pelimList
+                        ( \outPair outRest ->
+                            -- Equality is tested on the raw data (one builtin
+                            -- call); byte unwrapping happens only when the names
+                            -- differ and an ordering decision is needed.
+                            pif
+                                ((pfstBuiltin # remPair) #== (pfstBuiltin # outPair))
+                                ( plet (pfromData (psndBuiltin # remPair) - pfromData (psndBuiltin # outPair)) $ \remainingQty ->
+                                    pif
+                                        (remainingQty #<= 0)
+                                        (self # remRest # outRest)
+                                        ( pcons
+                                            # (ppairDataBuiltin # (pfstBuiltin # remPair) # pdata remainingQty)
+                                            # (self # remRest # outRest)
+                                        )
+                                )
+                                ( pif
+                                    (pfromData (pfstBuiltin # remPair) #< pfromData (pfstBuiltin # outPair))
+                                    -- The output cannot contain remTn (both sorted).
+                                    (pcons # remPair # (self # remRest # outTokens))
+                                    (self # remTokens # outRest)
+                                )
+                        )
+                        remTokens
+                        outTokens
                 )
-                (pconstant True)
-                remainingTnPairs
-        checkAllExpectedByScan = pfix #$ plam $ \self remainingCsPairs ->
+                pnil
+                remTokens
+        -- Subtract one output's currency-pair list from the remaining
+        -- currency-pair list.
+        psubtractCurrencyPairs = pfix #$ plam $ \self remCsPairs outCsPairs ->
             pelimList
-                ( \csPair csPairsRest ->
-                    ( checkTokensForCs
-                        # pfromData (pfstBuiltin # csPair)
-                        # pto (pfromData (psndBuiltin # csPair))
-                    )
-                        #&& (self # csPairsRest)
+                ( \remPair remRest ->
+                    pelimList
+                        ( \outPair outRest ->
+                            -- Currency-symbol equality on the raw data (one
+                            -- builtin call); bytes are unwrapped only for the
+                            -- ordering decision when they differ.
+                            pif
+                                ((pfstBuiltin # remPair) #== (pfstBuiltin # outPair))
+                                ( pif
+                                    -- Wholesale-move fast path: the output carries
+                                    -- EXACTLY the expected token map for this policy
+                                    -- (the dominant shape — a full transfer of the
+                                    -- policy to one recipient), so one data equality
+                                    -- replaces the whole token merge.
+                                    ((psndBuiltin # remPair) #== (psndBuiltin # outPair))
+                                    (self # remRest # outRest)
+                                    ( plet (psubtractTokenPairs # pto (pfromData (psndBuiltin # remPair)) # pto (pfromData (psndBuiltin # outPair))) $ \remainingTokens ->
+                                        pelimList
+                                            ( \_ _ ->
+                                                pcons
+                                                    # punsafeCoerce
+                                                        ( ppairDataBuiltinRaw
+                                                            # pforgetData (pfstBuiltin # remPair)
+                                                            # (pmapData # punsafeCoerce remainingTokens)
+                                                        )
+                                                    # (self # remRest # outRest)
+                                            )
+                                            (self # remRest # outRest)
+                                            remainingTokens
+                                    )
+                                )
+                                ( pif
+                                    ((pasByteStr # pforgetData (pfstBuiltin # remPair)) #< (pasByteStr # pforgetData (pfstBuiltin # outPair)))
+                                    (pcons # remPair # (self # remRest # outCsPairs))
+                                    (self # remCsPairs # outRest)
+                                )
+                        )
+                        remCsPairs
+                        outCsPairs
                 )
-                (pconstant True)
-                remainingCsPairs
-        -- Multi-policy fallback: aggregate all programmable-cred outputs into a
-        -- single value ONCE, then look up each expected asset. The per-asset scan
-        -- above is O(expected-assets * outputs) and blows up when many policies are
-        -- present; aggregating once is O(outputs) with cheap sorted lookups. We
-        -- discriminate on the number of currency symbols in @expectedValue@ because
-        -- the overwhelmingly common transfer moves a single programmable-token
-        -- policy (fast scan wins), while multi-policy transfers are rare (aggregate
-        -- wins). Both paths are semantically identical lower-bound containment.
-        checkAllExpectedAgainstAggregate =
-            plet (pvalueToCred progLogicCred txOutputs) $ \actualValueAtCred ->
-                let checkTns = pfix #$ plam $ \self cs remainingTnPairs ->
-                        pelimList
-                            ( \tnPair tnRest ->
-                                ( (passetQtyInValue # actualValueAtCred # cs # pfromData (pfstBuiltin # tnPair))
-                                    #>= pfromData (psndBuiltin # tnPair)
-                                )
-                                    #&& (self # cs # tnRest)
+                pnil
+                remCsPairs
+        checkBySubtractWalk = pfix #$ plam $ \self remaining outputs ->
+            pelimList
+                ( \txOut outputsRest ->
+                    pmatch (pfromData txOut) $ \(PTxOut{ptxOut'address, ptxOut'value}) ->
+                        pif
+                            (paddressCredential ptxOut'address #== progLogicCred)
+                            ( plet (psubtractCurrencyPairs # remaining # (ptail # pto (pto (pfromData ptxOut'value)))) $ \remaining' ->
+                                pif
+                                    (pnull # remaining')
+                                    (pconstant True)
+                                    (self # remaining' # outputsRest)
                             )
-                            (pconstant True)
-                            remainingTnPairs
-                    checkAllCs = pfix #$ plam $ \self remainingCsPairs ->
-                        pelimList
-                            ( \csPair csPairsRest ->
-                                ( checkTns
-                                    # pfromData (pfstBuiltin # csPair)
-                                    # pto (pfromData (psndBuiltin # csPair))
-                                )
-                                    #&& (self # csPairsRest)
-                            )
-                            (pconstant True)
-                            remainingCsPairs
-                 in checkAllCs # pto (pto expectedValue)
+                            (self # remaining # outputsRest)
+                )
+                (pnull # remaining)
+                outputs
         expectedCsPairs = pto (pto expectedValue)
-        isSinglePolicy =
-            pelimList (\_ rest -> pnull # rest) (pconstant True) expectedCsPairs
-     in pif
-            isSinglePolicy
-            (checkAllExpectedByScan # expectedCsPairs)
-            checkAllExpectedAgainstAggregate
+     in -- Dispatch: exactly one expected asset (one currency symbol with one
+        -- token name — the dominant transfer shape) takes the accumulate-scan
+        -- fast path; everything else takes the single-pass subtract walk.
+        pelimList
+            ( \csPair csPairsRest ->
+                plet (pto (pfromData (psndBuiltin # csPair))) $ \tnPairs ->
+                    pif
+                        ((pnull # csPairsRest) #&& (pelimList (\_ tnRest -> pnull # tnRest) (pconstant False) tnPairs))
+                        ( pelimList
+                            ( \tnPair _ ->
+                                hasAtLeastAssetInProgOutputs
+                                    # pfromData (psndBuiltin # tnPair)
+                                    # 0
+                                    # pfromData (pfstBuiltin # csPair)
+                                    # pfromData (pfstBuiltin # tnPair)
+                                    # txOutputs
+                            )
+                            (pconstant True)
+                            tnPairs
+                        )
+                        (checkBySubtractWalk # expectedCsPairs # txOutputs)
+            )
+            (pconstant True)
+            expectedCsPairs
 
 {- | Base spending validator for programmable-token UTxOs.
 
@@ -734,7 +888,11 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
                                     perror
                             )
                 )
-                (pcon $ PValue $ pcon $ PMap actualProgrammableTokenValue)
+                -- The walk conses matches while traversing the ascending input
+                -- list, leaving the accumulator DESCENDING; restore canonical
+                -- order (required by the mint-delta union and the containment
+                -- subtract walk).
+                (pcon $ PValue $ pcon $ PMap $ preverseCurrencyPairs # actualProgrammableTokenValue)
                 inputInnerValue
      in go
             # proofList
@@ -815,7 +973,10 @@ pcheckMintLogicAndGetProgrammableValue directoryNodeCS refInputs proofList withd
                         (ptraceInfoError "mint proof missing")
                         proofs
                 )
-                (pelimList (\_ _ -> ptraceInfoError "extra mint proof") (pcon $ PValue $ pcon $ PMap programmableMintValue) proofs)
+                -- Same reversal note as the transfer walk: the accumulator is
+                -- cons-built over the ascending mint entries, so restore
+                -- canonical order before it reaches the mint-delta union.
+                (pelimList (\_ _ -> ptraceInfoError "extra mint proof") (pcon $ PValue $ pcon $ PMap $ preverseCurrencyPairs # programmableMintValue) proofs)
                 remainingMintEntries
      in go # proofList # mintedEntries # pnil
 
@@ -985,16 +1146,20 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                         totalProgTokenValue_
                         -- Merge the validated programmable mint/burn delta into the
                         -- transfer value using the raw sorted currency-pair union
-                        -- rather than the PValue Semigroup (@#<>@). Both sum
-                        -- asset-wise without pruning zeros, so they are semantically
-                        -- identical here, but the bespoke union skips the PValue
-                        -- normalization overhead — the sole reason the burn/mint
-                        -- transfer branch previously used more memory than Aiken.
+                        -- rather than the PValue Semigroup (@#<>@): identical
+                        -- asset-wise sum without the PValue normalization overhead.
+                        -- The union keeps zero/negative entries (fully or over
+                        -- burned assets), so filter them out — the containment
+                        -- check requires strictly positive quantities, and a
+                        -- non-positive entry requires nothing to remain at the
+                        -- mini-ledger outputs. The filter also makes the 'Positive
+                        -- coercion below genuinely true.
                         ( pcon $
                             PValue $
                                 pcon $
                                     PMap $
-                                        pcurrencyPairsUnionFast
+                                        pfilterPositiveCurrencyPairs
+                                            #$ pcurrencyPairsUnionFast
                                             # pto (pto totalProgTokenValue_)
                                             # pto
                                                 ( pto
