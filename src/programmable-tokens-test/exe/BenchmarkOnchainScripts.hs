@@ -18,7 +18,7 @@ import PlutusLedgerApi.V3
 import PlutusTx qualified
 import PlutusTx.Builtins qualified as BI
 import ProgrammableTokens.OffChain.Scripts qualified as OffchainScripts
-import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buildBalancedScriptContext, buildScriptContext, mkAdaValue, withAddress, withFee, withInlineDatum, withInput, withMint, withMintingScript, withOutRef, withOutput, withRedeemer, withRewardingScript, withScriptInput, withSigner, withTxOutAddress, withTxOutInlineDatum, withTxOutValue, withValue)
+import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buildBalancedScriptContext, buildScriptContext, mkAdaValue, withAddress, withFee, withInlineDatum, withInput, withMint, withMintingScript, withOutRef, withOutput, withRedeemer, withRewardingScript, withScriptInput, withSigner, withTxOutAddress, withTxOutInlineDatum, withTxOutValue, withValue, withWithdrawal)
 import SmartTokens.Contracts.AlwaysYields (palwaysSucceed)
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (IssuanceCborHex), mkIssuanceCborHexMinting)
@@ -1026,6 +1026,65 @@ programmableBurnCtx =
                         (PlutusTx.toBuiltinData directoryMintingNode)
                 )
 
+-- | Mint inside a "busy" transaction: the full mint lands in the FIRST output
+-- (the validator's single-output mint constraint) while 19 unrelated pubkey
+-- outputs follow. Production analog of the Aiken @no_delegate_many_outputs@
+-- issuance axis: both validators pay their output-handling cost on the same
+-- output-heavy tx shape.
+programmableMintBusyTxCtx :: ScriptContext
+programmableMintBusyTxCtx =
+    let scriptRedeemer = PlutusTx.toBuiltinData (ScriptCredential mintingLogicHash)
+        mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
+        extraOutputBuilder =
+            withOutput
+                ( withTxOutAddress (pubKeyAddress signerPkh)
+                    <> withTxOutValue (mkAdaValue 2_000_000)
+                )
+        -- withOutput prepends: compose the filler outputs FIRST so the
+        -- minted-to output (composed last) stays at tx-output index 0.
+        extraOutputsBuilder = mconcat (replicate 19 extraOutputBuilder)
+     in buildBalancedScriptContext
+            ( withFee 0
+                <> withRedeemer scriptRedeemer
+                <> withMintingScript mintValue scriptRedeemer
+                <> withSigner signerPkh
+                <> withAuxiliaryRewardingScript (ScriptCredential mintingLogicHash) scriptRedeemer
+                <> withPubKeyInputValue signerPkh programmableMintFundingRef 42_000_000
+                <> extraOutputsBuilder
+                <> withOutput
+                    ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
+                    )
+            )
+
+-- | Mint alongside ten unrelated (pubkey reward-account) withdrawals.
+-- Production analog of the Aiken @delegate_transferact_many_proofs@ issuance
+-- axis: this validator's scope checks (minting-logic lookup over the
+-- withdrawal list, single-mint walk over the redeemer map) and Aiken's
+-- delegation detection both pay their cost on a withdrawal-cluttered tx.
+programmableMintManyWithdrawalsCtx :: ScriptContext
+programmableMintManyWithdrawalsCtx =
+    let scriptRedeemer = PlutusTx.toBuiltinData (ScriptCredential mintingLogicHash)
+        mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
+        unrelatedWithdrawalsBuilder =
+            mconcat
+                [ withWithdrawal (PubKeyCredential (PubKeyHash (bs28 w))) 0
+                | w <- [0x70 .. 0x79]
+                ]
+     in buildBalancedScriptContext
+            ( withFee 0
+                <> withRedeemer scriptRedeemer
+                <> withMintingScript mintValue scriptRedeemer
+                <> withSigner signerPkh
+                <> withAuxiliaryRewardingScript (ScriptCredential mintingLogicHash) scriptRedeemer
+                <> unrelatedWithdrawalsBuilder
+                <> withPubKeyInputValue signerPkh programmableMintFundingRef 4_000_000
+                <> withOutput
+                    ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
+                    )
+            )
+
 protocolParamsMintCtx :: ScriptContext
 protocolParamsMintCtx =
     let mintValue = mkValue [(protocolParamsCS, protocolParamsToken, 1)]
@@ -1287,6 +1346,8 @@ benchCases =
     , mkCase "directoryNodeMinting.InitDirectory" (EvalDirectoryMint directoryPolicyCS) mkDirectoryNodeMP [toData initRef, toData issuancePolicyCS, toData directoryInitCtx] directoryInitCtx
     , mkCase "directoryNodeMinting.InsertDirectoryNode" (EvalDirectoryMint directoryPolicyCS) mkDirectoryNodeMP [toData initRef, toData issuancePolicyCS, toData directoryInsertCtx] directoryInsertCtx
     , mkCase "programmableLogicMinting.Mint" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData mintingLogicHash, toData programmableMintCtx] programmableMintCtx
+    , mkCase "programmableLogicMinting.Mint.BusyTx20Outputs" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData mintingLogicHash, toData programmableMintBusyTxCtx] programmableMintBusyTxCtx
+    , mkCase "programmableLogicMinting.Mint.TenUnrelatedWithdrawals" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData mintingLogicHash, toData programmableMintManyWithdrawalsCtx] programmableMintManyWithdrawalsCtx
     , mkCase "programmableLogicMinting.Burn" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData mintingLogicHash, toData programmableBurnCtx] programmableBurnCtx
     , mkCase "protocolParamsMinting" (EvalProtocolParamsMint protocolParamsCS) mkProtocolParametersMinting [toData protocolParamsInitRef, toData protocolParamsMintCtx] protocolParamsMintCtx
     , mkCase "issuanceCborHexMinting" (EvalIssuanceMint issuancePolicyCS) mkIssuanceCborHexMinting [toData issuanceInitRef, toData issuanceMintCtx] issuanceMintCtx

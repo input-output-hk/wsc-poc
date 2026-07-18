@@ -53,9 +53,11 @@ import SmartTokens.Contracts.ExampleTransferLogic (
     mkPermissionedTransfer,
  )
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
+import SmartTokens.Contracts.IssuanceCborHex (mkIssuanceCborHexMinting)
 import SmartTokens.Contracts.ProgrammableLogicBase (
     mkProgrammableLogicBase,
     mkProgrammableLogicGlobal,
+    mkProgrammableSeize,
  )
 import SmartTokens.Contracts.ProtocolParams (
     alwaysFailScript,
@@ -102,11 +104,17 @@ evalWithArgsT cfg x args = do
     scr <- first (pack . show) escr
     pure (scr, budg, trc)
 
+-- NOTE: write the *compiled* script directly (like the applied-script export
+-- path does via tryCompile). The previous implementation wrote the
+-- CEK-*evaluated* result (evalT/evalScript), whose value read-back produces
+-- broken (out-of-scope) deBruijn indices for these multi-parameter terms —
+-- the exported blueprints were open UPLC terms and failed evaluation with
+-- "cannot evaluate an open term" once parameters were applied off-chain.
 writePlutusScript :: Config -> String -> FilePath -> (forall s. Term s a) -> IO ()
 writePlutusScript cfg title filepath term = do
-    case evalT cfg term of
+    case compile cfg term of
         Left e -> print e
-        Right (script, _, _) -> do
+        Right script -> do
             let
                 scriptType = "PlutusScriptV3" :: String
                 plutusJson = object ["type" .= scriptType, "description" .= title, "cborHex" .= encodeSerialiseCBOR script]
@@ -273,6 +281,8 @@ exportUnapplied fp = do
     writePlutusScriptTraceBind "Directory Node Minting Policy" (binds </> "directoryNodeMintingPolicy.json") mkDirectoryNodeMP
     writePlutusScriptTraceBind "Directory Spending" (binds </> "directorySpending.json") pmkDirectorySpending
     writePlutusScriptTraceBind "Blacklist Spending" (binds </> "blacklistSpending.json") pmkBlacklistSpending
+    writePlutusScriptTraceBind "Programmable Seize" (binds </> "programmableSeize.json") mkProgrammableSeize
+    writePlutusScriptTraceBind "Issuance Cbor Hex NFT" (binds </> "issuanceCborHexNFTMinting.json") mkIssuanceCborHexMinting
 
     writePlutusScriptTrace "Programmable Logic Base" (tracing </> "programmableLogicBase.json") mkProgrammableLogicBase
     writePlutusScriptTrace "Programmable Logic Global" (tracing </> "programmableLogicGlobal.json") mkProgrammableLogicGlobal
@@ -285,6 +295,8 @@ exportUnapplied fp = do
     writePlutusScriptTrace "Directory Node Minting Policy" (tracing </> "directoryNodeMintingPolicy.json") mkDirectoryNodeMP
     writePlutusScriptTrace "Directory Spending" (tracing </> "directorySpending.json") pmkDirectorySpending
     writePlutusScriptTrace "Blacklist Spending" (tracing </> "blacklistSpending.json") pmkBlacklistSpending
+    writePlutusScriptTrace "Programmable Seize" (tracing </> "programmableSeize.json") mkProgrammableSeize
+    writePlutusScriptTrace "Issuance Cbor Hex NFT" (tracing </> "issuanceCborHexNFTMinting.json") mkIssuanceCborHexMinting
 
     writePlutusScriptNoTrace "Programmable Logic Base" (prod </> "programmableLogicBase.json") mkProgrammableLogicBase
     writePlutusScriptNoTrace "Programmable Logic Global" (prod </> "programmableLogicGlobal.json") mkProgrammableLogicGlobal
@@ -297,6 +309,8 @@ exportUnapplied fp = do
     writePlutusScriptNoTrace "Directory Node Minting Policy" (prod </> "directoryNodeMintingPolicy.json") mkDirectoryNodeMP
     writePlutusScriptNoTrace "Directory Spending" (prod </> "directorySpending.json") pmkDirectorySpending
     writePlutusScriptNoTrace "Blacklist Spending" (prod </> "blacklistSpending.json") pmkBlacklistSpending
+    writePlutusScriptNoTrace "Programmable Seize" (prod </> "programmableSeize.json") mkProgrammableSeize
+    writePlutusScriptNoTrace "Issuance Cbor Hex NFT" (prod </> "issuanceCborHexNFTMinting.json") mkIssuanceCborHexMinting
 
 -- | Arguments for computing the applied scripts
 data AppliedScriptArgs

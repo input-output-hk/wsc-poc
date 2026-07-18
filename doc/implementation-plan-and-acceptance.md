@@ -379,6 +379,32 @@ per-asset early-exit scan for the single-policy common case (TransferAct
 present (keeps multi-policy MixedMany >1.0); `pvalueFromCred` returns a raw
 currency-pair list (no per-input PValue re-wrap); burn/mint union de-PValued.
 
+## Benchmark-coverage parity vs Aiken (final, 2026-07-19)
+
+All Aiken bench axes now have counterparts (or documented N/A):
+
+| Aiken axis | Ours |
+|---|---|
+| many_tokens | TransferAct.ManyTokens50 |
+| many_inputs | Spend5–100Utxos |
+| many_policies | TransferAct.ManyPolicies10 |
+| many_outputs | TransferAct.ManyOutputs20 |
+| baseline_3rd_party_1/2/3 | SeizeAct1–150, SeizeAct2.PartialSeizeWithNoise |
+| plutarch_baseline_transfer_1/2/3 | TransferAct / d29ce2a9 / MixedMany (originals) |
+| no_delegate_many_outputs | Mint.BusyTx20Outputs (mint in output-heavy tx) |
+| delegate_transferact_many_proofs | Mint.TenUnrelatedWithdrawals (scope-walk clutter); the proof-list walk itself is N/A — our issuance has no such code path |
+| unfracking_* | N/A — unfracking feature deferred (item 12, M3) |
+
+We additionally bench what Aiken does not: registry init/insert, protocol-params
+mint, issuance-cbor-hex mint, base spend/stake isolation, and the mainnet DEX tx.
+
+**Design difference surfaced by this work**: our minting policy requires the
+ENTIRE mint in the FIRST output (POC single-output constraint in
+`mkProgrammableLogicMinting`); Aiken supports distributing a mint across many
+mini-ledger outputs in one tx (their many_outputs mint bench exists because of
+it). In our design a distribution requires mint-then-transfer (two txs).
+Candidate feature item for M3 if launch-distribution UX matters.
+
 ## Stop condition (all must hold)
 
 1. `cabal test programmable-tokens-test` fully green, including all new

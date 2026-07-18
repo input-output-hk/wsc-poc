@@ -20,7 +20,7 @@ import PlutusTx qualified
 import PlutusTx.Builtins qualified as BI
 import ProgrammableTokens.OffChain.AikenProgrammableTokenScripts qualified as Aiken
 import ProgrammableTokens.OffChain.Scripts qualified as OffchainScripts
-import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buildBalancedScriptContext, mkAdaValue, withAddress, withFee, withInlineDatum, withInput, withMint, withMintingScript, withOutRef, withOutput, withRedeemer, withRewardingScript, withScriptInput, withSigner, withTxOutAddress, withTxOutInlineDatum, withTxOutValue, withValue)
+import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buildBalancedScriptContext, mkAdaValue, withAddress, withFee, withInlineDatum, withInput, withMint, withMintingScript, withOutRef, withOutput, withRedeemer, withRewardingScript, withScriptInput, withSigner, withTxOutAddress, withTxOutInlineDatum, withTxOutValue, withValue, withWithdrawal)
 import SmartTokens.Contracts.ProgrammableLogicBase (mkSeizeActRedeemerFromAbsoluteInputIdxs)
 import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import SmartTokens.LinkedList.MintDirectory (DirectoryNodeAction (InsertDirectoryNode))
@@ -948,6 +948,61 @@ programmableMintCtx =
                     )
             )
 
+-- | Mint inside a "busy" transaction: the full mint lands in the FIRST output
+-- while 19 unrelated pubkey outputs follow. Production analog of the Aiken
+-- @no_delegate_many_outputs@ issuance axis. Twin of the Plutarch-side fixture.
+programmableMintBusyTxCtx :: ScriptContext
+programmableMintBusyTxCtx =
+    let scriptRedeemer = aikenMintingActionRedeemerData (ScriptCredential mintingLogicHash)
+        mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
+        extraOutputBuilder =
+            withOutput
+                ( withTxOutAddress (pubKeyAddress signerPkh)
+                    <> withTxOutValue (mkAdaValue 2_000_000)
+                )
+        -- withOutput prepends: compose the filler outputs FIRST so the
+        -- minted-to output (composed last) stays at tx-output index 0.
+        extraOutputsBuilder = mconcat (replicate 19 extraOutputBuilder)
+     in buildBalancedScriptContext
+            ( withFee 0
+                <> withRedeemer scriptRedeemer
+                <> withMintingScript mintValue scriptRedeemer
+                <> withSigner signerPkh
+                <> withAuxiliaryRewardingScript (ScriptCredential mintingLogicHash) scriptRedeemer
+                <> withPubKeyInputValue signerPkh programmableMintFundingRef 42_000_000
+                <> extraOutputsBuilder
+                <> withOutput
+                    ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
+                    )
+            )
+
+-- | Mint alongside ten unrelated (pubkey reward-account) withdrawals.
+-- Production analog of the Aiken @delegate_transferact_many_proofs@ issuance
+-- axis. Twin of the Plutarch-side fixture.
+programmableMintManyWithdrawalsCtx :: ScriptContext
+programmableMintManyWithdrawalsCtx =
+    let scriptRedeemer = aikenMintingActionRedeemerData (ScriptCredential mintingLogicHash)
+        mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
+        unrelatedWithdrawalsBuilder =
+            mconcat
+                [ withWithdrawal (PubKeyCredential (PubKeyHash (bs28 w))) 0
+                | w <- [0x70 .. 0x79]
+                ]
+     in buildBalancedScriptContext
+            ( withFee 0
+                <> withRedeemer scriptRedeemer
+                <> withMintingScript mintValue scriptRedeemer
+                <> withSigner signerPkh
+                <> withAuxiliaryRewardingScript (ScriptCredential mintingLogicHash) scriptRedeemer
+                <> unrelatedWithdrawalsBuilder
+                <> withPubKeyInputValue signerPkh programmableMintFundingRef 4_000_000
+                <> withOutput
+                    ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
+                    )
+            )
+
 programmableBurnCtx :: ScriptContext
 programmableBurnCtx =
     let scriptRedeemer = aikenMintingActionRedeemerData (ScriptCredential mintingLogicHash)
@@ -1438,6 +1493,18 @@ benchCases =
         (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred (ScriptCredential mintingLogicHash))
         (aikenMintArgs programmableMintCtx)
         programmableMintCtx
+    , mkAikenCase
+        "programmableLogicMinting.Mint.BusyTx20Outputs"
+        (EvalProgrammableMint mintingPolicyCS)
+        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred (ScriptCredential mintingLogicHash))
+        (aikenMintArgs programmableMintBusyTxCtx)
+        programmableMintBusyTxCtx
+    , mkAikenCase
+        "programmableLogicMinting.Mint.TenUnrelatedWithdrawals"
+        (EvalProgrammableMint mintingPolicyCS)
+        (Aiken.aikenProgrammableLogicMintingScript progLogicBaseCred (ScriptCredential mintingLogicHash))
+        (aikenMintArgs programmableMintManyWithdrawalsCtx)
+        programmableMintManyWithdrawalsCtx
     , mkAikenCase
         "programmableLogicMinting.Burn"
         (EvalProgrammableMint mintingPolicyCS)
