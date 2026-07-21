@@ -146,9 +146,17 @@ mkProgrammableLogicMinting = plam $ \(pfromData -> programmableLogicBase) direct
   -- This can be easily changed later.
   PTxOut {ptxOut'address=mintingToOutputFAddress, ptxOut'value=mintingToOutputFValue} <- pmatch (pfromData $ phead # txOutputs)
 
-  let invokedScripts =
-        pmap @PBuiltinList
-          # plam (pfstBuiltin #)
+  -- Short-circuit scan for the minting-logic credential directly over the
+  -- withdrawal pairs, rather than eagerly `pmap`-materializing the full
+  -- credential list and then `pelem`-scanning it. `pany` stops at the first
+  -- match (ordinary txs put the minting logic near the front) and, unlike the
+  -- old form, unrelated withdrawals no longer each cost a list-cons
+  -- allocation — the dominant cost on many-withdrawal txs. Both branches reuse
+  -- it, so bind once. (`pany` returns False on an empty list, so no non-empty
+  -- precondition is needed.)
+  mintingLogicInvoked <- plet $
+        pany @PBuiltinList
+          # plam (\wdrl -> (pfstBuiltin # wdrl) #== mintingLogicCred)
           # pto (pfromData ptxInfo'wdrl)
   red <- plet pscriptContext'redeemer
   -- All transfers of the token will be validated by either the transferLogicScript or the issuerLogicScript.
@@ -178,7 +186,7 @@ mkProgrammableLogicMinting = plam $ \(pfromData -> programmableLogicBase) direct
           , paddressCredential mintingToOutputFAddress #== programmableLogicBase
           , mintOutputHasInlineStake
           , registrationProven
-          , pelem # mintingLogicCred # invokedScripts
+          , mintingLogicInvoked
           , punsafeCoerce @(PAsData PCredential) (pto red) #== mintingLogicCred
           , psingleMintWithCredential # pdata red # pfromData ptxInfo'redeemers
           ]
@@ -187,7 +195,7 @@ mkProgrammableLogicMinting = plam $ \(pfromData -> programmableLogicBase) direct
         -- This branch is for validating the burning of tokens
         pvalidateConditions
           [ registrationProven
-          , pelem # mintingLogicCred # invokedScripts
+          , mintingLogicInvoked
           , psingleMintWithCredential # pdata pscriptContext'redeemer # pfromData ptxInfo'redeemers
           ]
       )
