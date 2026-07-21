@@ -72,6 +72,43 @@ hasCredEqualsData = phoistAcyclic $ plam $ \stakeCred ctx ->
                          in go # (ptail # withdrawals)
          in hasCred
 
+-- Head-to-head isolation of the two credential-comparison strategies used by
+-- `mkProgrammableLogicBase`. In the real validator the expected credential is an
+-- applied script parameter (so it is a baked-in constant) while the credential under
+-- test comes from the script context as `Data`; these fixtures mirror that split so
+-- the measured delta is purely the comparison itself.
+
+-- | Candidate: unwrap the credential once and compare the 28-byte script hash.
+pisBaseCred :: Term s (PByteString :--> PAsData PCredential :--> PBool)
+pisBaseCred = plam $ \baseCredHash cred ->
+    pasByteStr # (phead # (psndBuiltin # (pasConstr # pforgetData cred))) #== baseCredHash
+
+-- | Current: compare the whole credential as `Data` (compiles to the `equalsData` builtin).
+pisBaseCredCurr :: Term s (PAsData PCredential :--> PAsData PCredential :--> PBool)
+pisBaseCredCurr = plam $ \baseCred cred -> baseCred #== cred
+
+baseCredHashRaw :: BS.ByteString
+baseCredHashRaw = BS.replicate 28 1
+
+-- | The credential the base validator is parameterised with.
+baseCredential :: Credential
+baseCredential = ScriptCredential (ScriptHash (bs28 1))
+
+-- | A different script credential (the dominant case: scanning past non-matches).
+otherScriptCredential :: Credential
+otherScriptCredential = ScriptCredential (ScriptHash (bs28 2))
+
+-- | A pubkey credential carrying the *same* 28 bytes as the base script hash.
+-- Distinguishes the two strategies semantically, not just on cost.
+pubKeyCredentialSameHash :: Credential
+pubKeyCredentialSameHash = PubKeyCredential (PubKeyHash (bs28 1))
+
+isBaseCredByteStringTerm :: Term s (PAsData PCredential :--> PBool)
+isBaseCredByteStringTerm = pisBaseCred # pconstant baseCredHashRaw
+
+isBaseCredEqualsDataTerm :: Term s (PAsData PCredential :--> PBool)
+isBaseCredEqualsDataTerm = pisBaseCredCurr # pdata (pconstant baseCredential)
+
 pemptyLedgerValue :: Term s (PValue 'Sorted 'Positive)
 pemptyLedgerValue = punsafeCoerce $ pconstant @(PValue 'Unsorted 'NoGuarantees) (mempty :: Value)
 
@@ -561,12 +598,20 @@ mkActualValueFromCredTerm cred cs tn expectedQty = plam $ \ctx ->
                     (pfromData $ ptxInfo'signatories txInfo)
                     (pto $ pfromData $ ptxInfo'wdrl txInfo)
                     (pfromData $ ptxInfo'inputs txInfo)
-         in passetQtyInValueBench # actualValue # pconstant cs # pconstant tn #== pconstant expectedQty
+         in -- `pvalueFromCred` returns the raw currency-pair list rather than a wrapped
+            -- `PValue`; the representations are identical, so coerce it back here.
+            passetQtyInValueBench # punsafeCoerce actualValue # pconstant cs # pconstant tn #== pconstant expectedQty
 
 -- Benchmark catalogue for the isolated utility-term harness.
 benchCases :: [BenchCase]
 benchCases =
-    [ mkHasCredCase "withdrawalScan.equalsData.bestCase.n001" 1 0
+    [ mkCase "isBaseCred.byteString.match" isBaseCredByteStringTerm [PlutusTx.toData baseCredential]
+    , mkCase "isBaseCred.byteString.mismatch" isBaseCredByteStringTerm [PlutusTx.toData otherScriptCredential]
+    , mkCase "isBaseCred.byteString.pubKeySameHash" isBaseCredByteStringTerm [PlutusTx.toData pubKeyCredentialSameHash]
+    , mkCase "isBaseCred.equalsData.match" isBaseCredEqualsDataTerm [PlutusTx.toData baseCredential]
+    , mkCase "isBaseCred.equalsData.mismatch" isBaseCredEqualsDataTerm [PlutusTx.toData otherScriptCredential]
+    , mkCase "isBaseCred.equalsData.pubKeySameHash" isBaseCredEqualsDataTerm [PlutusTx.toData pubKeyCredentialSameHash]
+    , mkHasCredCase "withdrawalScan.equalsData.bestCase.n001" 1 0
     , mkHasCredCase "withdrawalScan.equalsData.bestCase.n020" 20 0
     , mkHasCredCase "withdrawalScan.equalsData.bestCase.n100" 100 0
     , mkHasCredCase "withdrawalScan.equalsData.midCase.n020" 20 10
