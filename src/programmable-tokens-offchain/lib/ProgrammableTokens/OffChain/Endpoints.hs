@@ -79,6 +79,7 @@ deployCip143RegistryTx target = do
                 BuildTx.mintProtocolParams
                     >> BuildTx.initDirectorySet
                     >> BuildTx.registerProgrammableGlobalScript
+                    >> BuildTx.registerProgrammableSeizeScript
                     >> BuildTx.mintIssuanceCborHexNFT
     pure (Convex.CoinSelection.signBalancedTxBody [] tx, root)
 

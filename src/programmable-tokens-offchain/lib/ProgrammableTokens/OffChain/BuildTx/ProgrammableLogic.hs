@@ -2,6 +2,7 @@
 
 module ProgrammableTokens.OffChain.BuildTx.ProgrammableLogic (
     registerProgrammableGlobalScript,
+    registerProgrammableSeizeScript,
     issueProgrammableToken,
     paySmartTokensToDestination,
     invokeMintingStakeScript,
@@ -50,6 +51,24 @@ registerProgrammableGlobalScript = case C.babbageBasedEra @era of
         let hshGlobal = C.hashScript $ C.PlutusScript C.plutusScriptVersion programmableGlobalScript
             credGlobal = C.StakeCredentialByScript hshGlobal
         Utils.addConwayStakeCredentialCertificate credGlobal
+
+-- | Register the standalone seize validator's stake credential.
+--
+-- 'mkProgrammableSeize' runs as a withdraw-zero (rewarding) script, exactly like
+-- the global validator, so its stake credential must be a registered reward
+-- account before any 'SeizeAct' withdrawal can be included in a transaction
+-- (otherwise the ledger rejects it with 'WithdrawalsNotInRewardsCERTS'). This is
+-- the deployment-side counterpart of splitting the seize logic out of the global
+-- validator into its own script: the split introduced a second rewarding
+-- credential that must be registered alongside the global one.
+registerProgrammableSeizeScript :: forall env era m. (MonadReader env m, C.IsBabbageBasedEra era, MonadBuildTx era m, Env.HasDirectoryEnv env) => m ()
+registerProgrammableSeizeScript = case C.babbageBasedEra @era of
+    C.BabbageEraOnwardsBabbage -> error "babbage era registration not implemented"
+    C.BabbageEraOnwardsConway -> Utils.inConway @era $ do
+        programmableSeizeScript' <- asks (Env.dsProgrammableSeizeScript . Env.directoryEnv)
+        let hshSeize = C.hashScript $ C.PlutusScript C.plutusScriptVersion programmableSeizeScript'
+            credSeize = C.StakeCredentialByScript hshSeize
+        Utils.addConwayStakeCredentialCertificate credSeize
 
 {- Issue a programmable token and register it in the directory set if necessary. The caller should ensure that the specific
    minting logic stake script witness is included in the final transaction.

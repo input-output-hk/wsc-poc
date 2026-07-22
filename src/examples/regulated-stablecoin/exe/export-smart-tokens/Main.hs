@@ -231,6 +231,7 @@ writeAppliedScripts baseFolder AppliedScriptArgs{asaTxIn, asaIssuerCborHexTxIn, 
                         , dsProtocolParamsSpendingScript
                         , dsProgrammableLogicBaseScript
                         , dsProgrammableLogicGlobalScript
+                        , dsProgrammableSeizeScript
                         } <-
                         asks directoryEnv
                     let (prefixIssuerCborHex, postfixIssuerCborHex) = issuerPrefixPostfixBytes (transPolicyId (protocolParamsPolicyId dirEnv))
@@ -241,6 +242,7 @@ writeAppliedScripts baseFolder AppliedScriptArgs{asaTxIn, asaIssuerCborHexTxIn, 
                     writeAppliedScript (baseFolder </> "protocolParametersSpending") "Protocol Parameters Spending" dsProtocolParamsSpendingScript
                     writeAppliedScript (baseFolder </> "programmableLogicBaseSpending") "Programmable Logic Base" dsProgrammableLogicBaseScript
                     writeAppliedScript (baseFolder </> "programmableLogicGlobalStake") "Programmable Logic Global" dsProgrammableLogicGlobalScript
+                    writeAppliedScript (baseFolder </> "programmableSeizeStake") "Programmable Seize" dsProgrammableSeizeScript
                     writeAppliedScript (baseFolder </> "directoryNodeMinting") "Directory Node Minting Policy" dsDirectoryMintingScript
                     writeAppliedScript (baseFolder </> "directoryNodeSpending") "Directory Spending" dsDirectorySpendingScript
                     writeAppliedScript (baseFolder </> "blacklistSpending") "Blacklist Spending" bleSpendingScript

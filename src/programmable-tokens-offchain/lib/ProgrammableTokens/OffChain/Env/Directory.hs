@@ -12,6 +12,7 @@ module ProgrammableTokens.OffChain.Env.Directory (
     mkDirectoryEnv,
     loadFromFile,
     programmableLogicStakeCredential,
+    programmableSeizeStakeCredential,
     programmableLogicBaseCredential,
     directoryNodePolicyId,
     protocolParamsPolicyId,
@@ -156,6 +157,12 @@ mkDirectoryEnv dsScriptRoot@DirectoryScriptRoot{srTxIn, srIssuanceCborHexTxIn, s
 programmableLogicStakeCredential :: DirectoryEnv -> C.StakeCredential
 programmableLogicStakeCredential =
     C.StakeCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsProgrammableLogicGlobalScript
+
+-- | Stake credential of the standalone seize validator ('mkProgrammableSeize'),
+-- the withdraw-zero script that witnesses 'SeizeAct'.
+programmableSeizeStakeCredential :: DirectoryEnv -> C.StakeCredential
+programmableSeizeStakeCredential =
+    C.StakeCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsProgrammableSeizeScript
 
 programmableLogicBaseCredential :: DirectoryEnv -> C.PaymentCredential
 programmableLogicBaseCredential =

@@ -67,6 +67,7 @@ deployFullTx target = do
                                 >> BuildTx.initDirectorySet
                                 >> BuildTx.initBlacklist
                                 >> BuildTx.registerProgrammableGlobalScript
+                                >> BuildTx.registerProgrammableSeizeScript
                                 >> BuildTx.registerTransferScripts
 
     pure (Convex.CoinSelection.signBalancedTxBody [] tx, root)
