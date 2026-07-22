@@ -40,3 +40,4 @@ doc/bench-checkpoint-*.txt
 doc/comparative-analysis-plutarch-vs-aiken.md
 doc/implementation-plan-and-acceptance.md
 doc/design-issuance-mint-forwarding.md
+doc/design-issuance-dual-arm-custody.md
