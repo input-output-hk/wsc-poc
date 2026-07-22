@@ -43,11 +43,19 @@ import SmartTokens.Core.Scripts qualified as Scripts
 import SmartTokens.LinkedList.MintDirectory (mkDirectoryNodeMP)
 import SmartTokens.LinkedList.SpendDirectory (pmkDirectorySpending)
 
--- | The minting script for the protocol parameters NFT, takes initial TxIn for
--- one shot mint
+-- | The minting script for the protocol parameters NFT (spec §4.1 — hardened
+-- anchor). Parameterized by the canonical always-fail spending-script hash
+-- (where the NFT must reside, checked at mint time) and the initial TxIn for the
+-- one-shot mint. The spending-script hash does not depend on the mint's TxIn, so
+-- there is no derivation cycle.
 protocolParamsMintingScript :: ScriptTarget -> C.TxIn -> C.PlutusScript C.PlutusScriptV3
 protocolParamsMintingScript target txIn =
-  let script = Scripts.tryCompile target $ mkProtocolParametersMinting # pdata (pconstant $ transTxOutRef txIn)
+  let spendHash = C.hashScript (C.PlutusScript C.PlutusScriptV3 (protocolParamsSpendingScript target))
+      spendCred = transCredential (C.PaymentCredentialByScript spendHash)
+      script = Scripts.tryCompile target $
+                 mkProtocolParametersMinting
+                   # pdata (pconstant $ extractScriptHash spendCred)
+                   # pdata (pconstant $ transTxOutRef txIn)
   in C.PlutusScriptSerialised $ serialiseScript script
 
 -- | The spending script for the protocol parameters NFT parameterized by ""
@@ -131,11 +139,11 @@ programmableLogicMintingScript _target progLogicBaseSpndingCred directoryNodeCS 
                   # pdata (pconstant directoryNodeCS)
       script = applyArguments unappliedScript [toData $ extractScriptHash $ transStakeCredential mintingCred]
   in C.PlutusScriptSerialised $ serialiseScript script
-  where
-    extractScriptHash :: Credential -> ScriptHash
-    extractScriptHash (ScriptCredential h) = h
-    extractScriptHash _ = error "Expected ScriptCredential"
 
 -- Utilities
 scriptPolicyIdV3 :: C.PlutusScript C.PlutusScriptV3 -> C.PolicyId
 scriptPolicyIdV3 = C.scriptPolicyId . C.PlutusScript C.PlutusScriptV3
+
+extractScriptHash :: Credential -> ScriptHash
+extractScriptHash (ScriptCredential h) = h
+extractScriptHash _ = error "Expected ScriptCredential"
