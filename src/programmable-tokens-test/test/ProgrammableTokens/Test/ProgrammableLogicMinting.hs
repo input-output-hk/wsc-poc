@@ -29,12 +29,14 @@ import ProgrammableTokens.Test.ScriptContext.Builder (
     withOutput,
     withRedeemer,
     withReferenceInput,
+    withRewardingScriptWitness,
     withTxOutAddress,
     withTxOutValue,
     withValue,
     withWithdrawal,
  )
 import SmartTokens.Contracts.Issuance (MintRedeemer (..), RegistrationWitness (..), mkProgrammableLogicMinting)
+import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedeemer (SeizeAct))
 import SmartTokens.Types.Constants (protocolParamsToken)
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (DirectorySetNode))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (ProgrammableLogicGlobalParams))
@@ -59,6 +61,9 @@ tests =
         , testCase "unit_local_negative_registration_index_rejected" unit_local_negative_registration_index_rejected
         , testCase "unit_burnOnly_with_positive_mint_rejected" unit_burnOnly_with_positive_mint_rejected
         , testCase "unit_delegateTransfer_without_global_rejected" unit_delegateTransfer_without_global_rejected
+        , testCase "unit_delegateTransfer_with_global_succeeds" unit_delegateTransfer_with_global_succeeds
+        , testCase "unit_delegateSeize_matching_node_succeeds" unit_delegateSeize_matching_node_succeeds
+        , testCase "unit_delegateSeize_wrong_node_rejected" unit_delegateSeize_wrong_node_rejected
         ]
 
 -- | Security S2: minting a policy with no directory registration is rejected.
@@ -423,3 +428,85 @@ burnOnlyRedeemer = PlutusTx.toBuiltinData (BurnOnly 0)
 -- credential that is not the params global credential, so it is rejected.
 delegateTransferRedeemer :: BuiltinData
 delegateTransferRedeemer = PlutusTx.toBuiltinData (DelegateTransfer 0 0 1 0)
+
+-- =====================================================================
+-- Delegate-arm tests (DelegateTransfer / DelegateSeize). The issuance policy
+-- only verifies the delegate is invoked and scoped to this policy — custody is
+-- the delegate's job, so these contexts do not need the delegate to actually run.
+-- Withdrawal indices are AssocMap insertion order; the seize redeemer sits in the
+-- purpose-sorted redeemers map (Minting < Rewarding).
+-- =====================================================================
+
+-- §14.2: DelegateTransfer with the global withdrawal present at the witnessed
+-- index (globalCred == params.globalLogicCred). PASSES.
+unit_delegateTransfer_with_global_succeeds :: Assertion
+unit_delegateTransfer_with_global_succeeds =
+    assertScriptSucceeds $
+        buildBalancedScriptContext
+            ( withRedeemer delegateTransferOk
+                <> withMintingScript (mintValue 1) delegateTransferOk
+                <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+                <> withWithdrawal globalCred 0
+                <> paramsRefBuilder
+                <> registryNodeRefBuilder
+                <> withOutput
+                    ( withTxOutAddress baseAddrWithStake
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)
+                    )
+            )
+  where
+    -- DelegateTransfer {wdrlIdx, paramsRefIdx=0, nodeRefIdx=1, globalWdrlIdx}.
+    delegateTransferOk = PlutusTx.toBuiltinData (DelegateTransfer mlWdrlIdx 0 1 globalWdrlIdx)
+
+-- §14.2: DelegateSeize whose seize redeemer names the SAME directory node the
+-- issuance witness proved (directoryNodeIdx == nodeRefIdx). PASSES.
+unit_delegateSeize_matching_node_succeeds :: Assertion
+unit_delegateSeize_matching_node_succeeds =
+    assertScriptSucceeds $
+        buildBalancedScriptContext
+            ( withRedeemer (delegateSeizeRedeemer 1)
+                <> withMintingScript (mintValue 1) (delegateSeizeRedeemer 1)
+                <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+                <> withRewardingScriptWitness (PlutusTx.toBuiltinData (SeizeAct 1 [0] 0 1 0)) seizeCred 0
+                <> paramsRefBuilder
+                <> registryNodeRefBuilder
+                <> withOutput
+                    ( withTxOutAddress baseAddrWithStake
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)
+                    )
+            )
+
+-- §14.1: DelegateSeize whose seize redeemer names a DIFFERENT node
+-- (directoryNodeIdx /= nodeRefIdx) — a seize of policy B cannot authorize a mint
+-- of policy A. FAILS.
+unit_delegateSeize_wrong_node_rejected :: Assertion
+unit_delegateSeize_wrong_node_rejected =
+    assertScriptFails $
+        buildBalancedScriptContext
+            ( withRedeemer (delegateSeizeRedeemer 1)
+                <> withMintingScript (mintValue 1) (delegateSeizeRedeemer 1)
+                <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+                <> withRewardingScriptWitness (PlutusTx.toBuiltinData (SeizeAct 7 [0] 0 1 0)) seizeCred 0
+                <> paramsRefBuilder
+                <> registryNodeRefBuilder
+                <> withOutput
+                    ( withTxOutAddress baseAddrWithStake
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)
+                    )
+            )
+
+-- Minting-logic withdrawal index and global withdrawal index (test-driven; see
+-- 'mlWdrlIdx'/'globalWdrlIdx' below). DelegateSeize {wdrlIdx, paramsRefIdx=0,
+-- nodeRefIdx=1, seizeRedeemerIdx}.
+delegateSeizeRedeemer :: Integer -> BuiltinData
+delegateSeizeRedeemer nodeRefIdx =
+    PlutusTx.toBuiltinData (DelegateSeize mlWdrlIdx 0 nodeRefIdx seizeRedeemerIdx)
+
+mlWdrlIdx :: Integer
+mlWdrlIdx = 0
+
+globalWdrlIdx :: Integer
+globalWdrlIdx = 1
+
+seizeRedeemerIdx :: Integer
+seizeRedeemerIdx = 1
