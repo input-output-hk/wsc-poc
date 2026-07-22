@@ -14,7 +14,7 @@ import Cardano.Api qualified as C
 import Control.Lens (over, view, (^.), _1, _2)
 import Control.Monad (unless)
 import Control.Monad.Reader (MonadReader, asks)
-import Convex.BuildTx (MonadBuildTx, TxBuilder (..), mintPlutus, mintPlutusWithRedeemerFn, payToAddress, spendPlutusRefWithInlineDatum)
+import Convex.BuildTx (MonadBuildTx, TxBuilder (..), addMintWithTxBody, buildScriptWitness, mintPlutus, payToAddress, spendPlutusRefWithInlineDatum)
 import Convex.BuildTx qualified as BuildTx
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain, queryNetworkId)
@@ -95,26 +95,32 @@ issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) udat@UTxODat{uDa
                 (fromIntegral (BuildTx.findIndexReference (uIn paramsTxOut) txBody))
                 registration
 
+    -- Mint the token with a redeemer computed against the FINAL transaction body
+    -- (addMintWithTxBody, not the WithRedeemerFn variant, so that later-added
+    -- withdrawals/outputs are visible when the indices are resolved).
+    let mintWith registrationOf =
+            addMintWithTxBody
+                issuedPolicyId
+                an
+                q
+                (\txBody -> buildScriptWitness mintingScript C.NoScriptDatumForMint (mkLocal (registrationOf txBody) txBody))
+
     if key dirNodeData == issuedSymbol
         then do
             -- Already registered: reference the existing directory node and prove
             -- registration by that reference input (Local + RegisteredByReferenceInput).
-            mintPlutusWithRedeemerFn
-                mintingScript
-                (\txBody -> mkLocal (RegisteredByReferenceInput (fromIntegral (BuildTx.findIndexReference (uIn udat) txBody))) txBody)
-                an
-                q
+            -- The Local arm reads its base/directory credentials from the
+            -- protocol-params reference input, so reference it here (the
+            -- register-and-mint branch gets it from 'insertDirectoryNode').
+            BuildTx.addReference (uIn paramsTxOut)
+            mintWith (\txBody -> RegisteredByReferenceInput (fromIntegral (BuildTx.findIndexReference (uIn udat) txBody)))
             BuildTx.addReference (uIn udat)
         else do
             -- Register-and-mint in one tx: insertDirectoryNode produces the new
-            -- node as an OUTPUT; prove registration by that output
-            -- (Local + RegisteredByOutput). The output is located by content — the
-            -- directory NFT — because its position depends on the whole tx.
-            mintPlutusWithRedeemerFn
-                mintingScript
-                (\txBody -> mkLocal (RegisteredByOutput (findNodeOutputIndex nodeAssetId txBody)) txBody)
-                an
-                q
+            -- node as an OUTPUT (and references the params UTxO); prove registration
+            -- by that output (Local + RegisteredByOutput). The output is located by
+            -- content — the directory NFT — because its position depends on the tx.
+            mintWith (\txBody -> RegisteredByOutput (findNodeOutputIndex nodeAssetId txBody))
             insertDirectoryNode paramsTxOut issuanceCborHexTxOut udat
 
     pure issuedPolicyId

@@ -1,5 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Unit tests for the two-parameter dual-arm issuance policy
+-- (doc/design-issuance-dual-arm-custody.md §5-§9). These exercise the Local arm:
+-- the policy reads the base / directory credentials from the protocol-params
+-- reference input, proves registration by a witnessed reference input, and
+-- enforces custody with the universal full-output scan.
 module ProgrammableTokens.Test.ProgrammableLogicMinting (
     tests,
 ) where
@@ -29,8 +34,10 @@ import ProgrammableTokens.Test.ScriptContext.Builder (
     withValue,
     withWithdrawal,
  )
-import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
+import SmartTokens.Contracts.Issuance (MintRedeemer (..), RegistrationWitness (..), mkProgrammableLogicMinting)
+import SmartTokens.Types.Constants (protocolParamsToken)
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (DirectorySetNode))
+import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (ProgrammableLogicGlobalParams))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, testCase)
 
@@ -39,9 +46,9 @@ tests =
     testGroup
         "ProgrammableLogicMinting unit tests"
         [ testCase "unit_mint_to_programmable_logic_output_succeeds" unit_mint_to_programmable_logic_output_succeeds
+        , testCase "unit_mint_to_base_without_stake_cred_succeeds" unit_mint_to_base_without_stake_cred_succeeds
         , testCase "unit_mint_to_pubkey_output_rejected" unit_mint_to_pubkey_output_rejected
         , testCase "unit_mint_split_between_base_and_pubkey_rejected" unit_mint_split_between_base_and_pubkey_rejected
-        , testCase "unit_mint_to_base_without_stake_cred_rejected" unit_mint_to_base_without_stake_cred_rejected
         , testCase "unit_mint_of_unregistered_policy_rejected" unit_mint_of_unregistered_policy_rejected
         ]
 
@@ -62,12 +69,13 @@ unit_mint_split_between_base_and_pubkey_rejected :: Assertion
 unit_mint_split_between_base_and_pubkey_rejected =
     assertScriptFails programmableMintSplitEscapeCtx
 
--- | Item 4: minting to a base-credential output that carries NO staking
--- credential must be rejected — such a UTxO can never be attributed to an owner
--- and would be permanently locked.
-unit_mint_to_base_without_stake_cred_rejected :: Assertion
-unit_mint_to_base_without_stake_cred_rejected =
-    assertScriptFails programmableMintNoStakeCtx
+-- | Under the dual-arm design the policy no longer enforces an inline stake
+-- credential on mint outputs (§2.2): a stake-less base output is the builder's
+-- responsibility, not a consensus rule. The Local full scan cares only that no
+-- non-base output holds the policy, so a mint to a stake-less BASE output passes.
+unit_mint_to_base_without_stake_cred_succeeds :: Assertion
+unit_mint_to_base_without_stake_cred_succeeds =
+    assertScriptSucceeds programmableMintNoStakeCtx
 
 assertScriptSucceeds :: ScriptContext -> Assertion
 assertScriptSucceeds ctx =
@@ -79,8 +87,7 @@ assertScriptFails ctx =
 
 mintArgs :: ScriptContext -> [Data]
 mintArgs ctx =
-    [ PlutusTx.toData progLogicBaseCred
-    , PlutusTx.toData directoryNodeCS
+    [ PlutusTx.toData protocolParamsCS
     , PlutusTx.toData mintingLogicHash
     , PlutusTx.toData ctx
     ]
@@ -120,6 +127,15 @@ mintingPolicyCS = CurrencySymbol (bs28 0x19)
 directoryNodeCS :: CurrencySymbol
 directoryNodeCS = CurrencySymbol (bs28 0x11)
 
+protocolParamsCS :: CurrencySymbol
+protocolParamsCS = CurrencySymbol (bs28 0x10)
+
+globalCred :: Credential
+globalCred = ScriptCredential (ScriptHash (bs28 0x13))
+
+seizeCred :: Credential
+seizeCred = ScriptCredential (ScriptHash (bs28 0x1c))
+
 transferLogicHash :: ScriptHash
 transferLogicHash = ScriptHash (bs28 0x15)
 
@@ -134,6 +150,24 @@ tailCS = CurrencySymbol (PV1.toBuiltin (BS.replicate 28 0xff))
 mintingRegistryNode :: DirectorySetNode
 mintingRegistryNode =
     DirectorySetNode mintingPolicyCS tailCS (ScriptCredential transferLogicHash) issuerCred (CurrencySymbol "")
+
+-- | The four-field protocol-params datum the Local arm reads its base/directory
+-- credentials from.
+protocolParamsDatum :: ProgrammableLogicGlobalParams
+protocolParamsDatum =
+    ProgrammableLogicGlobalParams directoryNodeCS progLogicBaseCred globalCred seizeCred
+
+-- | The protocol-params reference input. Its TxOutRef sorts BEFORE the registry
+-- node ("aa.." < "bb.."), so it lands at reference-input index 0 and the
+-- registry node at index 1.
+paramsRefBuilder :: ScriptContextBuilder
+paramsRefBuilder =
+    withReferenceInput
+        ( withOutRef (TxOutRef (TxId (PV1.toBuiltin (BS.replicate 32 0xaa))) 0)
+            <> withAddress (pubKeyAddress signerPkh)
+            <> withValue (mkAdaValue 3_000_000 <> assetClassValue (assetClass protocolParamsCS protocolParamsToken) 1)
+            <> withInlineDatum (PlutusTx.toBuiltinData protocolParamsDatum)
+        )
 
 registryNodeRefBuilder :: ScriptContextBuilder
 registryNodeRefBuilder =
@@ -156,11 +190,14 @@ mintValue :: Integer -> Value
 mintValue quantity =
     assetClassValue (assetClass mintingPolicyCS (TokenName "0c")) quantity
 
-mintRedeemer :: BuiltinData
-mintRedeemer = PlutusTx.toBuiltinData (ScriptCredential mintingLogicHash)
+-- | Local mint redeemer: minting-logic withdrawal at index 0, protocol-params
+-- reference input at index 0, registration proven by the registry node at the
+-- given reference-input index.
+localRedeemer :: Integer -> BuiltinData
+localRedeemer regRefIdx =
+    PlutusTx.toBuiltinData (Local 0 0 (RegisteredByReferenceInput regRefIdx))
 
--- | Base address WITH an inline stake credential (the owner). Programmable-token
--- outputs must carry one so the transfer path can attribute ownership.
+-- | Base address WITH an inline stake credential (the owner).
 baseAddrWithStake :: Address
 baseAddrWithStake =
     Address progLogicBaseCred (Just (StakingHash (PubKeyCredential signerPkh)))
@@ -168,9 +205,10 @@ baseAddrWithStake =
 programmableMintCtx :: ScriptContext
 programmableMintCtx =
     buildBalancedScriptContext
-        ( withRedeemer mintRedeemer
-            <> withMintingScript (mintValue 1) mintRedeemer
+        ( withRedeemer (localRedeemer 1)
+            <> withMintingScript (mintValue 1) (localRedeemer 1)
             <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+            <> paramsRefBuilder
             <> registryNodeRefBuilder
             <> withOutput
                 ( withTxOutAddress baseAddrWithStake
@@ -179,28 +217,29 @@ programmableMintCtx =
         )
 
 -- | Security S2: identical to the success case but with NO registry-node
--- reference input — minting a policy that is not registered in the directory.
--- Such tokens could later escape the mini-ledger via a covering-node transfer
--- proof, so the mint must be rejected.
+-- reference input, so the witnessed registration index resolves to no directory
+-- NFT and the mint is rejected.
 programmableMintUnregisteredCtx :: ScriptContext
 programmableMintUnregisteredCtx =
     buildBalancedScriptContext
-        ( withRedeemer mintRedeemer
-            <> withMintingScript (mintValue 1) mintRedeemer
+        ( withRedeemer (localRedeemer 1)
+            <> withMintingScript (mintValue 1) (localRedeemer 1)
             <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+            <> paramsRefBuilder
             <> withOutput
                 ( withTxOutAddress baseAddrWithStake
                     <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)
                 )
         )
 
--- | Same as the success case but the base output has no staking credential.
+-- | Mint to a stake-less BASE output: accepted under §2.2 (no consensus stake rule).
 programmableMintNoStakeCtx :: ScriptContext
 programmableMintNoStakeCtx =
     buildBalancedScriptContext
-        ( withRedeemer mintRedeemer
-            <> withMintingScript (mintValue 1) mintRedeemer
+        ( withRedeemer (localRedeemer 1)
+            <> withMintingScript (mintValue 1) (localRedeemer 1)
             <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+            <> paramsRefBuilder
             <> registryNodeRefBuilder
             <> withOutput
                 ( withTxOutAddress (Address progLogicBaseCred Nothing)
@@ -211,9 +250,10 @@ programmableMintNoStakeCtx =
 programmableMintEscapeCtx :: ScriptContext
 programmableMintEscapeCtx =
     buildBalancedScriptContext
-        ( withRedeemer mintRedeemer
-            <> withMintingScript (mintValue 1) mintRedeemer
+        ( withRedeemer (localRedeemer 1)
+            <> withMintingScript (mintValue 1) (localRedeemer 1)
             <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+            <> paramsRefBuilder
             <> registryNodeRefBuilder
             <> withOutput
                 ( withTxOutAddress (pubKeyAddress signerPkh)
@@ -224,12 +264,13 @@ programmableMintEscapeCtx =
 programmableMintSplitEscapeCtx :: ScriptContext
 programmableMintSplitEscapeCtx =
     buildBalancedScriptContext
-        ( withRedeemer mintRedeemer
-            <> withMintingScript (mintValue 2) mintRedeemer
+        ( withRedeemer (localRedeemer 1)
+            <> withMintingScript (mintValue 2) (localRedeemer 1)
             <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+            <> paramsRefBuilder
             <> registryNodeRefBuilder
             <> withOutput
-                ( withTxOutAddress (Address progLogicBaseCred Nothing)
+                ( withTxOutAddress baseAddrWithStake
                     <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)
                 )
             <> withOutput
