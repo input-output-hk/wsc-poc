@@ -127,16 +127,15 @@ alwaysSucceedsScript :: ScriptTarget -> C.PlutusScript C.PlutusScriptV3
 alwaysSucceedsScript target =
   C.PlutusScriptSerialised $ serialiseScript $ Scripts.tryCompile target palwaysSucceed
 
--- TODO: can we change the signature to just take the param policy id?
-programmableLogicMintingScript :: ScriptTarget -> C.PaymentCredential -> CurrencySymbol -> C.StakeCredential -> C.PlutusScript C.PlutusScriptV3
-programmableLogicMintingScript _target progLogicBaseSpndingCred directoryNodeCS mintingCred =
-  -- The minting-logic hash is applied LAST so the offchain issuance-cbor-hex
-  -- derivation (issuerPrefixPostfixBytes) can split the compiled CBOR around it;
-  -- directoryNodeCS (security S2) is baked into the prefix.
+-- | The issuance minting policy, applied to its two parameters (spec §5): the
+-- protocol-params NFT currency symbol (from which the directory / base / global /
+-- seize credentials are read on-chain) and the token's minting-logic hash. The
+-- minting-logic hash is applied LAST so the offchain issuance-cbor-hex derivation
+-- ('issuerPrefixPostfixBytes') can split the compiled CBOR around it.
+programmableLogicMintingScript :: ScriptTarget -> CurrencySymbol -> C.StakeCredential -> C.PlutusScript C.PlutusScriptV3
+programmableLogicMintingScript _target protocolParamsCS mintingCred =
   let unappliedScript = Scripts.tryCompile Production
-               $ mkProgrammableLogicMinting
-                  # pdata (pconstant $ transCredential progLogicBaseSpndingCred)
-                  # pdata (pconstant directoryNodeCS)
+               $ mkProgrammableLogicMinting # pdata (pconstant protocolParamsCS)
       script = applyArguments unappliedScript [toData $ extractScriptHash $ transStakeCredential mintingCred]
   in C.PlutusScriptSerialised $ serialiseScript script
 

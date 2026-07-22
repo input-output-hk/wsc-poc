@@ -11,18 +11,19 @@ module ProgrammableTokens.OffChain.BuildTx.ProgrammableLogic (
 ) where
 
 import Cardano.Api qualified as C
-import Control.Lens (over, (^.), _1)
+import Control.Lens (over, view, (^.), _1, _2)
 import Control.Monad (unless)
 import Control.Monad.Reader (MonadReader, asks)
-import Convex.BuildTx (MonadBuildTx, TxBuilder (..), mintPlutus, payToAddress, spendPlutusRefWithInlineDatum)
+import Convex.BuildTx (MonadBuildTx, TxBuilder (..), mintPlutus, mintPlutusWithRedeemerFn, payToAddress, spendPlutusRefWithInlineDatum)
 import Convex.BuildTx qualified as BuildTx
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain, queryNetworkId)
-import Convex.PlutusLedger.V1 (transPolicyId, transPubKeyHash, transScriptHash)
+import Convex.PlutusLedger.V1 (transPolicyId, transPubKeyHash, transScriptHash, unTransAssetName)
 import Convex.Utils qualified as Utils
 import Data.Foldable (traverse_)
-import Data.List (nub, sortOn)
+import Data.List (findIndex, nub, sortOn)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Ord (Down (..))
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (CurrencySymbol (..))
@@ -32,7 +33,7 @@ import ProgrammableTokens.OffChain.BuildTx.Utils qualified as Utils
 import ProgrammableTokens.OffChain.Env (TransferLogicEnv (..))
 import ProgrammableTokens.OffChain.Env qualified as Env
 import ProgrammableTokens.OffChain.UTxODat (UTxODat (..))
-import SmartTokens.Contracts.Issuance (SmartTokenMintingAction (..))
+import SmartTokens.Contracts.Issuance (MintRedeemer (..), RegistrationWitness (..))
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex)
 import SmartTokens.Contracts.ProgrammableLogicBase (
     MintProof (..),
@@ -60,11 +61,13 @@ issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) udat@UTxODat{uDa
     inta@TransferLogicEnv{tleMintingScript} <- asks Env.transferLogicEnv
     glParams <- asks (Env.globalParams . Env.directoryEnv)
     dir <- asks Env.directoryEnv
+    netId <- queryNetworkId
 
     let mintingLogicHash = C.hashScript $ C.PlutusScript C.plutusScriptVersion tleMintingScript
-        mintingLogicCred = SmartTokenMintingAction $ transCredential $ C.PaymentCredentialByScript mintingLogicHash
-
-    -- Debug.Trace.traceM $ "mintingLogicHash: " <> show mintingLogicHash
+        -- The token's minting-logic authorization runs as a withdraw-zero script;
+        -- its stake address is what the issuance policy looks for at
+        -- 'mrMintingLogicWdrlIdx'.
+        mintingLogicStakeAddr = C.makeStakeAddress netId (C.StakeCredentialByScript mintingLogicHash)
 
     -- The global params in the UTxO need to match those in our 'DirectoryEnv'.
     -- If they don't, we get a script error when trying to balance the transaction.
@@ -76,32 +79,58 @@ issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) udat@UTxODat{uDa
     let mintingScript = Env.programmableTokenMintingScript dir inta
         issuedPolicyId = C.scriptPolicyId $ C.PlutusScript C.PlutusScriptV3 mintingScript
         issuedSymbol = transPolicyId issuedPolicyId
+        -- The directory NFT for this policy is named after the policy id, under
+        -- the directory minting policy.
+        nodeAssetId =
+            C.AssetId
+                (Env.directoryNodePolicyId dir)
+                (unTransAssetName (PV3.TokenName (unCurrencySymbol issuedSymbol)))
 
-    -- Debug.Trace.traceM $ "mintingLogicScript: " <> BSC.unpack (Base16.encode $ C.serialiseToRawBytes mintingScript)
-    -- Debug.Trace.traceM $ "issuedCurrencySymbol: " <> show issuedSymbol
+        -- Indices shared by both Local sub-cases, computed against the balanced
+        -- transaction: the minting-logic withdrawal and the protocol-params
+        -- reference input.
+        mkLocal registration txBody =
+            Local
+                (fromIntegral (BuildTx.findIndexWithdrawal mintingLogicStakeAddr txBody))
+                (fromIntegral (BuildTx.findIndexReference (uIn paramsTxOut) txBody))
+                registration
 
     if key dirNodeData == issuedSymbol
         then do
-            -- Debug.Trace.traceM "NO insert directory node"
-            mintPlutus mintingScript mintingLogicCred an q
-            -- Security S2: the mint validator now requires proof that the minted
-            -- policy is registered. The matching directory node is already this
-            -- UTxO, so reference it (Aiken's RefInput mode).
+            -- Already registered: reference the existing directory node and prove
+            -- registration by that reference input (Local + RegisteredByReferenceInput).
+            mintPlutusWithRedeemerFn
+                mintingScript
+                (\txBody -> mkLocal (RegisteredByReferenceInput (fromIntegral (BuildTx.findIndexReference (uIn udat) txBody))) txBody)
+                an
+                q
             BuildTx.addReference (uIn udat)
         else do
-            -- Debug.Trace.traceM "insert directory node"
             -- Register-and-mint in one tx: insertDirectoryNode produces the new
-            -- node as an OUTPUT, which satisfies the mint validator's S2 check
-            -- via its output scan (Aiken's OutputIndex mode).
-            mintPlutus mintingScript mintingLogicCred an q
+            -- node as an OUTPUT; prove registration by that output
+            -- (Local + RegisteredByOutput). The output is located by content — the
+            -- directory NFT — because its position depends on the whole tx.
+            mintPlutusWithRedeemerFn
+                mintingScript
+                (\txBody -> mkLocal (RegisteredByOutput (findNodeOutputIndex nodeAssetId txBody)) txBody)
+                an
+                q
             insertDirectoryNode paramsTxOut issuanceCborHexTxOut udat
 
     pure issuedPolicyId
-  where
-    transCredential :: C.PaymentCredential -> PV3.Credential
-    transCredential = \case
-        C.PaymentCredentialByKey k -> PV3.PubKeyCredential (transPubKeyHash k)
-        C.PaymentCredentialByScript k -> PV3.ScriptCredential (transScriptHash k)
+
+-- | Index of the transaction output that holds one unit of @assetId@ (the
+-- directory node NFT), located by content because its position depends on the
+-- full transaction layout.
+findNodeOutputIndex :: (C.IsMaryBasedEra era) => C.AssetId -> C.TxBodyContent C.BuildTx era -> Integer
+findNodeOutputIndex assetId txBody =
+    fromIntegral $
+        fromMaybe (error "issueProgrammableToken: directory node output not found") $
+            findIndex
+                ( \txOut ->
+                    C.selectAsset (view (L._TxOut . _2 . L._TxOutValue) txOut) assetId == 1
+                )
+                (txBody ^. L.txOuts)
 
 {- | Add a smart token output that locks the given value,
 addressed to the payment credential
