@@ -28,13 +28,15 @@ import Plutarch.Core.Context (paddressCredential, ptxInInfoResolved)
 import Plutarch.Core.List (pdropFast)
 import Plutarch.Core.ValidationLogic (pvalidateConditions)
 import Plutarch.Core.Value (phasCS, ptryLookupValue)
-import Plutarch.LedgerApi.V3 (PCredential (..), PCurrencySymbol,
-                              PScriptContext (..),
+import Plutarch.LedgerApi.AssocMap (KeyGuarantees (Sorted))
+import Plutarch.LedgerApi.V3 (AmountGuarantees (Positive), PCredential (..),
+                              PCurrencySymbol, PScriptContext (..),
                               PScriptHash, PScriptInfo (PMintingScript),
                               PScriptPurpose (PRewarding),
                               PTokenName (PTokenName),
                               PTxInfo (PTxInfo, ptxInfo'mint, ptxInfo'outputs, ptxInfo'referenceInputs, ptxInfo'wdrl, ptxInfo'redeemers),
-                              PTxOut (PTxOut, ptxOut'address, ptxOut'value))
+                              PTxOut (PTxOut, ptxOut'address, ptxOut'value),
+                              PValue)
 import Plutarch.LedgerApi.Value (pvalueOf)
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
@@ -171,14 +173,21 @@ mkProgrammableLogicMinting = plam $ \protocolParamsCS mintingLogicHash' ctx -> P
             pmatch (pfromData (phead # (pcheckedDrop # pfromData idx # outputs))) $
               \(PTxOut {ptxOut'value}) -> hasNodeNFT # directoryNodeCS # pfromData ptxOut'value
       -- Custody: universal full scan. Every output whose payment credential is not
-      -- the base must hold zero of ownCS. Delta- and input-agnostic.
+      -- the base must hold zero of ownCS. Delta- and input-agnostic. Uses raw
+      -- field access (not a full `PTxOut` decode) so the datum and reference
+      -- script of each output are never forced — the dominant per-output cost on
+      -- busy transactions.
+      progLogicCredData <- plet $ pforgetData pprogLogicCred
       noEscape <- plet $
         pall # plam (\o ->
-          pmatch (pfromData o) $ \(PTxOut {ptxOut'address, ptxOut'value}) ->
-            pif
-              (paddressCredential ptxOut'address #== progLogicCred)
-              (pconstant True)
-              (pnot # (phasCS # pfromData ptxOut'value # ownCS))
+          plet (psndBuiltin # (pasConstr # pforgetData o)) $ \txOutFields ->
+            let addrData = phead # txOutFields
+                valueData = phead # (ptail # txOutFields)
+                paymentCredData = phead # (psndBuiltin # (pasConstr # addrData))
+             in pif
+                  (paymentCredData #== progLogicCredData)
+                  (pconstant True)
+                  (pnot # (phasCS # pfromData (punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) valueData) # ownCS))
         ) # outputs
       pvalidateConditions
         [ mintingLogicInvokedAt # wdrlIdx
