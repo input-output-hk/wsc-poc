@@ -12,6 +12,7 @@
 
 module SmartTokens.Contracts.ProgrammableLogicBase (
     ProgrammableLogicGlobalRedeemer (..),
+    PProgrammableLogicGlobalRedeemer (..),
     MintProof (..),
     absoluteToRelativeInputIdxs,
     mkSeizeActRedeemerFromAbsoluteInputIdxs,
@@ -19,6 +20,7 @@ module SmartTokens.Contracts.ProgrammableLogicBase (
     mkProgrammableLogicBase,
     mkProgrammableLogicGlobal,
     mkProgrammableSeize,
+    pparamsAtRefIdx,
     pisScriptInvokedEntries,
     pvalueFromCred,
     pvalueToCred,
