@@ -151,6 +151,7 @@ executable export-smart-tokens
     , bytestring
     , cardano-api
     , cardano-binary
+    , convex-base
     , directory
     , filepath
     , mtl
@@ -158,6 +159,7 @@ executable export-smart-tokens
     , plutarch
     , plutus-ledger-api
     , plutus-tx
+    , programmable-tokens-offchain
     , programmable-tokens-onchain
     , regulated-stablecoin
     , text

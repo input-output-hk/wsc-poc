@@ -48,6 +48,8 @@ import PlutusLedgerApi.Common (toData)
 import PlutusLedgerApi.V2 (Data, ExBudget)
 import PlutusLedgerApi.V3 qualified as V3
 import PlutusTx.Builtins.HasOpaque
+import PlutusTx.Builtins (fromBuiltin, serialiseData)
+import Convex.PlutusLedger.V1 (transPolicyId)
 import SmartTokens.Contracts.ExampleTransferLogic (
     mkFreezeAndSeizeTransfer,
     mkPermissionedTransfer,
@@ -82,6 +84,7 @@ import Wst.Offchain.Env (
     TransferLogicEnv (..),
     globalParams,
     mkDirectoryEnv,
+    protocolParamsPolicyId,
     programmableTokenMintingScript,
     transferLogicEnv,
     withBlacklistFor,
@@ -138,13 +141,18 @@ writePlutusScriptTrace = writePlutusScript (Tracing LogInfo DoTracing)
 writePlutusScriptNoTrace :: String -> FilePath -> (forall s. Term s a) -> IO ()
 writePlutusScriptNoTrace = writePlutusScript NoTracing
 
-issuerPrefixPostfixBytes :: V3.Credential -> (Text, Text)
-issuerPrefixPostfixBytes progLogicCred =
+-- | Mirror of the library derivation (see
+-- 'ProgrammableTokens.OffChain.BuildTx.IssuanceCborHexRef'): the issuance policy
+-- is applied to @protocolParamsCS@ and the CBOR is split around the placeholder
+-- minting-logic hash. Kept as a local helper here only because this exporter
+-- emits the prefix/postfix as hex text files.
+issuerPrefixPostfixBytes :: V3.CurrencySymbol -> (Text, Text)
+issuerPrefixPostfixBytes protocolParamsCS =
     let
-        dummyHex = "deadbeefcafebabe"
-        placeholderMintingLogic = V3.ScriptHash $ stringToBuiltinByteStringHex "deadbeefcafebabe"
+        placeholderMintingLogic = V3.ScriptHash $ stringToBuiltinByteStringHex "deadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeef"
+        dummyHex = Text.decodeUtf8 $ Base16.encode $ fromBuiltin $ serialiseData $ V3.toBuiltinData placeholderMintingLogic
         issuerScriptBase =
-            case compile NoTracing (mkProgrammableLogicMinting # pconstant progLogicCred) of
+            case compile NoTracing (mkProgrammableLogicMinting # pdata (pconstant protocolParamsCS)) of
                 Right compiledScript -> compiledScript
                 Left err -> error $ "Failed to compile issuer script: " <> show err
         dummyIssuerInstanceCborHex = encodeSerialiseCBOR $ applyArguments issuerScriptBase [toData placeholderMintingLogic]
@@ -225,8 +233,7 @@ writeAppliedScripts baseFolder AppliedScriptArgs{asaTxIn, asaIssuerCborHexTxIn, 
                         , dsProgrammableLogicGlobalScript
                         } <-
                         asks directoryEnv
-                    let ProgrammableLogicGlobalParams{progLogicCred} = globalParams dirEnv
-                        (prefixIssuerCborHex, postfixIssuerCborHex) = issuerPrefixPostfixBytes progLogicCred
+                    let (prefixIssuerCborHex, postfixIssuerCborHex) = issuerPrefixPostfixBytes (transPolicyId (protocolParamsPolicyId dirEnv))
                     liftIO $ TIO.writeFile (baseFolder </> "prefixIssuerCborHex.txt") prefixIssuerCborHex
                     liftIO $ TIO.writeFile (baseFolder </> "postfixIssuerCborHex.txt") postfixIssuerCborHex
                     let programmableMinting = programmableTokenMintingScript dirEnv transferEnv
