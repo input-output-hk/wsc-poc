@@ -65,12 +65,10 @@ again — never to accept the loss (see "No-trade-off rule").
 
 ### C. Feature-complete
 
-"No Go" means a decision was made to explicitly avoid this feature. 
-
 Feature checklist (must each have a passing functional test driving the real
 script):
-- [ No Go ] Registry node in-place update (item 10) — rotate transfer/issuer logic.
-- [ No Go ] Unfracking (item 12) — same-owner UTxO reshaping, standalone validator. This feature was rejected.
+- [ ] Registry node in-place update (item 10) — rotate transfer/issuer logic.
+- [ ] Unfracking (item 12) — same-owner UTxO reshaping, standalone validator.
 - [ ] Precise mint-delegation to global (item 35) + flexible mint output (33).
 - [ ] Register-without-mint (item 34).
 - [ ] Multi-policy seize (item 37).
