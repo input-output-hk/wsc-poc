@@ -35,6 +35,7 @@ import ProgrammableTokens.OffChain.UTxODat (UTxODat (..))
 import SmartTokens.Contracts.Issuance (SmartTokenMintingAction (..))
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex)
 import SmartTokens.Contracts.ProgrammableLogicBase (
+    MintProof (..),
     ProgrammableLogicGlobalRedeemer (..),
  )
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
@@ -200,9 +201,26 @@ transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol director
         transferProofs txBody =
             [proofNodeIndex txBody (proofNodeForSymbol sortedDirectoryNodes programmableTokenSymbol)]
 
-        mintProofs txBody = map (proofNodeIndex txBody . proofNodeForSymbol sortedDirectoryNodes) (mintedCurrencySymbols txBody)
+        -- Classify each minted currency symbol against the directory (spec §11.3):
+        -- the covering node found by 'proofNodeForSymbol' is a Member when its key
+        -- equals the symbol (registered — no index needed), otherwise a NonMember
+        -- whose covering-node reference index the mint walk authenticates.
+        mintProofFor txBody cs =
+            let node = proofNodeForSymbol sortedDirectoryNodes cs
+             in if key (uDatum node) == cs
+                    then Member
+                    else NonMember (proofNodeIndex txBody node)
 
-        mintProofReferences txBody = map (uIn . proofNodeForSymbol sortedDirectoryNodes) (mintedCurrencySymbols txBody)
+        mintProofs txBody = map (mintProofFor txBody) (mintedCurrencySymbols txBody)
+
+        -- Only NonMember proofs need their covering node referenced; Member proofs
+        -- touch no reference input.
+        mintProofReferences txBody =
+            [ uIn node
+            | cs <- mintedCurrencySymbols txBody
+            , let node = proofNodeForSymbol sortedDirectoryNodes cs
+            , key (uDatum node) /= cs
+            ]
 
         transferProofReferences _ = map (uIn . proofNodeForSymbol sortedDirectoryNodes) [programmableTokenSymbol]
 
@@ -210,6 +228,7 @@ transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol director
             TransferAct
                 { plgrTransferProofs = transferProofs txBody
                 , plgrMintProofs = mintProofs txBody
+                , plgrParamsRefIdx = fromIntegral (BuildTx.findIndexReference (uIn paramsTxIn) txBody)
                 }
 
         programmableGlobalWitness txBody =
