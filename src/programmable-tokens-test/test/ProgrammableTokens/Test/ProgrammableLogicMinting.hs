@@ -50,6 +50,15 @@ tests =
         , testCase "unit_mint_to_pubkey_output_rejected" unit_mint_to_pubkey_output_rejected
         , testCase "unit_mint_split_between_base_and_pubkey_rejected" unit_mint_split_between_base_and_pubkey_rejected
         , testCase "unit_mint_of_unregistered_policy_rejected" unit_mint_of_unregistered_policy_rejected
+        , -- §14.2 functionality
+          testCase "unit_local_multi_name_cip68_succeeds" unit_local_multi_name_cip68_succeeds
+        , testCase "unit_local_multi_recipient_succeeds" unit_local_multi_recipient_succeeds
+        , testCase "unit_burnOnly_succeeds" unit_burnOnly_succeeds
+        , -- §14.1 security red tests
+          testCase "unit_local_mintA_escape_with_burnB_rejected" unit_local_mintA_escape_with_burnB_rejected
+        , testCase "unit_local_negative_registration_index_rejected" unit_local_negative_registration_index_rejected
+        , testCase "unit_burnOnly_with_positive_mint_rejected" unit_burnOnly_with_positive_mint_rejected
+        , testCase "unit_delegateTransfer_without_global_rejected" unit_delegateTransfer_without_global_rejected
         ]
 
 -- | Security S2: minting a policy with no directory registration is rejected.
@@ -278,3 +287,139 @@ programmableMintSplitEscapeCtx =
                     <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)
                 )
         )
+
+-- =====================================================================
+-- §14.1 / §14.2 dual-arm custody test matrix (Local + BurnOnly arms;
+-- delegate-arm binding). Indices: minting-logic withdrawal at 0 (single
+-- withdrawal), protocol-params reference input at 0, registry node at 1.
+-- =====================================================================
+
+mintValueName :: BuiltinByteString -> Integer -> Value
+mintValueName name quantity =
+    assetClassValue (assetClass mintingPolicyCS (TokenName name)) quantity
+
+-- | Second registered policy for mint-A/burn-B — a distinct token NAME of the
+-- SAME policy (the CIP-68 pattern), so both are under @mintingPolicyCS@.
+otherName :: BuiltinByteString
+otherName = "0d"
+
+-- §14.2: CIP-68 pair — two token names of one policy, both to base. PASSES.
+unit_local_multi_name_cip68_succeeds :: Assertion
+unit_local_multi_name_cip68_succeeds =
+    assertScriptSucceeds $
+        buildBalancedScriptContext
+            ( withRedeemer (localRedeemer 1)
+                <> withMintingScript (mintValue 1 <> mintValueName otherName 1) (localRedeemer 1)
+                <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+                <> paramsRefBuilder
+                <> registryNodeRefBuilder
+                <> withOutput
+                    ( withTxOutAddress baseAddrWithStake
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1 <> mintValueName otherName 1)
+                    )
+            )
+
+-- §14.2: multi-recipient issuance — mint split across two base outputs. PASSES.
+unit_local_multi_recipient_succeeds :: Assertion
+unit_local_multi_recipient_succeeds =
+    assertScriptSucceeds $
+        buildBalancedScriptContext
+            ( withRedeemer (localRedeemer 1)
+                <> withMintingScript (mintValue 2) (localRedeemer 1)
+                <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+                <> paramsRefBuilder
+                <> registryNodeRefBuilder
+                <> withOutput
+                    ( withTxOutAddress baseAddrWithStake
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)
+                    )
+                <> withOutput
+                    ( withTxOutAddress baseAddrWithStake
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)
+                    )
+            )
+
+-- §14.2: BurnOnly — a pure burn needs only the minting-logic withdrawal and an
+-- all-non-positive own-policy mint map. PASSES.
+unit_burnOnly_succeeds :: Assertion
+unit_burnOnly_succeeds =
+    assertScriptSucceeds $
+        buildBalancedScriptContext
+            ( withRedeemer burnOnlyRedeemer
+                <> withMintingScript (mintValue (-1)) burnOnlyRedeemer
+                <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+            )
+
+-- §14.1: mint name A to a PUBKEY output while burning name B — the per-output
+-- full scan sees own-policy value outside base regardless of the B burn. FAILS.
+unit_local_mintA_escape_with_burnB_rejected :: Assertion
+unit_local_mintA_escape_with_burnB_rejected =
+    assertScriptFails $
+        buildBalancedScriptContext
+            ( withRedeemer (localRedeemer 1)
+                <> withMintingScript (mintValue 1 <> mintValueName otherName (-1)) (localRedeemer 1)
+                <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+                <> paramsRefBuilder
+                <> registryNodeRefBuilder
+                <> withOutput
+                    ( withTxOutAddress (pubKeyAddress signerPkh)
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)
+                    )
+            )
+
+-- §14.1: a negative registration index must be rejected explicitly (pcheckedDrop),
+-- not rely on budget exhaustion. FAILS.
+unit_local_negative_registration_index_rejected :: Assertion
+unit_local_negative_registration_index_rejected =
+    assertScriptFails $
+        buildBalancedScriptContext
+            ( withRedeemer (localRedeemer (-1))
+                <> withMintingScript (mintValue 1) (localRedeemer (-1))
+                <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+                <> paramsRefBuilder
+                <> registryNodeRefBuilder
+                <> withOutput
+                    ( withTxOutAddress baseAddrWithStake
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)
+                    )
+            )
+
+-- §14.1: BurnOnly with a POSITIVE own-policy mint entry is not a pure burn. FAILS.
+unit_burnOnly_with_positive_mint_rejected :: Assertion
+unit_burnOnly_with_positive_mint_rejected =
+    assertScriptFails $
+        buildBalancedScriptContext
+            ( withRedeemer burnOnlyRedeemer
+                <> withMintingScript (mintValue 1) burnOnlyRedeemer
+                <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+                <> withOutput
+                    ( withTxOutAddress baseAddrWithStake
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)
+                    )
+            )
+
+-- §14.1: a DelegateTransfer witness whose global-withdrawal index does not point
+-- at the params global credential is rejected (no global custody actually runs).
+unit_delegateTransfer_without_global_rejected :: Assertion
+unit_delegateTransfer_without_global_rejected =
+    assertScriptFails $
+        buildBalancedScriptContext
+            ( withRedeemer delegateTransferRedeemer
+                <> withMintingScript (mintValue 1) delegateTransferRedeemer
+                <> withWithdrawal (ScriptCredential mintingLogicHash) 0
+                <> paramsRefBuilder
+                <> registryNodeRefBuilder
+                <> withOutput
+                    ( withTxOutAddress (pubKeyAddress signerPkh)
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue 1)
+                    )
+            )
+
+burnOnlyRedeemer :: BuiltinData
+burnOnlyRedeemer = PlutusTx.toBuiltinData (BurnOnly 0)
+
+-- DelegateTransfer {wdrlIdx=0, paramsRefIdx=0, nodeRefIdx=1, globalWdrlIdx=0}.
+-- With only the minting-logic withdrawal present, globalWdrlIdx=0 resolves to a
+-- credential that is not the params global credential, so it is rejected.
+delegateTransferRedeemer :: BuiltinData
+delegateTransferRedeemer = PlutusTx.toBuiltinData (DelegateTransfer 0 0 1 0)
