@@ -13,6 +13,7 @@ import PlutusLedgerApi.V1.Value (CurrencySymbol (..))
 import PlutusLedgerApi.V3 (Credential (..), Data (..), ScriptHash (..), toData)
 import PlutusTx qualified
 import PlutusTx.Builtins qualified as Builtins
+import SmartTokens.Contracts.ProgrammableLogicBase (MintProof (..), ProgrammableLogicGlobalRedeemer (..))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
@@ -71,4 +72,19 @@ tests =
         -- old datum's two fields — the coexistence guarantee for existing readers.
         take 2 (case toData sampleParams of List xs -> xs; _ -> [])
           @?= [toData sampleDirCS, toData sampleBaseCred]
+    , -- MintProof constructor indices are frozen (§11.3): Member = Constr 0 [],
+      -- NonMember n = Constr 1 [n]. The global mint walk dispatches on these.
+      testCase "MintProof.Member encodes as Constr 0 []" $
+        toData Member @?= Constr 0 []
+    , testCase "MintProof.NonMember encodes as Constr 1 [nodeIdx]" $
+        toData (NonMember 7) @?= Constr 1 [I 7]
+    , -- The global redeemer layout is frozen (§11.3/§11.4): TransferAct = Constr 0
+      -- [transferProofs, mintProofs, paramsRefIdx]; SeizeAct = Constr 1
+      -- [dirNodeIdx, inputIdxs, outputsStartIdx, lengthInputIdxs, paramsRefIdx].
+      testCase "TransferAct layout is Constr 0 [transferProofs, mintProofs, paramsRefIdx]" $
+        toData (TransferAct [1, 2] [Member, NonMember 3] 0)
+          @?= Constr 0 [List [I 1, I 2], List [Constr 0 [], Constr 1 [I 3]], I 0]
+    , testCase "SeizeAct layout appends paramsRefIdx as its final field" $
+        toData (SeizeAct 1 [0] 2 3 4)
+          @?= Constr 1 [I 1, List [I 0], I 2, I 3, I 4]
     ]

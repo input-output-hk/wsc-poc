@@ -138,12 +138,17 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicy
                         )
                         (txBody ^. L.txOuts)
 
+        -- Index of the protocol-params reference input (spec §11.4).
+        paramsReferenceIndex txBody =
+            fromIntegral @Int @Integer $ findIndexReference paramsTxIn txBody
+
         -- The seizing redeemer for the global script
         programmableLogicGlobalRedeemer txBody =
             mkSeizeActRedeemerFromAbsoluteInputIdxs
                 (directoryNodeReferenceIndex txBody)
                 (seizingInputAbsoluteIndexes txBody)
                 (firstSeizeContinuationOutputIndex txBody)
+                (paramsReferenceIndex txBody)
 
         programmableGlobalWitness txBody =
             case globalRefTxIn of
