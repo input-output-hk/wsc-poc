@@ -100,13 +100,16 @@ assertFailingTx = \case
 nodeParamsFor :: ScriptTarget -> NodeParams C.ConwayEra
 nodeParamsFor = \case
     -- Run the 'Mockchain' action with modified node parameters to allow larger-than-usual
-    -- transactions. This is useful for showing debug output from the scripts and fail if there is an error
+    -- transactions. This is useful for showing debug output from the scripts and fail if there is an error.
+    -- The multiplier is purely tracing headroom (traced scripts cost far more than
+    -- untraced ones); the real per-tx limits are exercised by the Production target
+    -- and the §14.3 benchmark gates.
     Debug ->
-        let tenX ExUnits{exUnitsSteps = steps, exUnitsMem = mem} =
-                ExUnits{exUnitsSteps = 10 * steps, exUnitsMem = 10 * mem}
+        let scaleUp ExUnits{exUnitsSteps = steps, exUnitsMem = mem} =
+                ExUnits{exUnitsSteps = 20 * steps, exUnitsMem = 20 * mem}
          in Defaults.nodeParams
-                & ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxSizeL %~ (* 10)
-                & ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxExUnitsL %~ tenX
+                & ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxSizeL %~ (* 20)
+                & ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxExUnitsL %~ scaleUp
     Production -> Defaults.nodeParams
 
 productionMaxTxExBudget :: ExBudget
