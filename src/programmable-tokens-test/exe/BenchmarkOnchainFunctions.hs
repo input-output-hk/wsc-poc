@@ -12,6 +12,7 @@ import Plutarch.Core.Context (
     ptxInInfoResolved,
  )
 import Plutarch.Core.Internal.Builtins (pmapData, ppairDataBuiltinRaw)
+import Plutarch.Core.List (pdropFast)
 import Plutarch.Core.Utils
 import Plutarch.LedgerApi.V3
 import Plutarch.Prelude
@@ -23,11 +24,17 @@ import PlutusLedgerApi.V3 (
     Credential (PubKeyCredential, ScriptCredential),
     CurrencySymbol (CurrencySymbol),
     Data,
+    Datum (Datum),
+    OutputDatum (OutputDatum),
     PubKeyHash (PubKeyHash),
     ScriptContext,
     ScriptHash (ScriptHash),
     StakingCredential (StakingHash),
     TokenName (TokenName),
+    TxId (TxId),
+    TxInInfo (TxInInfo),
+    TxOut (TxOut),
+    TxOutRef (TxOutRef),
  )
 import PlutusTx qualified
 import ProgrammableTokens.Test.ScriptContext.Builder
@@ -647,6 +654,292 @@ benchCases =
     , mkActualValueFromCredCase "actual.valueFromCred.mixedOwners.inputs.n020" (inputCtxMixedOwners 20) 20
     , mkActualValueFromCredCase "actual.valueFromCred.sparse.total.n100.matching.n020" (inputCtxSparse 100 20) 20
     ]
+        <> decisionBenchCases
+
+-- =====================================================================
+-- Decision benchmarks for design-issuance-dual-arm-custody.md pending
+-- gates: (a) base forwarding scan vs spend-redeemer index; (b) params
+-- datum lookup vs baked compile params; (c) LocalFullScan vs LocalIndexed.
+-- =====================================================================
+
+decisionBenchCases :: [BenchCase]
+decisionBenchCases =
+    [ mkBaseFwdScanCase "decision.a.baseFwd.scan.wdrl002.pos01" 2 1
+    , mkBaseFwdScanCase "decision.a.baseFwd.scan.wdrl011.pos05" 11 5
+    , mkBaseFwdScanCase "decision.a.baseFwd.scan.wdrl011.pos10" 11 10
+    , mkBaseFwdScanCase "decision.a.baseFwd.scan.wdrl020.pos19" 20 19
+    , mkBaseFwdIndexedCase "decision.a.baseFwd.indexed.wdrl002.pos01" 2 1
+    , mkBaseFwdIndexedCase "decision.a.baseFwd.indexed.wdrl011.pos05" 11 5
+    , mkBaseFwdIndexedCase "decision.a.baseFwd.indexed.wdrl011.pos10" 11 10
+    , mkBaseFwdIndexedCase "decision.a.baseFwd.indexed.wdrl020.pos19" 20 19
+    , mkParamsLookupCase "decision.b.params.datumSourced.refs01.idx00" 1 0
+    , mkParamsLookupCase "decision.b.params.datumSourced.refs03.idx02" 3 2
+    , mkParamsLookupCase "decision.b.params.datumSourced.refs05.idx04" 5 4
+    , mkCase "decision.b.params.bakedFloor" pparamsBakedFloor [PlutusTx.toData (0 :: Integer), PlutusTx.toData (0 :: Integer)]
+    , mkFullScanCase "decision.c.local.fullScan.outs002" (localCustodyCtx 2 1 False 1 False)
+    , mkFullScanCase "decision.c.local.fullScan.outs020" (localCustodyCtx 20 2 False 1 False)
+    , mkFullScanCase "decision.c.local.fullScan.outs050" (localCustodyCtx 50 2 False 1 False)
+    , mkLocalIndexedCase "decision.c.local.indexed.outs002.dests01.ins01" (localCustodyCtx 2 1 False 1 False) [0] 100
+    , mkLocalIndexedCase "decision.c.local.indexed.outs020.dests02.ins01" (localCustodyCtx 20 2 False 1 False) [0, 1] 200
+    , mkLocalIndexedCase "decision.c.local.indexed.outs020.dests02.late.ins01" (localCustodyCtx 20 2 True 1 False) [18, 19] 200
+    , mkLocalIndexedCase "decision.c.local.indexed.outs050.dests02.ins01" (localCustodyCtx 50 2 False 1 False) [0, 1] 200
+    , mkLocalIndexedCase "decision.c.local.indexed.outs020.dests02.ins05" (localCustodyCtx 20 2 False 5 False) [0, 1] 200
+    , mkLocalIndexedCase "decision.c.local.indexed.outs020.dests02.ins20tok" (localCustodyCtx 20 2 False 20 True) [0, 1] 200
+    , mkLocalIndexedCase "decision.c.local.indexed.outs020.dests02.ins50tok" (localCustodyCtx 20 2 False 50 True) [0, 1] 200
+    ]
+
+-- ---- (a) base forwarding ----
+
+-- Exact replica of the deployed `mkProgrammableLogicBase` loop, including the
+-- unshared `pfstBuiltin` application in the two compares.
+pbaseFwdScan :: Term s (PAsData PCredential :--> PAsData PCredential :--> PScriptContext :--> PBool)
+pbaseFwdScan = plam $ \globalCred seizeCred ctx ->
+    pmatch (pscriptContextTxInfo ctx) $ \txInfo ->
+        let wdrls = pto $ pfromData $ ptxInfo'wdrl txInfo
+            go = pfix #$ plam $ \self withdrawals' ->
+                pelimList
+                    ( \withdrawal rest ->
+                        let c = pfstBuiltin # withdrawal
+                         in (c #== globalCred) #|| (c #== seizeCred) #|| (self # rest)
+                    )
+                    (pconstant False)
+                    withdrawals'
+         in go # wdrls
+
+-- Candidate: spend redeemer carries the withdrawal-list index (decode included).
+pbaseFwdIndexed :: Term s (PData :--> PAsData PCredential :--> PAsData PCredential :--> PScriptContext :--> PBool)
+pbaseFwdIndexed = plam $ \idxData globalCred seizeCred ctx ->
+    pmatch (pscriptContextTxInfo ctx) $ \txInfo ->
+        let wdrls = pto $ pfromData $ ptxInfo'wdrl txInfo
+         in plet (pfstBuiltin # (phead # (pdropFast # (pasInt # idxData) # wdrls))) $ \c ->
+                (c #== globalCred) #|| (c #== seizeCred)
+
+mkBaseFwdScanCase :: String -> Int -> Int -> BenchCase
+mkBaseFwdScanCase name totalCount matchIdx =
+    mkCase
+        name
+        pbaseFwdScan
+        [ PlutusTx.toData (credentialAtSortedIndex matchIdx)
+        , PlutusTx.toData (credentialAtSortedIndex (totalCount + 40))
+        , PlutusTx.toData (withdrawalCtxWithMatchAt totalCount matchIdx)
+        ]
+
+mkBaseFwdIndexedCase :: String -> Int -> Int -> BenchCase
+mkBaseFwdIndexedCase name totalCount matchIdx =
+    mkCase
+        name
+        pbaseFwdIndexed
+        [ PlutusTx.toData (fromIntegral matchIdx :: Integer)
+        , PlutusTx.toData (credentialAtSortedIndex matchIdx)
+        , PlutusTx.toData (credentialAtSortedIndex (totalCount + 40))
+        , PlutusTx.toData (withdrawalCtxWithMatchAt totalCount matchIdx)
+        ]
+
+-- ---- (b) params datum lookup ----
+
+paramsAnchorCS :: CurrencySymbol
+paramsAnchorCS = currencySymbolAt 40
+
+paramsDirCS :: CurrencySymbol
+paramsDirCS = currencySymbolAt 30
+
+paramsGlobalCred :: Credential
+paramsGlobalCred = ScriptCredential (ScriptHash (bs28 0xb1))
+
+paramsSeizeCred :: Credential
+paramsSeizeCred = ScriptCredential (ScriptHash (bs28 0xb2))
+
+paramsDatum4 :: Data
+paramsDatum4 =
+    PlutusTx.List
+        [ PlutusTx.toData paramsDirCS
+        , PlutusTx.toData progLogicBaseCred
+        , PlutusTx.toData paramsGlobalCred
+        , PlutusTx.toData paramsSeizeCred
+        ]
+
+mkRefTxIn :: Integer -> TxOut -> TxInInfo
+mkRefTxIn ix out = TxInInfo (TxOutRef (TxId (PV1.toBuiltin (BS.replicate 32 7))) ix) out
+
+paramsAnchorTxOut :: TxOut
+paramsAnchorTxOut =
+    TxOut
+        (Address (ScriptCredential (ScriptHash (bs28 0xee))) Nothing)
+        (mkAdaValue 2_000_000 <> assetClassValue (assetClass paramsAnchorCS (TokenName "pp")) 1)
+        (OutputDatum (Datum (PlutusTx.dataToBuiltinData paramsDatum4)))
+        Nothing
+
+decoyRefTxOut :: Int -> TxOut
+decoyRefTxOut i =
+    TxOut
+        (Address (ScriptCredential (ScriptHash (bs28 0xdd))) Nothing)
+        (mkAdaValue 2_000_000 <> assetClassValue (assetClass (currencySymbolAt (20 + i)) (tokenNameAt 0)) 1)
+        (OutputDatum (Datum (PlutusTx.dataToBuiltinData (PlutusTx.List [PlutusTx.I 0]))))
+        Nothing
+
+refInputsFixture :: Int -> Int -> [TxInInfo]
+refInputsFixture total pos =
+    [mkRefTxIn (fromIntegral i) (if i == pos then paramsAnchorTxOut else decoyRefTxOut i) | i <- [0 .. total - 1]]
+
+-- Datum-sourced: indexed ref-input access + first-non-Ada authentication + raw
+-- field reads (defer-arm shape: directory CS at field 0, global cred at field 2),
+-- consumed by the same two comparisons the baked floor performs.
+pparamsLookupDatum :: Term s (PData :--> PData :--> PBool)
+pparamsLookupDatum = plam $ \idxData refInputsData ->
+    plet (psndBuiltin # (pasConstr # pforgetData (phead # (pdropFast # (pasInt # idxData) # punsafeCoerce @(PBuiltinList (PAsData PTxInInfo)) (pasList # refInputsData))))) $ \txInFields ->
+        plet (psndBuiltin # (pasConstr # (phead # (ptail # txInFields)))) $ \outFields ->
+            let valuePairs = pto (pto (pfromData (punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # (ptail # outFields)))))
+                firstNonAdaCS = pforgetData (pfstBuiltin # (phead # (ptail # valuePairs)))
+                datumField = phead # (ptail # (ptail # outFields))
+                payload = phead # (psndBuiltin # (pasConstr # datumField))
+             in plet (pasList # payload) $ \fields ->
+                    (firstNonAdaCS #== pforgetData (pdata (pconstant @PCurrencySymbol paramsAnchorCS)))
+                        #&& ((phead # (ptail # (ptail # fields))) #== pforgetData (pdata (pconstant @PCredential paramsGlobalCred)))
+                        #&& ((phead # fields) #== pforgetData (pdata (pconstant @PCurrencySymbol paramsDirCS)))
+
+-- Baked floor: the same two consuming comparisons with zero lookup machinery.
+pparamsBakedFloor :: Term s (PData :--> PData :--> PBool)
+pparamsBakedFloor = plam $ \_ _ ->
+    (pforgetData (pdata (pconstant @PCredential paramsGlobalCred)) #== pforgetData (pdata (pconstant @PCredential paramsGlobalCred)))
+        #&& (pforgetData (pdata (pconstant @PCurrencySymbol paramsDirCS)) #== pforgetData (pdata (pconstant @PCurrencySymbol paramsDirCS)))
+
+mkParamsLookupCase :: String -> Int -> Int -> BenchCase
+mkParamsLookupCase name total pos =
+    mkCase
+        name
+        pparamsLookupDatum
+        [ PlutusTx.toData (fromIntegral pos :: Integer)
+        , PlutusTx.toData (refInputsFixture total pos)
+        ]
+
+-- ---- (c) LocalFullScan vs LocalIndexed ----
+
+localOwnCS :: CurrencySymbol
+localOwnCS = currencySymbolAt 9
+
+localUnrelatedCS :: CurrencySymbol
+localUnrelatedCS = currencySymbolAt 0
+
+localTn :: TokenName
+localTn = tokenNameAt 0
+
+pownCSAbsent ::
+    Term s PByteString ->
+    Term s (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))) ->
+    Term s PBool
+pownCSAbsent ownCSBytes pairs =
+    ( pfix #$ plam $ \self remaining ->
+        pelimList
+            ( \pair rest ->
+                plet (pasByteStr # pforgetData (pfstBuiltin # pair)) $ \csBytes ->
+                    pif
+                        (csBytes #== ownCSBytes)
+                        (pconstant False)
+                        (pif (ownCSBytes #< csBytes) (pconstant True) (self # rest))
+            )
+            (pconstant True)
+            remaining
+    )
+        # pairs
+
+mkFullScanTerm :: CurrencySymbol -> Term s (PScriptContext :--> PBool)
+mkFullScanTerm ownCS = plam $ \ctx ->
+    pmatch (pscriptContextTxInfo ctx) $ \txInfo ->
+        plet (pasByteStr # pforgetData (pdata (pconstant @PCurrencySymbol ownCS))) $ \ownCSBytes ->
+            plet (pforgetData (pdata (pconstant @PCredential progLogicBaseCred))) $ \baseCredData ->
+                let go = pfix #$ plam $ \self outs ->
+                        pelimList
+                            ( \txOut rest ->
+                                plet (psndBuiltin # (pasConstr # pforgetData txOut)) $ \fields ->
+                                    let addrData = phead # fields
+                                        credData = phead # (psndBuiltin # (pasConstr # addrData))
+                                        valuePairs = pto (pto (pfromData (punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # (ptail # fields)))))
+                                     in ((credData #== baseCredData) #|| pownCSAbsent ownCSBytes valuePairs)
+                                            #&& (self # rest)
+                            )
+                            (pconstant True)
+                            outs
+                 in go # pfromData (ptxInfo'outputs txInfo)
+
+mkLocalIndexedTerm :: CurrencySymbol -> TokenName -> Integer -> Term s (PData :--> PScriptContext :--> PBool)
+mkLocalIndexedTerm ownCS tn mintedTotal = plam $ \destIdxsData ctx ->
+    pmatch (pscriptContextTxInfo ctx) $ \txInfo ->
+        plet (pasByteStr # pforgetData (pdata (pconstant @PCurrencySymbol ownCS))) $ \ownCSBytes ->
+            plet (pforgetData (pdata (pconstant @PCredential progLogicBaseCred))) $ \baseCredData ->
+                let inputs = pfromData $ ptxInfo'inputs txInfo
+                    outputs = pfromData $ ptxInfo'outputs txInfo
+                    guardOk =
+                        ( pfix #$ plam $ \self ins ->
+                            pelimList
+                                ( \txIn rest ->
+                                    plet (psndBuiltin # (pasConstr # (phead # (ptail # (psndBuiltin # (pasConstr # pforgetData txIn)))))) $ \outFields ->
+                                        let valuePairs = pto (pto (pfromData (punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # (ptail # outFields)))))
+                                         in pownCSAbsent ownCSBytes valuePairs #&& (self # rest)
+                                )
+                                (pconstant True)
+                                ins
+                        )
+                            # inputs
+                    walk = pfix #$ plam $ \self idxs pos remainingOuts acc ->
+                        pelimList
+                            ( \idxD idxsRest ->
+                                plet (pasInt # idxD) $ \idx ->
+                                    plet (idx - pos) $ \skip ->
+                                        pif (skip #< 0) perror $
+                                            plet (pdropFast # skip # remainingOuts) $ \remAtIdx ->
+                                                plet (psndBuiltin # (pasConstr # pforgetData (phead # remAtIdx))) $ \fields ->
+                                                    let addrData = phead # fields
+                                                        credData = phead # (psndBuiltin # (pasConstr # addrData))
+                                                        outValue = pfromData (punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # (ptail # fields)))
+                                                        qty = passetQtyInValueBench # outValue # pconstant ownCS # pconstant tn
+                                                     in pif
+                                                            (credData #== baseCredData)
+                                                            (self # idxsRest # (idx + 1) # (ptail # remAtIdx) # (acc + qty))
+                                                            perror
+                            )
+                            (acc #>= pconstant mintedTotal)
+                            idxs
+                 in guardOk #&& (walk # (pasList # destIdxsData) # 0 # outputs # 0)
+
+localCustodyCtx :: Int -> Int -> Bool -> Int -> Bool -> ScriptContext
+localCustodyCtx totalOuts destCount destsLate inputCount inputsCarryTokens =
+    buildScriptContext (inputsPart <> outputsPart)
+  where
+    inputsPart =
+        foldMap
+            ( \i ->
+                withInput
+                    ( withAddress (pubKeyAddress (pubKeyHashAt (i + 300)))
+                        <> withValue (mkAdaValue 5_000_000 <> (if inputsCarryTokens then assetClassValue (assetClass localUnrelatedCS localTn) 3 else mempty))
+                    )
+            )
+            [0 .. inputCount - 1]
+    destOut =
+        withOutput
+            ( withTxOutAddress (Address progLogicBaseCred Nothing)
+                <> withTxOutValue (mkAdaValue 2_000_000 <> assetClassValue (assetClass localOwnCS localTn) 100)
+            )
+    otherOut i =
+        withOutput
+            ( withTxOutAddress (pubKeyAddress (pubKeyHashAt (i + 400)))
+                <> withTxOutValue (mkAdaValue 2_000_000 <> assetClassValue (assetClass localUnrelatedCS localTn) 1)
+            )
+    outputsPart
+        | destsLate = foldMap otherOut [0 .. totalOuts - destCount - 1] <> foldMap (const destOut) [1 .. destCount]
+        | otherwise = foldMap (const destOut) [1 .. destCount] <> foldMap otherOut [0 .. totalOuts - destCount - 1]
+
+mkFullScanCase :: String -> ScriptContext -> BenchCase
+mkFullScanCase name ctx =
+    mkCase name (mkFullScanTerm localOwnCS) [PlutusTx.toData ctx]
+
+mkLocalIndexedCase :: String -> ScriptContext -> [Integer] -> Integer -> BenchCase
+mkLocalIndexedCase name ctx destIdxs mintedTotal =
+    mkCase
+        name
+        (mkLocalIndexedTerm localOwnCS localTn mintedTotal)
+        [ PlutusTx.toData destIdxs
+        , PlutusTx.toData ctx
+        ]
 
 mkHasCredCase :: String -> Int -> Int -> BenchCase
 mkHasCredCase name totalCount matchIdx =
