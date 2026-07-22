@@ -185,7 +185,7 @@ issuanceAlwaysFailHash =
 
 protocolParamsDatum :: ProgrammableLogicGlobalParams
 protocolParamsDatum =
-    ProgrammableLogicGlobalParams directoryNodeCS progLogicBaseCred
+    ProgrammableLogicGlobalParams directoryNodeCS progLogicBaseCred globalCred seizeCredBench
 
 issuanceDatum :: BuiltinData
 issuanceDatum =
@@ -913,7 +913,7 @@ directoryInsertCtx =
         issuancePostfix = "0e"
         hashedMintingParam = bs28 0x55
         insertProtocolParamsDatum =
-            ProgrammableLogicGlobalParams directoryPolicyCS progLogicBaseCred
+            ProgrammableLogicGlobalParams directoryPolicyCS progLogicBaseCred globalCred seizeCredBench
         insertedCs = computeRegisteredCs issuancePrefix issuancePostfix hashedMintingParam
         insertedCsBs = case insertedCs of
             CurrencySymbol bs -> bs

@@ -480,6 +480,12 @@ globalScriptHash = ScriptHash (bs28 0x13)
 globalCred :: Credential
 globalCred = ScriptCredential globalScriptHash
 
+seizeScriptHash :: ScriptHash
+seizeScriptHash = ScriptHash (bs28 0x1c)
+
+seizeCred :: Credential
+seizeCred = ScriptCredential seizeScriptHash
+
 progLogicBaseCred :: Credential
 progLogicBaseCred = ScriptCredential progLogicBaseHash
 
@@ -539,7 +545,7 @@ withRefInputDatumValue ref addr value dat =
 
 protocolParamsDatum :: ProgrammableLogicGlobalParams
 protocolParamsDatum =
-    ProgrammableLogicGlobalParams directoryNodeCS (ScriptCredential progLogicBaseHash)
+    ProgrammableLogicGlobalParams directoryNodeCS (ScriptCredential progLogicBaseHash) globalCred seizeCred
 
 directoryProgrammableNode :: DirectorySetNode
 directoryProgrammableNode =
