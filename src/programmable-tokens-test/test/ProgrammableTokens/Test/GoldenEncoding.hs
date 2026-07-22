@@ -13,6 +13,7 @@ import PlutusLedgerApi.V1.Value (CurrencySymbol (..))
 import PlutusLedgerApi.V3 (Credential (..), Data (..), ScriptHash (..), toData)
 import PlutusTx qualified
 import PlutusTx.Builtins qualified as Builtins
+import SmartTokens.Contracts.Issuance (MintRedeemer (..), RegistrationWitness (..))
 import SmartTokens.Contracts.ProgrammableLogicBase (MintProof (..), ProgrammableLogicGlobalRedeemer (..))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 import Test.Tasty (TestTree, testGroup)
@@ -87,4 +88,29 @@ tests =
     , testCase "SeizeAct layout appends paramsRefIdx as its final field" $
         toData (SeizeAct 1 [0] 2 3 4)
           @?= Constr 1 [I 1, List [I 0], I 2, I 3, I 4]
+    , -- The issuance MintRedeemer constructor indices are frozen (§6): Local = 0,
+      -- DelegateTransfer = 1, DelegateSeize = 2, BurnOnly = 3. The policy reads
+      -- these by raw field access, so the layout is a consensus rule.
+      testCase "MintRedeemer.Local is Constr 0 [wdrlIdx, paramsRefIdx, registration]" $
+        toData (Local 1 2 (RegisteredByReferenceInput 3))
+          @?= Constr 0 [I 1, I 2, Constr 0 [I 3]]
+    , testCase "MintRedeemer.DelegateTransfer is Constr 1 [wdrlIdx, paramsRefIdx, nodeRefIdx, globalWdrlIdx]" $
+        toData (DelegateTransfer 1 2 3 4)
+          @?= Constr 1 [I 1, I 2, I 3, I 4]
+    , testCase "MintRedeemer.DelegateSeize is Constr 2 [wdrlIdx, paramsRefIdx, nodeRefIdx, seizeRedeemerIdx]" $
+        toData (DelegateSeize 1 2 3 4)
+          @?= Constr 2 [I 1, I 2, I 3, I 4]
+    , testCase "MintRedeemer.BurnOnly is Constr 3 [wdrlIdx]" $
+        toData (BurnOnly 5)
+          @?= Constr 3 [I 5]
+    , -- RegistrationWitness constructor indices are frozen (§7): reference input = 0,
+      -- output = 1.
+      testCase "RegistrationWitness.RegisteredByReferenceInput is Constr 0 [idx]" $
+        toData (RegisteredByReferenceInput 9)
+          @?= Constr 0 [I 9]
+    , testCase "RegistrationWitness.RegisteredByOutput is Constr 1 [idx]" $
+        toData (RegisteredByOutput 9)
+          @?= Constr 1 [I 9]
+    , testCase "MintRedeemer round-trips through toData/fromData" $
+        PlutusTx.fromData (toData (DelegateSeize 1 2 3 4)) @?= Just (DelegateSeize 1 2 3 4)
     ]
