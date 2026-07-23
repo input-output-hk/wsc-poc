@@ -5,7 +5,7 @@ This document describes the design of the regulated stablecoin proof-of-concept 
 ## Overview
 
 The POC consists of two components that make up the functionality of the regulated stablecoin.
-The first component is [CIP-0143](https://github.com/colll78/CIPs/tree/patch-3/CIP-0143), which gives us a unified standard for managing different _programmable tokens_, comparable to some of the popular ERC standards on Ethereum.
+The first component is [CIP-0143](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0143), which gives us a unified standard for managing different _programmable tokens_, comparable to some of the popular ERC standards on Ethereum.
 
 The second component is a concrete instance of such a programmable token, namely a policy that checks each transfer of tokens in its domain to ensure that the sender is not on a list of sanctioned addresses.
 The policy also allows the issuer of the programmable token to seize funds from sanctioned addresses.
