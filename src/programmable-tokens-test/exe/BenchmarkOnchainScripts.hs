@@ -8,7 +8,7 @@ import BenchmarkOnchain.Compile (compileNoTracing)
 import BenchmarkOnchain.MainnetDexFixture
 import BenchmarkOnchain.ScriptFixtureIds
 import BenchmarkOnchain.ScriptHelpers (bs28, mkValue, pubKeyAddress, scriptAddress, scriptAddressWithSignerStake, scriptAddressWithStakeCredential, stripZeroChangeOutput, withAuxiliaryRewardingScript, withPubKeyInputValue, withRefInputDatumValue)
-import BenchmarkOnchain.ScriptRunner (BenchCase, EvalKind (..), EvalSpec (..), mkBenchCase, runScriptBenchmark)
+import BenchmarkOnchain.ScriptRunner (BenchCase, EvalKind (..), EvalSpec (..), mkBenchCase, runScriptBenchmarkWithAxes)
 import BenchmarkOnchain.ScriptScenario qualified as Scenario
 import BenchmarkOnchain.TxD29Fixture
 import Data.ByteString qualified as BS
@@ -33,10 +33,11 @@ import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (Programm
 
 main :: IO ()
 main =
-    runScriptBenchmark
+    runScriptBenchmarkWithAxes
         "Onchain script benchmark (NoTracing, one case per redeemer path)"
         benchCases
         scenarioEvalSpecsFromCtx
+        Scenario.scalingAxes
 
 compiledAlwaysSucceedsScript :: Script
 compiledAlwaysSucceedsScript =
@@ -607,6 +608,13 @@ mkGlobalTransferManyTokensCtx tokenCount =
 globalTransferManyTokens50Ctx :: ScriptContext
 globalTransferManyTokens50Ctx = mkGlobalTransferManyTokensCtx manyTokensCount
 
+-- Scaling series for the tokens axis (extrapolation fit).
+globalTransferManyTokens10Ctx, globalTransferManyTokens25Ctx, globalTransferManyTokens100Ctx, globalTransferManyTokens200Ctx :: ScriptContext
+globalTransferManyTokens10Ctx = mkGlobalTransferManyTokensCtx 10
+globalTransferManyTokens25Ctx = mkGlobalTransferManyTokensCtx 25
+globalTransferManyTokens100Ctx = mkGlobalTransferManyTokensCtx 100
+globalTransferManyTokens200Ctx = mkGlobalTransferManyTokensCtx 200
+
 -- | Mirrors the Aiken bench @many_outputs@ axis: one mini-ledger input fans
 -- out to many recipient outputs (airdrop shape).
 mkGlobalTransferManyOutputsCtx :: Integer -> ScriptContext
@@ -630,7 +638,7 @@ mkGlobalTransferManyOutputsCtx outputCount =
                         <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         -- Enough ada to fund every fan-out output (outputCount x 3 ada
                         -- + change) so the balanced context stays ledger-realizable.
-                        <> withValue (mkAdaValue 65_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", outputCount)])
+                        <> withValue (mkAdaValue (fromIntegral (3_000_000 * outputCount + 5_000_000)) <> mkValue [(programmableTransferCS, TokenName "0c", outputCount)])
                     )
                 <> recipientOutputsBuilder
                 <> withOutput
@@ -651,6 +659,13 @@ mkGlobalTransferManyOutputsCtx outputCount =
 
 globalTransferManyOutputs20Ctx :: ScriptContext
 globalTransferManyOutputs20Ctx = mkGlobalTransferManyOutputsCtx manyOutputsCount
+
+-- Scaling series for the outputs axis (extrapolation fit).
+globalTransferManyOutputs5Ctx, globalTransferManyOutputs10Ctx, globalTransferManyOutputs40Ctx, globalTransferManyOutputs80Ctx :: ScriptContext
+globalTransferManyOutputs5Ctx = mkGlobalTransferManyOutputsCtx 5
+globalTransferManyOutputs10Ctx = mkGlobalTransferManyOutputsCtx 10
+globalTransferManyOutputs40Ctx = mkGlobalTransferManyOutputsCtx 40
+globalTransferManyOutputs80Ctx = mkGlobalTransferManyOutputsCtx 80
 
 -- | Directory node registering the synthetic policy @manyPolicyCS i@ for the
 -- many-policies axis.
@@ -717,6 +732,12 @@ mkGlobalTransferManyPoliciesCtx policyCount =
 
 globalTransferManyPolicies10Ctx :: ScriptContext
 globalTransferManyPolicies10Ctx = mkGlobalTransferManyPoliciesCtx manyPoliciesCount
+
+-- Scaling series for the policies axis (extrapolation fit).
+globalTransferManyPolicies5Ctx, globalTransferManyPolicies20Ctx, globalTransferManyPolicies40Ctx :: ScriptContext
+globalTransferManyPolicies5Ctx = mkGlobalTransferManyPoliciesCtx 5
+globalTransferManyPolicies20Ctx = mkGlobalTransferManyPoliciesCtx 20
+globalTransferManyPolicies40Ctx = mkGlobalTransferManyPoliciesCtx 40
 
 mkGlobalSeizeCtx :: Integer -> ScriptContext
 mkGlobalSeizeCtx seizeInputCount =
@@ -1502,9 +1523,20 @@ benchCases =
     , mkCase "programmableLogicGlobal.TransferAct" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferCtx] globalTransferCtx
     , mkCase "programmableLogicGlobal.TransferAct.TokenDoesNotExist" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferDoesNotExistCtx] globalTransferDoesNotExistCtx
     , mkCase "programmableLogicGlobal.TransferAct.MixedMany" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferMixedManyCtx] globalTransferMixedManyCtx
+    , mkCase "programmableLogicGlobal.TransferAct.ManyTokens10" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferManyTokens10Ctx] globalTransferManyTokens10Ctx
+    , mkCase "programmableLogicGlobal.TransferAct.ManyTokens25" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferManyTokens25Ctx] globalTransferManyTokens25Ctx
     , mkCase "programmableLogicGlobal.TransferAct.ManyTokens50" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferManyTokens50Ctx] globalTransferManyTokens50Ctx
+    , mkCase "programmableLogicGlobal.TransferAct.ManyTokens100" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferManyTokens100Ctx] globalTransferManyTokens100Ctx
+    , mkCase "programmableLogicGlobal.TransferAct.ManyTokens200" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferManyTokens200Ctx] globalTransferManyTokens200Ctx
+    , mkCase "programmableLogicGlobal.TransferAct.ManyOutputs5" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferManyOutputs5Ctx] globalTransferManyOutputs5Ctx
+    , mkCase "programmableLogicGlobal.TransferAct.ManyOutputs10" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferManyOutputs10Ctx] globalTransferManyOutputs10Ctx
     , mkCase "programmableLogicGlobal.TransferAct.ManyOutputs20" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferManyOutputs20Ctx] globalTransferManyOutputs20Ctx
+    , mkCase "programmableLogicGlobal.TransferAct.ManyOutputs40" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferManyOutputs40Ctx] globalTransferManyOutputs40Ctx
+    , mkCase "programmableLogicGlobal.TransferAct.ManyOutputs80" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferManyOutputs80Ctx] globalTransferManyOutputs80Ctx
+    , mkCase "programmableLogicGlobal.TransferAct.ManyPolicies5" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferManyPolicies5Ctx] globalTransferManyPolicies5Ctx
     , mkCase "programmableLogicGlobal.TransferAct.ManyPolicies10" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferManyPolicies10Ctx] globalTransferManyPolicies10Ctx
+    , mkCase "programmableLogicGlobal.TransferAct.ManyPolicies20" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferManyPolicies20Ctx] globalTransferManyPolicies20Ctx
+    , mkCase "programmableLogicGlobal.TransferAct.ManyPolicies40" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferManyPolicies40Ctx] globalTransferManyPolicies40Ctx
     , mkCase "programmableLogicGlobal.TransferAct.Spend5Utxos" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransfer5Ctx] globalTransfer5Ctx
     , mkCase "programmableLogicGlobal.TransferAct.Spend10Utxos" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransfer10Ctx] globalTransfer10Ctx
     , mkCase "programmableLogicGlobal.TransferAct.Spend15Utxos" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransfer15Ctx] globalTransfer15Ctx
