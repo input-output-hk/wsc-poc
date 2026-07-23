@@ -7,7 +7,7 @@ module Profile (
 ) where
 
 import Data.Either
-import Data.Text
+import Data.Text (Text, pack, unpack)
 import Plutarch.Evaluate
 import Plutarch.Internal.Other (printTerm)
 import Plutarch.Internal.Term

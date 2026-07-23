@@ -13,7 +13,7 @@ import Convex.Class (
     MonadBlockchain (sendTx),
     MonadMockchain,
     MonadUtxoQuery,
-    ValidationError,
+    SendTxError,
     getUtxo,
  )
 import Convex.CoinSelection (ChangeOutputPosition (TrailingChange))
@@ -192,7 +192,7 @@ unblacklistCredential scriptRoot = Env.withEnv $ do
 
     pure paymentCred
 
-blacklistTransfer :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => BlacklistedTransferPolicy -> m (Either (ValidationError C.ConwayEra) C.TxId)
+blacklistTransfer :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => BlacklistedTransferPolicy -> m (Either (SendTxError C.ConwayEra) C.TxId)
 blacklistTransfer policy = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
     scriptRoot <- runReaderT (deployDirectorySet admin) Production
     userPkh <- asWallet @C.ConwayEra Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv @C.ConwayEra)

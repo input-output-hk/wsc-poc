@@ -36,7 +36,7 @@ import Convex.Class (
     MonadBlockchain,
     MonadMockchain,
     MonadUtxoQuery,
-    ValidationError,
+    SendTxError,
     getTxById,
     queryNetworkId,
     sendTx,
@@ -90,7 +90,7 @@ expectLeft msg = \case
 {- | Assert that the transaction exists on the mockchain and that its script validity flag
 is set to 'C.ScriptInvalid'
 -}
-assertFailingTx :: (MonadMockchain era m, C.IsAlonzoBasedEra era, MonadFail m, MonadIO m) => Either (ValidationError era) C.TxId -> m ()
+assertFailingTx :: (MonadMockchain era m, C.IsAlonzoBasedEra era, MonadFail m, MonadIO m) => Either (SendTxError era) C.TxId -> m ()
 assertFailingTx = \case
     Left err -> fail $ "Expected TxId, got: " <> show err
     Right txId -> do
