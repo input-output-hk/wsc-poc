@@ -1,0 +1,372 @@
+Plutarch vs Aiken ex-unit comparison
+Max tx ex units: CPU 10,000,000,000 | Mem 14,000,000
+
+================================================================================
+Scenario: directoryNodeMinting.InitDirectory [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 1 | Aiken 1
+Contracts:
+  - directoryNodeMinting
+Contract totals:
+  - directoryNodeMinting (1 vs 1): CPU 53,972,447 vs 55,264,465 | CPU x 1.02x | Mem 148,883 vs 171,152 | Mem x 1.15x
+Totals:
+  CPU: 53,972,447 vs 55,264,465 | CPU x: 1.02x
+  Mem: 148,883 vs 171,152 | Mem x: 1.15x
+  CPU %: 0.54% vs 0.55% | Mem %: 1.06% vs 1.22%
+
+================================================================================
+Scenario: directoryNodeMinting.InsertDirectoryNode [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 2 | Aiken 2
+Contracts:
+  - directoryNodeMinting
+  - directoryNodeSpending
+Contract totals:
+  - directoryNodeMinting (1 vs 1): CPU 142,944,374 vs 152,183,087 | CPU x 1.06x | Mem 389,229 vs 471,396 | Mem x 1.21x
+  - directoryNodeSpending (1 vs 1): CPU 19,818,184 vs 23,321,511 | CPU x 1.18x | Mem 49,723 vs 73,041 | Mem x 1.47x
+Totals:
+  CPU: 162,762,558 vs 175,504,598 | CPU x: 1.08x
+  Mem: 438,952 vs 544,437 | Mem x: 1.24x
+  CPU %: 1.63% vs 1.76% | Mem %: 3.14% vs 3.89%
+
+================================================================================
+Scenario: issuanceCborHexMinting [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 1 | Aiken 1
+Contracts:
+  - issuanceCborHexMinting
+Contract totals:
+  - issuanceCborHexMinting (1 vs 1): CPU 15,331,815 vs 32,325,882 | CPU x 2.11x | Mem 33,917 vs 87,754 | Mem x 2.59x
+Totals:
+  CPU: 15,331,815 vs 32,325,882 | CPU x: 2.11x
+  Mem: 33,917 vs 87,754 | Mem x: 2.59x
+  CPU %: 0.15% vs 0.32% | Mem %: 0.24% vs 0.63%
+
+================================================================================
+Scenario: programmableLogicBase [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 3 | Aiken 3
+Contracts:
+  - programmableLogicBase
+  - programmableLogicGlobal
+  - transferLogicScript
+Contract totals:
+  - programmableLogicBase (1 vs 1): CPU 4,056,800 vs 5,831,834 | CPU x 1.44x | Mem 9,583 vs 14,537 | Mem x 1.52x
+  - programmableLogicGlobal (1 vs 1): CPU 66,189,238 vs 79,215,733 | CPU x 1.20x | Mem 192,593 vs 223,287 | Mem x 1.16x
+  - transferLogicScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+Totals:
+  CPU: 70,310,138 vs 85,111,667 | CPU x: 1.21x
+  Mem: 202,676 vs 238,324 | Mem x: 1.18x
+  CPU %: 0.70% vs 0.85% | Mem %: 1.45% vs 1.70%
+
+================================================================================
+Scenario: programmableLogicBase.Tx.c3111df7.Spending [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 21 | Aiken 21
+Contracts:
+  - programmableLogicBase
+  - programmableLogicGlobal
+  - transferLogicScript
+  - alwaysSucceeds
+  - alwaysSucceeds2
+Contract totals:
+  - programmableLogicBase (17 vs 17): CPU 68,965,600 vs 99,141,178 | CPU x 1.44x | Mem 162,911 vs 247,129 | Mem x 1.52x
+  - programmableLogicGlobal (1 vs 1): CPU 435,363,794 vs 683,551,367 | CPU x 1.57x | Mem 1,005,228 vs 1,964,833 | Mem x 1.95x
+  - transferLogicScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+  - alwaysSucceeds (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+  - alwaysSucceeds2 (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+Totals:
+  CPU: 504,521,694 vs 782,884,845 | CPU x: 1.55x
+  Mem: 1,169,639 vs 2,213,462 | Mem x: 1.89x
+  CPU %: 5.05% vs 7.83% | Mem %: 8.35% vs 15.81%
+
+================================================================================
+Scenario: programmableLogicBase.Tx.d29ce2a9.Spending [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 3 | Aiken 3
+Contracts:
+  - programmableLogicBase
+  - programmableLogicGlobal
+  - transferLogicScript
+Contract totals:
+  - programmableLogicBase (1 vs 1): CPU 4,056,800 vs 5,831,834 | CPU x 1.44x | Mem 9,583 vs 14,537 | Mem x 1.52x
+  - programmableLogicGlobal (1 vs 1): CPU 66,615,780 vs 80,699,978 | CPU x 1.21x | Mem 189,760 vs 227,713 | Mem x 1.20x
+  - transferLogicScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+Totals:
+  CPU: 70,736,680 vs 86,595,912 | CPU x: 1.22x
+  Mem: 199,843 vs 242,750 | Mem x: 1.21x
+  CPU %: 0.71% vs 0.87% | Mem %: 1.43% vs 1.73%
+
+================================================================================
+Scenario: programmableLogicBase.Tx.d29ce2a9.Stake [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 3 | Aiken 3
+Contracts:
+  - programmableLogicGlobal
+  - programmableLogicBase
+  - transferLogicScript
+Contract totals:
+  - programmableLogicGlobal (1 vs 1): CPU 66,615,780 vs 80,699,978 | CPU x 1.21x | Mem 189,760 vs 227,713 | Mem x 1.20x
+  - programmableLogicBase (1 vs 1): CPU 4,056,800 vs 5,831,834 | CPU x 1.44x | Mem 9,583 vs 14,537 | Mem x 1.52x
+  - transferLogicScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+Totals:
+  CPU: 70,736,680 vs 86,595,912 | CPU x: 1.22x
+  Mem: 199,843 vs 242,750 | Mem x: 1.21x
+  CPU %: 0.71% vs 0.87% | Mem %: 1.43% vs 1.73%
+
+================================================================================
+Scenario: programmableLogicGlobal.SeizeAct1 [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 3 | Aiken 3
+Contracts:
+  - programmableLogicGlobal
+  - programmableLogicBase
+  - issuerScript
+Contract totals:
+  - programmableLogicGlobal (1 vs 1): CPU 65,950,782 vs 70,410,651 | CPU x 1.07x | Mem 195,466 vs 198,569 | Mem x 1.02x
+  - programmableLogicBase (1 vs 1): CPU 4,056,800 vs 5,831,834 | CPU x 1.44x | Mem 9,583 vs 14,537 | Mem x 1.52x
+  - issuerScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+Totals:
+  CPU: 70,071,682 vs 76,306,585 | CPU x: 1.09x
+  Mem: 205,549 vs 213,606 | Mem x: 1.04x
+  CPU %: 0.70% vs 0.76% | Mem %: 1.47% vs 1.53%
+
+================================================================================
+Scenario: programmableLogicGlobal.SeizeAct1.ExternalScriptAnd50PubKeyInputs [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 4 | Aiken 4
+Contracts:
+  - programmableLogicGlobal
+  - programmableLogicBase
+  - alwaysSucceeds
+  - issuerScript
+Contract totals:
+  - programmableLogicGlobal (1 vs 1): CPU 85,473,027 vs 257,718,067 | CPU x 3.02x | Mem 252,243 vs 549,528 | Mem x 2.18x
+  - programmableLogicBase (1 vs 1): CPU 4,056,800 vs 5,831,834 | CPU x 1.44x | Mem 9,583 vs 14,537 | Mem x 1.52x
+  - alwaysSucceeds (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+  - issuerScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+Totals:
+  CPU: 89,658,027 vs 263,678,101 | CPU x: 2.94x
+  Mem: 262,826 vs 565,065 | Mem x: 2.15x
+  CPU %: 0.90% vs 2.64% | Mem %: 1.88% vs 4.04%
+
+================================================================================
+Scenario: programmableLogicGlobal.SeizeAct10 [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 12 | Aiken 12
+Contracts:
+  - programmableLogicGlobal
+  - programmableLogicBase
+  - issuerScript
+Contract totals:
+  - programmableLogicGlobal (1 vs 1): CPU 298,399,204 vs 321,280,926 | CPU x 1.08x | Mem 790,836 vs 840,368 | Mem x 1.06x
+  - programmableLogicBase (10 vs 10): CPU 40,568,000 vs 58,318,340 | CPU x 1.44x | Mem 95,830 vs 145,370 | Mem x 1.52x
+  - issuerScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+Totals:
+  CPU: 339,031,304 vs 379,663,366 | CPU x: 1.12x
+  Mem: 887,166 vs 986,238 | Mem x: 1.11x
+  CPU %: 3.39% vs 3.80% | Mem %: 6.34% vs 7.04%
+
+================================================================================
+Scenario: programmableLogicGlobal.SeizeAct20 [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 22 | Aiken 22
+Contracts:
+  - programmableLogicGlobal
+  - programmableLogicBase
+  - issuerScript
+Contract totals:
+  - programmableLogicGlobal (1 vs 1): CPU 549,733,784 vs 600,025,676 | CPU x 1.09x | Mem 1,423,462 vs 1,553,478 | Mem x 1.09x
+  - programmableLogicBase (20 vs 20): CPU 81,136,000 vs 116,636,680 | CPU x 1.44x | Mem 191,660 vs 290,740 | Mem x 1.52x
+  - issuerScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+Totals:
+  CPU: 630,933,884 vs 716,726,456 | CPU x: 1.14x
+  Mem: 1,615,622 vs 1,844,718 | Mem x: 1.14x
+  CPU %: 6.31% vs 7.17% | Mem %: 11.54% vs 13.18%
+
+================================================================================
+Scenario: programmableLogicGlobal.SeizeAct5 [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 7 | Aiken 7
+Contracts:
+  - programmableLogicGlobal
+  - programmableLogicBase
+  - issuerScript
+Contract totals:
+  - programmableLogicGlobal (1 vs 1): CPU 171,467,390 vs 181,908,551 | CPU x 1.06x | Mem 469,066 vs 483,813 | Mem x 1.03x
+  - programmableLogicBase (5 vs 5): CPU 20,284,000 vs 29,159,170 | CPU x 1.44x | Mem 47,915 vs 72,685 | Mem x 1.52x
+  - issuerScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+Totals:
+  CPU: 191,815,490 vs 211,131,821 | CPU x: 1.10x
+  Mem: 517,481 vs 556,998 | Mem x: 1.08x
+  CPU %: 1.92% vs 2.11% | Mem %: 3.70% vs 3.98%
+
+================================================================================
+Scenario: programmableLogicGlobal.TransferAct [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 3 | Aiken 3
+Contracts:
+  - programmableLogicGlobal
+  - programmableLogicBase
+  - transferLogicScript
+Contract totals:
+  - programmableLogicGlobal (1 vs 1): CPU 66,189,238 vs 79,215,733 | CPU x 1.20x | Mem 192,593 vs 223,287 | Mem x 1.16x
+  - programmableLogicBase (1 vs 1): CPU 4,056,800 vs 5,831,834 | CPU x 1.44x | Mem 9,583 vs 14,537 | Mem x 1.52x
+  - transferLogicScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+Totals:
+  CPU: 70,310,138 vs 85,111,667 | CPU x: 1.21x
+  Mem: 202,676 vs 238,324 | Mem x: 1.18x
+  CPU %: 0.70% vs 0.85% | Mem %: 1.45% vs 1.70%
+
+================================================================================
+Scenario: programmableLogicGlobal.TransferAct.MixedMany [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 3 | Aiken 3
+Contracts:
+  - programmableLogicGlobal
+  - programmableLogicBase
+  - transferLogicScript
+Contract totals:
+  - programmableLogicGlobal (1 vs 1): CPU 118,810,227 vs 127,583,455 | CPU x 1.07x | Mem 358,805 vs 368,195 | Mem x 1.03x
+  - programmableLogicBase (1 vs 1): CPU 4,056,800 vs 5,831,834 | CPU x 1.44x | Mem 9,583 vs 14,537 | Mem x 1.52x
+  - transferLogicScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+Totals:
+  CPU: 122,931,127 vs 133,479,389 | CPU x: 1.09x
+  Mem: 368,888 vs 383,232 | Mem x: 1.04x
+  CPU %: 1.23% vs 1.33% | Mem %: 2.63% vs 2.74%
+
+================================================================================
+Scenario: programmableLogicGlobal.TransferAct.Spend10Utxos [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 12 | Aiken 12
+Contracts:
+  - programmableLogicGlobal
+  - programmableLogicBase
+  - transferLogicScript
+Contract totals:
+  - programmableLogicGlobal (1 vs 1): CPU 284,181,918 vs 340,137,195 | CPU x 1.20x | Mem 771,630 vs 1,053,234 | Mem x 1.36x
+  - programmableLogicBase (10 vs 10): CPU 40,568,000 vs 58,318,340 | CPU x 1.44x | Mem 95,830 vs 145,370 | Mem x 1.52x
+  - transferLogicScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+Totals:
+  CPU: 324,814,018 vs 398,519,635 | CPU x: 1.23x
+  Mem: 867,960 vs 1,199,104 | Mem x: 1.38x
+  CPU %: 3.25% vs 3.99% | Mem %: 6.20% vs 8.57%
+
+================================================================================
+Scenario: programmableLogicGlobal.TransferAct.Spend15Utxos [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 17 | Aiken 17
+Contracts:
+  - programmableLogicGlobal
+  - programmableLogicBase
+  - transferLogicScript
+Contract totals:
+  - programmableLogicGlobal (1 vs 1): CPU 400,219,518 vs 478,628,635 | CPU x 1.20x | Mem 1,076,575 vs 1,494,629 | Mem x 1.39x
+  - programmableLogicBase (15 vs 15): CPU 60,852,000 vs 87,477,510 | CPU x 1.44x | Mem 143,745 vs 218,055 | Mem x 1.52x
+  - transferLogicScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+Totals:
+  CPU: 461,135,618 vs 566,170,245 | CPU x: 1.23x
+  Mem: 1,220,820 vs 1,713,184 | Mem x: 1.40x
+  CPU %: 4.61% vs 5.66% | Mem %: 8.72% vs 12.24%
+
+================================================================================
+Scenario: programmableLogicGlobal.TransferAct.Spend5Utxos [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 7 | Aiken 7
+Contracts:
+  - programmableLogicGlobal
+  - programmableLogicBase
+  - transferLogicScript
+Contract totals:
+  - programmableLogicGlobal (1 vs 1): CPU 168,144,318 vs 201,645,755 | CPU x 1.20x | Mem 466,685 vs 611,839 | Mem x 1.31x
+  - programmableLogicBase (5 vs 5): CPU 20,284,000 vs 29,159,170 | CPU x 1.44x | Mem 47,915 vs 72,685 | Mem x 1.52x
+  - transferLogicScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+Totals:
+  CPU: 188,492,418 vs 230,869,025 | CPU x: 1.22x
+  Mem: 515,100 vs 685,024 | Mem x: 1.33x
+  CPU %: 1.88% vs 2.31% | Mem %: 3.68% vs 4.89%
+
+================================================================================
+Scenario: programmableLogicGlobal.TransferAct.TokenDoesNotExist [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 2 | Aiken 2
+Contracts:
+  - programmableLogicGlobal
+  - programmableLogicBase
+Contract totals:
+  - programmableLogicGlobal (1 vs 1): CPU 31,302,505 vs 57,158,620 | CPU x 1.83x | Mem 98,247 vs 158,593 | Mem x 1.61x
+  - programmableLogicBase (1 vs 1): CPU 4,056,800 vs 5,831,834 | CPU x 1.44x | Mem 9,583 vs 14,537 | Mem x 1.52x
+Totals:
+  CPU: 35,359,305 vs 62,990,454 | CPU x: 1.78x
+  Mem: 107,830 vs 173,130 | Mem x: 1.61x
+  CPU %: 0.35% vs 0.63% | Mem %: 0.77% vs 1.24%
+
+================================================================================
+Scenario: programmableLogicGlobal.TransferAct.Tx.c3111df7.NightAdaDex16Swaps [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 21 | Aiken 21
+Contracts:
+  - programmableLogicGlobal
+  - programmableLogicBase
+  - transferLogicScript
+  - alwaysSucceeds
+  - alwaysSucceeds2
+Contract totals:
+  - programmableLogicGlobal (1 vs 1): CPU 435,363,794 vs 683,551,367 | CPU x 1.57x | Mem 1,005,228 vs 1,964,833 | Mem x 1.95x
+  - programmableLogicBase (17 vs 17): CPU 68,965,600 vs 99,141,178 | CPU x 1.44x | Mem 162,911 vs 247,129 | Mem x 1.52x
+  - transferLogicScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+  - alwaysSucceeds (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+  - alwaysSucceeds2 (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+Totals:
+  CPU: 504,521,694 vs 782,884,845 | CPU x: 1.55x
+  Mem: 1,169,639 vs 2,213,462 | Mem x: 1.89x
+  CPU %: 5.05% vs 7.83% | Mem %: 8.35% vs 15.81%
+
+================================================================================
+Scenario: programmableLogicMinting.Burn [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 5 | Aiken 5
+Contracts:
+  - programmableLogicMinting
+  - programmableLogicBase
+  - programmableLogicGlobal
+  - transferLogicScript
+  - mintingLogicScript
+Contract totals:
+  - programmableLogicMinting (1 vs 1): CPU 26,560,309 vs 37,974,343 | CPU x 1.43x | Mem 69,968 vs 99,700 | Mem x 1.42x
+  - programmableLogicBase (1 vs 1): CPU 4,056,800 vs 5,831,834 | CPU x 1.44x | Mem 9,583 vs 14,537 | Mem x 1.52x
+  - programmableLogicGlobal (1 vs 1): CPU 74,460,272 vs 69,631,125 | CPU x 0.94x | Mem 219,481 vs 202,371 | Mem x 0.92x
+  - transferLogicScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+  - mintingLogicScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+Totals:
+  CPU: 105,205,581 vs 113,565,502 | CPU x: 1.08x
+  Mem: 300,032 vs 317,608 | Mem x: 1.06x
+  CPU %: 1.05% vs 1.14% | Mem %: 2.14% vs 2.27%
+
+================================================================================
+Scenario: programmableLogicMinting.Mint [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 2 | Aiken 2
+Contracts:
+  - programmableLogicMinting
+  - mintingLogicScript
+Contract totals:
+  - programmableLogicMinting (1 vs 1): CPU 32,626,604 vs 38,960,883 | CPU x 1.19x | Mem 81,525 vs 106,813 | Mem x 1.31x
+  - mintingLogicScript (1 vs 1): CPU 64,100 vs 64,100 | CPU x 1.00x | Mem 500 vs 500 | Mem x 1.00x
+Totals:
+  CPU: 32,690,704 vs 39,024,983 | CPU x: 1.19x
+  Mem: 82,025 vs 107,313 | Mem x: 1.31x
+  CPU %: 0.33% vs 0.39% | Mem %: 0.59% vs 0.77%
+
+================================================================================
+Scenario: protocolParamsMinting [PASS]
+Results: Plutarch PASS | Aiken PASS
+Scripts: Plutarch 1 | Aiken 1
+Contracts:
+  - protocolParamsMinting
+Contract totals:
+  - protocolParamsMinting (1 vs 1): CPU 15,331,815 vs 34,029,516 | CPU x 2.22x | Mem 33,917 vs 93,082 | Mem x 2.74x
+Totals:
+  CPU: 15,331,815 vs 34,029,516 | CPU x: 2.22x
+  Mem: 33,917 vs 93,082 | Mem x: 2.74x
+  CPU %: 0.15% vs 0.34% | Mem %: 0.24% vs 0.66%

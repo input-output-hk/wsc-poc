@@ -34,3 +34,11 @@ protocol-parameters-mainnet.json
 tags
 /mainnet
 operator/*
+# Internal working notes: benchmark checkpoints, optimization plans, security-finding
+# analyses. Kept locally only — not part of the published repo.
+doc/bench-checkpoint-*.txt
+doc/comparative-analysis-plutarch-vs-aiken.md
+doc/implementation-plan-and-acceptance.md
+doc/design-issuance-mint-forwarding.md
+doc/design-issuance-dual-arm-custody.md
+doc/impl-worklist-dual-arm.md

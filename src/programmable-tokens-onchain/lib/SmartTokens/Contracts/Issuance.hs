@@ -2,192 +2,252 @@
 {-# LANGUAGE OverloadedRecordDot  #-}
 {-# LANGUAGE OverloadedStrings    #-}
 {-# LANGUAGE QualifiedDo          #-}
+{-# LANGUAGE TemplateHaskell      #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+-- | Issuance minting policy — dual-arm custody (spec
+-- doc/design-issuance-dual-arm-custody.md §5-§9).
+--
+-- The policy has two compile-time parameters: @protocolParamsCS@ (identifies the
+-- immutable protocol instance; the directory / base / global / seize credentials
+-- are read from its NFT-authenticated datum) and @mintingLogicHash@ (the
+-- token-specific authorization script — MUST remain the LAST applied parameter so
+-- the offchain issuance-cbor-hex derivation can split the compiled CBOR around
+-- it). Custody of newly created tokens is enforced by exactly one of four
+-- witnesses, chosen by the transaction and revalidated on-chain; a false witness
+-- can only invalidate its own transaction.
 module SmartTokens.Contracts.Issuance (
   mkProgrammableLogicMinting,
-  SmartTokenMintingAction (..),
+  MintRedeemer (..),
+  RegistrationWitness (..),
 ) where
 
 import Generics.SOP qualified as SOP
 import GHC.Generics (Generic)
-import Plutarch.Core.Context (paddressCredential)
-import Plutarch.Core.List (pheadSingleton)
+import Plutarch.Core.Context (paddressCredential, ptxInInfoResolved)
+import Plutarch.Core.List (pdropFast)
 import Plutarch.Core.ValidationLogic (pvalidateConditions)
-import Plutarch.Core.Value (ptryLookupValue)
-import Plutarch.LedgerApi.AssocMap qualified as AssocMap
-import Plutarch.LedgerApi.V3 (PCredential (..), PRedeemer, PScriptContext (..),
+import Plutarch.Core.Value (phasCS, ptryLookupValue)
+import Plutarch.LedgerApi.AssocMap (KeyGuarantees (Sorted))
+import Plutarch.LedgerApi.V3 (AmountGuarantees (Positive), PCredential (..),
+                              PCurrencySymbol, PScriptContext (..),
                               PScriptHash, PScriptInfo (PMintingScript),
-                              PScriptPurpose (..),
-                              PTxInfo (PTxInfo, ptxInfo'mint, ptxInfo'outputs, ptxInfo'wdrl),
+                              PScriptPurpose (PRewarding),
+                              PTokenName (PTokenName),
+                              PTxInfo (PTxInfo, ptxInfo'mint, ptxInfo'outputs, ptxInfo'referenceInputs, ptxInfo'wdrl, ptxInfo'redeemers),
                               PTxOut (PTxOut, ptxOut'address, ptxOut'value),
-                              ptxInfo'redeemers)
+                              PValue)
 import Plutarch.LedgerApi.Value (pvalueOf)
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
-import PlutusLedgerApi.V3
 import PlutusTx qualified
+import SmartTokens.Contracts.ProgrammableLogicBase (PProgrammableLogicGlobalRedeemer (..),
+                                                    pparamsAtRefIdx)
+import SmartTokens.Types.ProtocolParams (PProgrammableLogicGlobalParams (..))
 
-newtype SmartTokenMintingAction = SmartTokenMintingAction Credential
+-- | How the minted policy proves it is registered in the directory (spec §7).
+-- Constructor indices are frozen: @RegisteredByReferenceInput = 0@,
+-- @RegisteredByOutput = 1@.
+data RegistrationWitness
+  = RegisteredByReferenceInput Integer
+  | RegisteredByOutput Integer
   deriving stock (Show, Eq, Generic)
-  deriving newtype
-    ( PlutusTx.ToData
-    , PlutusTx.FromData
-    , PlutusTx.UnsafeFromData
-    )
 
-newtype PSmartTokenMintingAction (s :: S) = PSmartTokenMintingAction (Term s PCredential)
-  deriving stock
-    ( Generic
-    )
-  deriving anyclass
-    ( SOP.Generic
-    , PIsData
-    , PEq
-    , PShow
-    )
-  deriving
-    (
-      PlutusType
-    )
-    via (DeriveNewtypePlutusType PSmartTokenMintingAction)
+PlutusTx.makeIsDataIndexed
+  ''RegistrationWitness
+  [('RegisteredByReferenceInput, 0), ('RegisteredByOutput, 1)]
 
-{-| Minting Policy for Programmable Logic Tokens
+-- | The custody witness (spec §6). Constructor indices are frozen:
+-- @Local = 0@, @DelegateTransfer = 1@, @DelegateSeize = 2@, @BurnOnly = 3@.
+-- Every index field is a self-validating hint; a wrong index makes the check it
+-- feeds fail (or errors), so honesty is never a trust assumption.
+data MintRedeemer
+  = Local
+      { mrMintingLogicWdrlIdx :: Integer
+      , mrParamsRefIdx :: Integer
+      , mrRegistration :: RegistrationWitness
+      }
+  | DelegateTransfer
+      { mrMintingLogicWdrlIdx :: Integer
+      , mrParamsRefIdx :: Integer
+      , mrNodeRefIdx :: Integer
+      , mrGlobalWdrlIdx :: Integer
+      }
+  | DelegateSeize
+      { mrMintingLogicWdrlIdx :: Integer
+      , mrParamsRefIdx :: Integer
+      , mrNodeRefIdx :: Integer
+      , mrSeizeRedeemerIdx :: Integer
+      }
+  | BurnOnly
+      { mrMintingLogicWdrlIdx :: Integer
+      }
+  deriving stock (Show, Eq, Generic)
 
-This minting policy enables the creation and management of programmable tokens with
-configurable transfer and issuer logic.
+PlutusTx.makeIsDataIndexed
+  ''MintRedeemer
+  [('Local, 0), ('DelegateTransfer, 1), ('DelegateSeize, 2), ('BurnOnly, 3)]
 
-== Overview
-The policy supports two primary actions:
-1. Token Minting
-2. Token Burning
+data PRegistrationWitness (s :: S)
+  = PRegisteredByReferenceInput {pregRefIdx :: Term s (PAsData PInteger)}
+  | PRegisteredByOutput {pregOutIdx :: Term s (PAsData PInteger)}
+  deriving stock (Generic)
+  deriving anyclass (SOP.Generic, PIsData, PEq, PShow)
+  deriving (PlutusType) via (DeriveAsDataStruct PRegistrationWitness)
 
-Both actions are encompassed by the `PSmartTokenMintingAction` redeemer, which is used to mint or burn tokens of an already registered token.
+data PMintRedeemer (s :: S)
+  = PLocal
+      { plMintingLogicWdrlIdx :: Term s (PAsData PInteger)
+      , plParamsRefIdx :: Term s (PAsData PInteger)
+      , plRegistration :: Term s (PAsData PRegistrationWitness)
+      }
+  | PDelegateTransfer
+      { pdtMintingLogicWdrlIdx :: Term s (PAsData PInteger)
+      , pdtParamsRefIdx :: Term s (PAsData PInteger)
+      , pdtNodeRefIdx :: Term s (PAsData PInteger)
+      , pdtGlobalWdrlIdx :: Term s (PAsData PInteger)
+      }
+  | PDelegateSeize
+      { pdsMintingLogicWdrlIdx :: Term s (PAsData PInteger)
+      , pdsParamsRefIdx :: Term s (PAsData PInteger)
+      , pdsNodeRefIdx :: Term s (PAsData PInteger)
+      , pdsSeizeRedeemerIdx :: Term s (PAsData PInteger)
+      }
+  | PBurnOnly
+      { pboMintingLogicWdrlIdx :: Term s (PAsData PInteger)
+      }
+  deriving stock (Generic)
+  deriving anyclass (SOP.Generic, PIsData, PEq, PShow)
+  deriving (PlutusType) via (DeriveAsDataStruct PMintRedeemer)
 
-== Registration Process
-Before a token is minted from this policy, it should be registered in the directory.
-For details on the registration process refer to the `SmartTokens.LinkedList.MintDirectory` module.
+-- | Drop @idx@ elements, rejecting a negative index explicitly (spec §6 — must
+-- not rely on budget exhaustion).
+pcheckedDrop :: (PIsListLike PBuiltinList a) => Term s (PInteger :--> PBuiltinList a :--> PBuiltinList a)
+pcheckedDrop = phoistAcyclic $ plam $ \idx xs ->
+  pif (idx #< 0) (ptraceInfoError "negative index") (pdropFast # idx # xs)
 
-== Directory Node Structure
-Each programmable token entry is represented in a directory with the following attributes:
-- @key@: Currency symbol of the programmable token
-- @next@: The currency symbol of the next programmable token identified by the next directory node (enables a linked list structure)
-- @transferLogicScript@: Credential of the script that must validate all token transfers of the programmable token
-- @issuerLogicScript@: Credential for issuer-specific actions (e.g., clawbacks) for the programmable token
-- @globalStateCS@: The currency symbol of an NFT that uniquely identifies a UTxO that contains the global state associated with the programmable token.
-    This is optionally and can be set to the empty currency symbol if not needed.
-
-== Constraints
-=== Minting/Burning Constraint
-- The first transaction output must contain the minted tokens
-- The output must be associated with the base programmable logic credential
-- The minting logic script must be invoked in the transaction.
-
-==== Burning
-- Minting logic credential must be invoked in the transaction.
-- No tokens can be minted.
-- At-least one token must be burned.
-
-@programmableLogicBase@ Script Credential of the programmable logic script
-@mintingLogicCred@ Script Credential for the script which must be invoked to perform minting/burning operations
-@ctx@ Script context containing transaction details
--}
-mkProgrammableLogicMinting :: Term s (PAsData PCredential :--> PAsData PScriptHash :--> PScriptContext :--> PUnit)
-mkProgrammableLogicMinting = plam $ \(pfromData -> programmableLogicBase) mintingLogicCred' ctx -> P.do
-  let mintingLogicCred = pdata $ pcon $ PScriptCredential mintingLogicCred'
+mkProgrammableLogicMinting :: Term s (PAsData PCurrencySymbol :--> PAsData PScriptHash :--> PScriptContext :--> PUnit)
+mkProgrammableLogicMinting = plam $ \protocolParamsCS mintingLogicHash' ctx -> P.do
+  -- The credential the token's minting-logic withdrawal must carry (baked into
+  -- the policy id, so this is a compile-time constant — hoist once).
+  mintingLogicCred <- plet $ pdata $ pcon $ PScriptCredential mintingLogicHash'
   PScriptContext {pscriptContext'txInfo, pscriptContext'redeemer, pscriptContext'scriptInfo} <- pmatch ctx
-  PTxInfo {ptxInfo'outputs, ptxInfo'mint, ptxInfo'wdrl, ptxInfo'redeemers} <- pmatch pscriptContext'txInfo
-
+  PTxInfo {ptxInfo'referenceInputs, ptxInfo'outputs, ptxInfo'mint, ptxInfo'wdrl, ptxInfo'redeemers} <- pmatch pscriptContext'txInfo
   PMintingScript ownCS' <- pmatch pscriptContext'scriptInfo
-  ownCS <- plet ownCS'
-  mintedValue <- plet $ pfromData ptxInfo'mint
+  ownCS <- plet $ pfromData ownCS'
+  ownAsTokenName <- plet $ pcon $ PTokenName (pto ownCS)
+  withdrawalEntries <- plet $ pto (pfromData ptxInfo'wdrl)
+  referenceInputs <- plet $ pfromData ptxInfo'referenceInputs
+  outputs <- plet $ pfromData ptxInfo'outputs
+  red <- plet $ pfromData (punsafeCoerce @(PAsData PMintRedeemer) (pto pscriptContext'redeemer))
 
-  let ownTkPairs = ptryLookupValue # ownCS # mintedValue
-  -- For ease of implementation of the POC we only allow one programmable token per instance of this minting policy.
-  -- This can be easily changed later.
-  ownTkPair <- plet (pheadSingleton # ownTkPairs)
-  ownTokenName <- plet (pfstBuiltin # ownTkPair)
-  ownNumMinted <- plet (pfromData $ psndBuiltin # ownTkPair)
-  txOutputs <- plet $ pfromData ptxInfo'outputs
-  -- For ease of implementation of the POC we enforce that the first output must contain the minted tokens.
-  -- This can be easily changed later.
-  PTxOut {ptxOut'address=mintingToOutputFAddress, ptxOut'value=mintingToOutputFValue} <- pmatch (pfromData $ phead # txOutputs)
+  -- Common check C1 (§7): the token's minting-logic rewarding script ran, proven
+  -- by its withdrawal appearing at the witnessed index. A valid ledger tx then
+  -- guarantees that script executed.
+  mintingLogicInvokedAt <- plet $ plam $ \wdrlIdx ->
+    (pfstBuiltin # (phead # (pcheckedDrop # pfromData wdrlIdx # withdrawalEntries))) #== mintingLogicCred
 
-  let invokedScripts =
-        pmap @PBuiltinList
-          # plam (pfstBuiltin #)
-          # pto (pfromData ptxInfo'wdrl)
-  red <- plet pscriptContext'redeemer
-  -- All transfers of the token will be validated by either the transferLogicScript or the issuerLogicScript.
-  -- Registration can only occurr once per instance of this minting policy since the directory contracts do not permit duplicate
-  -- entries.
-  pif (ownNumMinted #> 0)
-      (
-        -- This branch is for validating the minting of tokens
-        pvalidateConditions
-          [ pvalueOf # pfromData mintingToOutputFValue # pfromData ownCS # pfromData ownTokenName #== ownNumMinted
-          , paddressCredential mintingToOutputFAddress #== programmableLogicBase
-          , pelem # mintingLogicCred # invokedScripts
-          , punsafeCoerce @(PAsData PCredential) (pto red) #== mintingLogicCred
-          , psingleMintWithCredential # pdata red # pfromData ptxInfo'redeemers
-          ]
-      )
-      (
-        -- This branch is for validating the burning of tokens
-        pvalidateConditions
-          [ pelem # mintingLogicCred # invokedScripts
-          , psingleMintWithCredential # pdata pscriptContext'redeemer # pfromData ptxInfo'redeemers
-          ]
-      )
+  -- Registration NFT presence: a single directory NFT named `ownCS` under the
+  -- directory currency symbol at the resolved value. No datum decode (§7) — the
+  -- directory policy already binds NFT name == node key at mint time.
+  hasNodeNFT <- plet $ plam $ \directoryNodeCS value ->
+    pvalueOf # value # directoryNodeCS # ownAsTokenName #== 1
 
--- | Check that exactly one `PMinting` redeemer with the mintingLogic credential is present in the transaction.
-psingleMintWithCredential :: Term (s :: S) (PAsData PRedeemer :--> AssocMap.PMap 'AssocMap.Unsorted PScriptPurpose PRedeemer :--> PBool)
-psingleMintWithCredential =
-  phoistAcyclic $ plam $ \rdmr redeemers ->
-    -- skip spending purposes
-    let go = pfix #$ plam $ \self ->
-              pelimList
-                (\x xs ->
-                  let purposeConstrPair = pfstBuiltin # x
-                      purposeConstrIdx = pfstBuiltin # (pasConstr # pforgetData purposeConstrPair)
-                   in pif
-                        (pnot # (purposeConstrIdx #== 0))
-                        (self # xs)
-                        ( pif (psndBuiltin # x #== rdmr)
-                              (go2 # xs)
-                              (go1 # xs)
-                        )
-                )
-                (pconstant False)
-        -- check that exactly one redeemer is equal to the mintingLogic credential
-        go1 = pfix #$ plam $ \self ->
-              pelimList
-                (\x xs ->
-                  let purposeConstrPair = pfstBuiltin # x
-                      purposeConstrIdx = pfstBuiltin # (pasConstr # pforgetData purposeConstrPair)
-                   in pif
-                        (purposeConstrIdx #== 0)
-                        ( pif (psndBuiltin # x #== rdmr)
-                              (go2 # xs)
-                              (self # xs)
-                        )
-                        (pconstant False)
-                )
-                (pconstant False)
-        -- check that no other redeemer is equal to the mintingLogic credential
-        go2 = pfix #$ plam $ \self ->
-                pelimList
-                  (\x xs ->
-                    let purposeConstrPair = pfstBuiltin # x
-                        purposeConstrIdx = pfstBuiltin # (pasConstr # pforgetData purposeConstrPair)
-                    in pif
-                          (purposeConstrIdx #== 0)
-                          ( pif (psndBuiltin # x #== rdmr)
-                                (pconstant False)
-                                (self # xs)
-                          )
-                          (pconstant True)
-                  )
+  pmatch red $ \case
+    -- ===== Local: the policy proves custody itself (§8). =====
+    PLocal wdrlIdx paramsRefIdx registration -> P.do
+      PProgrammableLogicGlobalParams {pdirectoryNodeCS, pprogLogicCred} <-
+        pmatch $ pparamsAtRefIdx (pfromData protocolParamsCS) referenceInputs (pfromData paramsRefIdx)
+      directoryNodeCS <- plet $ pfromData pdirectoryNodeCS
+      progLogicCred <- plet $ pfromData pprogLogicCred
+      -- Registration: directory NFT named ownCS at a witnessed reference input OR
+      -- output (the output arm is safe HERE only because Local does its own
+      -- custody scan and never trusts the global's directory view).
+      registrationOk <- plet $
+        pmatch (pfromData registration) $ \case
+          PRegisteredByReferenceInput idx ->
+            pmatch (ptxInInfoResolved $ pfromData (phead # (pcheckedDrop # pfromData idx # referenceInputs))) $
+              \(PTxOut {ptxOut'value}) -> hasNodeNFT # directoryNodeCS # pfromData ptxOut'value
+          PRegisteredByOutput idx ->
+            pmatch (pfromData (phead # (pcheckedDrop # pfromData idx # outputs))) $
+              \(PTxOut {ptxOut'value}) -> hasNodeNFT # directoryNodeCS # pfromData ptxOut'value
+      -- Custody: universal full scan. Every output whose payment credential is not
+      -- the base must hold zero of ownCS. Delta- and input-agnostic. Uses raw
+      -- field access (not a full `PTxOut` decode) so the datum and reference
+      -- script of each output are never forced — the dominant per-output cost on
+      -- busy transactions.
+      progLogicCredData <- plet $ pforgetData pprogLogicCred
+      noEscape <- plet $
+        pall # plam (\o ->
+          plet (psndBuiltin # (pasConstr # pforgetData o)) $ \txOutFields ->
+            let addrData = phead # txOutFields
+                valueData = phead # (ptail # txOutFields)
+                paymentCredData = phead # (psndBuiltin # (pasConstr # addrData))
+             in pif
+                  (paymentCredData #== progLogicCredData)
                   (pconstant True)
-     in go # pto redeemers
+                  (pnot # (phasCS # pfromData (punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) valueData) # ownCS))
+        ) # outputs
+      pvalidateConditions
+        [ mintingLogicInvokedAt # wdrlIdx
+        , registrationOk
+        , noEscape
+        ]
+
+    -- ===== DelegateTransfer: the global transfer validator enforces custody (§9.1). =====
+    PDelegateTransfer wdrlIdx paramsRefIdx nodeRefIdx globalWdrlIdx -> P.do
+      PProgrammableLogicGlobalParams {pdirectoryNodeCS, pglobalLogicCred} <-
+        pmatch $ pparamsAtRefIdx (pfromData protocolParamsCS) referenceInputs (pfromData paramsRefIdx)
+      -- Registration by REFERENCE INPUT ONLY (F-1, normative): an output-side
+      -- (freshly inserted) node would leave the global's ref-input directory view
+      -- pre-insert, letting a NonMember proof exclude ownCS from containment.
+      regByRefOk <- plet $
+        pmatch (ptxInInfoResolved $ pfromData (phead # (pcheckedDrop # pfromData nodeRefIdx # referenceInputs))) $
+          \(PTxOut {ptxOut'value}) -> hasNodeNFT # pfromData pdirectoryNodeCS # pfromData ptxOut'value
+      -- The global transfer validator is running (its withdrawal is present at the
+      -- witnessed index). It accepts only TransferAct, whose no-omission mint walk
+      -- + containment then force ownCS's mint to the base credential.
+      globalInvoked <- plet $
+        (pfstBuiltin # (phead # (pcheckedDrop # pfromData globalWdrlIdx # withdrawalEntries))) #== pglobalLogicCred
+      pvalidateConditions
+        [ mintingLogicInvokedAt # wdrlIdx
+        , regByRefOk
+        , globalInvoked
+        ]
+
+    -- ===== DelegateSeize: the standalone seize validator enforces custody (§9.2). =====
+    PDelegateSeize wdrlIdx paramsRefIdx nodeRefIdx seizeRedeemerIdx -> P.do
+      PProgrammableLogicGlobalParams {pdirectoryNodeCS, pseizeLogicCred} <-
+        pmatch $ pparamsAtRefIdx (pfromData protocolParamsCS) referenceInputs (pfromData paramsRefIdx)
+      regByRefOk <- plet $
+        pmatch (ptxInInfoResolved $ pfromData (phead # (pcheckedDrop # pfromData nodeRefIdx # referenceInputs))) $
+          \(PTxOut {ptxOut'value}) -> hasNodeNFT # pfromData pdirectoryNodeCS # pfromData ptxOut'value
+      -- The seize redeemer at the witnessed index must be a SeizeAct of the params
+      -- seize credential whose directoryNodeIdx names the SAME node we proved is
+      -- keyed ownCS — binding the (single-policy) seize scope to ownCS.
+      seizeEntry <- plet $ phead # (pcheckedDrop # pfromData seizeRedeemerIdx # pto (pfromData ptxInfo'redeemers))
+      seizeScopeOk <- plet $
+        pmatch (pfromData (punsafeCoerce @(PAsData PScriptPurpose) (pfstBuiltin # seizeEntry))) $ \case
+          PRewarding seizeCred ->
+            pmatch (pfromData (punsafeCoerce @(PAsData PProgrammableLogicGlobalRedeemer) (psndBuiltin # seizeEntry))) $ \case
+              PSeizeAct {pdirectoryNodeIdx} ->
+                (pdata seizeCred #== pseizeLogicCred)
+                  #&& (pfromData pdirectoryNodeIdx #== pfromData nodeRefIdx)
+              _ -> pconstant False
+          _ -> pconstant False
+      pvalidateConditions
+        [ mintingLogicInvokedAt # wdrlIdx
+        , regByRefOk
+        , seizeScopeOk
+        ]
+
+    -- ===== BurnOnly: no positive mint ⇒ no custody/registration/params proof (§3.4). =====
+    PBurnOnly wdrlIdx -> P.do
+      -- Scan the WHOLE ownCS mint token-map: any positive entry means this is not a
+      -- pure burn and must use a custody arm. (Head-only would smuggle a mint.)
+      ownTkPairs <- plet $ ptryLookupValue # ownCS' # pfromData ptxInfo'mint
+      pvalidateConditions
+        [ mintingLogicInvokedAt # wdrlIdx
+        , pall # plam (\pair -> pfromData (psndBuiltin # pair) #<= 0) # ownTkPairs
+        ]

@@ -54,6 +54,7 @@ library
   import:          lang
   exposed-modules:
     ProgrammableTokens.JSON.Utils
+    ProgrammableTokens.OffChain.AikenProgrammableTokenScripts
     ProgrammableTokens.OffChain.BuildTx
     ProgrammableTokens.OffChain.BuildTx.Directory
     ProgrammableTokens.OffChain.BuildTx.IssuanceCborHexRef

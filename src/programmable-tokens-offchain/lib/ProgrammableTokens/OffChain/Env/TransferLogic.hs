@@ -12,17 +12,15 @@ module ProgrammableTokens.OffChain.Env.TransferLogic(
 import Cardano.Api (PlutusScript, PlutusScriptV3)
 import Cardano.Api qualified as C
 import Control.Monad.Reader (MonadReader (..), asks)
-import Convex.PlutusLedger.V1 (unTransCredential)
-import Data.Either (fromRight)
+import Convex.PlutusLedger.V1 (transPolicyId)
 import PlutusLedgerApi.V3 (CurrencySymbol)
 import ProgrammableTokens.OffChain.Env.Directory (DirectoryEnv (..),
                                                   DirectoryScriptRoot (..),
                                                   HasDirectoryEnv (..),
-                                                  globalParams)
+                                                  protocolParamsPolicyId)
 import ProgrammableTokens.OffChain.Env.Utils qualified as Env
 import ProgrammableTokens.OffChain.Scripts as Scripts
 import SmartTokens.Core.Scripts (ScriptTarget)
-import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 
 {-| Scripts related to managing the specific transfer logic
 -}
@@ -58,10 +56,9 @@ instance (Env.Elem TransferLogicEnv els) => HasTransferLogicEnv (Env.HSet els) w
 -}
 programmableTokenMintingScript :: DirectoryEnv -> TransferLogicEnv -> C.PlutusScript C.PlutusScriptV3
 programmableTokenMintingScript dirEnv@DirectoryEnv{dsScriptRoot} TransferLogicEnv{tleMintingScript} =
-  let ProgrammableLogicGlobalParams {progLogicCred} = globalParams dirEnv
+  let protocolParamsCS = transPolicyId (protocolParamsPolicyId dirEnv)
       DirectoryScriptRoot{srTarget} = dsScriptRoot
-      progLogicScriptCredential = fromRight (error "could not parse protocol params") $ unTransCredential progLogicCred
-  in programmableLogicMintingScript srTarget progLogicScriptCredential (C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleMintingScript)
+  in programmableLogicMintingScript srTarget protocolParamsCS (C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.plutusScriptVersion tleMintingScript)
 
 -- | The minting policy ID of the programmable token
 programmableTokenPolicyId :: (MonadReader env m, HasTransferLogicEnv env, HasDirectoryEnv env) => m C.PolicyId

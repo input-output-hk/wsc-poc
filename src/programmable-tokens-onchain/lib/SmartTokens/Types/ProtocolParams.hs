@@ -38,12 +38,31 @@ import PlutusTx qualified
 import PlutusTx.Builtins.Internal qualified as BI
 import PlutusTx.Prelude qualified as PlutusTxPrelude
 
--- TODO:
--- Figure out why deriving PlutusType breaks when I uncomment this
--- and disable no-deferred-type-errors
+-- | Protocol-wide parameters stored in the NFT-authenticated protocol-params
+-- datum (spec §4, doc/design-issuance-dual-arm-custody.md).
+--
+-- Field order is NORMATIVE and consensus-critical (the issuance policy
+-- raw-accesses these positions without shape validation, §7):
+--
+--   0. 'directoryNodeCS'  — directory-node NFT currency symbol (unchanged)
+--   1. 'progLogicCred'    — programmable-logic base spending credential (unchanged)
+--   2. 'globalLogicCred'  — global transfer rewarding credential (NEW)
+--   3. 'seizeLogicCred'   — standalone seize rewarding credential (NEW)
+--
+-- Fields 0/1 are byte-compatible with the previous 2-field datum, so every
+-- existing consumer that reads only those positions is unaffected. Fields 2/3
+-- are appended and MUST NOT be forced by hot paths that do not need them
+-- (see the raw-field readers in "SmartTokens.Contracts.ProgrammableLogicBase").
+-- Credentials are stored Data-encoded (not @ScriptHash@) so consumers compare
+-- them with a direct @equalsData@ (601 mem) rather than a byte-decomposed
+-- compare (2129 mem); the "key credential in a script slot" misconfiguration is
+-- made unrepresentable at mint time by the hardened anchor policy (§4.1), not by
+-- the type.
 data ProgrammableLogicGlobalParams = ProgrammableLogicGlobalParams
   { directoryNodeCS :: CurrencySymbol
   , progLogicCred :: Credential
+  , globalLogicCred :: Credential
+  , seizeLogicCred :: Credential
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (SOP.Generic)
@@ -52,19 +71,33 @@ instance PlutusTx.FromData ProgrammableLogicGlobalParams where
   fromBuiltinData dat = do
     xs <- BI.chooseData dat Nothing Nothing (Just $ BI.unsafeDataAsList dat) Nothing Nothing
     directoryNodeCurrSymb <- PlutusTx.fromBuiltinData $ BI.head xs
-    progLogicCred <- PlutusTx.fromBuiltinData $ BI.head $ BI.tail xs
-    PlutusTxPrelude.pure PlutusTxPrelude.$ ProgrammableLogicGlobalParams directoryNodeCurrSymb progLogicCred
+    let xs1 = BI.tail xs
+    progLogicCred <- PlutusTx.fromBuiltinData $ BI.head xs1
+    let xs2 = BI.tail xs1
+    globalLogicCred <- PlutusTx.fromBuiltinData $ BI.head xs2
+    seizeLogicCred <- PlutusTx.fromBuiltinData $ BI.head $ BI.tail xs2
+    PlutusTxPrelude.pure PlutusTxPrelude.$
+      ProgrammableLogicGlobalParams directoryNodeCurrSymb progLogicCred globalLogicCred seizeLogicCred
 
 instance PlutusTx.ToData ProgrammableLogicGlobalParams where
-  toBuiltinData ProgrammableLogicGlobalParams{directoryNodeCS, progLogicCred} =
+  toBuiltinData ProgrammableLogicGlobalParams{directoryNodeCS, progLogicCred, globalLogicCred, seizeLogicCred} =
     let directoryNodeCS' = PlutusTx.toBuiltinData directoryNodeCS
         progLogicCred' = PlutusTx.toBuiltinData progLogicCred
-     in BI.mkList $ BI.mkCons directoryNodeCS' (BI.mkCons progLogicCred' $ BI.mkNilData BI.unitval)
+        globalLogicCred' = PlutusTx.toBuiltinData globalLogicCred
+        seizeLogicCred' = PlutusTx.toBuiltinData seizeLogicCred
+     in BI.mkList $
+          BI.mkCons directoryNodeCS' $
+            BI.mkCons progLogicCred' $
+              BI.mkCons globalLogicCred' $
+                BI.mkCons seizeLogicCred' $
+                  BI.mkNilData BI.unitval
 
 data PProgrammableLogicGlobalParams (s :: S)
   = PProgrammableLogicGlobalParams
       { pdirectoryNodeCS :: Term s (PAsData PCurrencySymbol)
       , pprogLogicCred :: Term s (PAsData PCredential)
+      , pglobalLogicCred :: Term s (PAsData PCredential)
+      , pseizeLogicCred :: Term s (PAsData PCredential)
       }
   deriving stock (Generic)
   deriving anyclass (SOP.Generic, PIsData, PEq, PShow)
@@ -85,10 +118,12 @@ plutusDataFromJSON val = do
   maybe (Left "fromData failed") Right (PlutusTx.fromData $ C.toPlutusData k)
 
 instance ToJSON ProgrammableLogicGlobalParams where
-  toJSON ProgrammableLogicGlobalParams{directoryNodeCS, progLogicCred} =
+  toJSON ProgrammableLogicGlobalParams{directoryNodeCS, progLogicCred, globalLogicCred, seizeLogicCred} =
     object
       [ "directory_node_currency_symbol" .= plutusDataToJSON directoryNodeCS
       , "programmable_logic_credential"  .= plutusDataToJSON progLogicCred
+      , "global_logic_credential"        .= plutusDataToJSON globalLogicCred
+      , "seize_logic_credential"         .= plutusDataToJSON seizeLogicCred
       ]
 
 instance FromJSON ProgrammableLogicGlobalParams where
@@ -96,6 +131,8 @@ instance FromJSON ProgrammableLogicGlobalParams where
     ProgrammableLogicGlobalParams
       <$> (obj .: "directory_node_currency_symbol" >>= either fail pure . plutusDataFromJSON)
       <*> (obj .: "programmable_logic_credential" >>= either fail pure . plutusDataFromJSON)
+      <*> (obj .: "global_logic_credential" >>= either fail pure . plutusDataFromJSON)
+      <*> (obj .: "seize_logic_credential" >>= either fail pure . plutusDataFromJSON)
 
 instance ToParamSchema ProgrammableLogicGlobalParams where
   toParamSchema _proxy =
@@ -113,6 +150,18 @@ instance ToParamSchema ProgrammableLogicGlobalParams where
         , Inline $ mempty
               & L.type_ ?~ OpenApiArray
               & L.description ?~ "plutus-data-encoded payment credential of the programmable logic"
+              & L.example ?~ toJSON @[Aeson.Value] [toJSON @Int 0, toJSON @[String] ["0x0a0eb28fbaec9e61d20e9fe4c6ac5e5ee4520bb274b1e3292721d26f"]]
+          )
+        , ( "global_logic_credential"
+        , Inline $ mempty
+              & L.type_ ?~ OpenApiArray
+              & L.description ?~ "plutus-data-encoded rewarding credential of the global transfer validator"
+              & L.example ?~ toJSON @[Aeson.Value] [toJSON @Int 0, toJSON @[String] ["0x0a0eb28fbaec9e61d20e9fe4c6ac5e5ee4520bb274b1e3292721d26f"]]
+          )
+        , ( "seize_logic_credential"
+        , Inline $ mempty
+              & L.type_ ?~ OpenApiArray
+              & L.description ?~ "plutus-data-encoded rewarding credential of the standalone seize validator"
               & L.example ?~ toJSON @[Aeson.Value] [toJSON @Int 0, toJSON @[String] ["0x0a0eb28fbaec9e61d20e9fe4c6ac5e5ee4520bb274b1e3292721d26f"]]
           )
         ]

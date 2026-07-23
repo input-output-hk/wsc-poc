@@ -11,31 +11,36 @@ module Wst.Offchain.BuildTx.ProgrammableLogic (
 where
 
 import Cardano.Api qualified as C
-import Control.Lens ((^.))
+import Control.Lens (over, (^.))
 import Control.Lens qualified as L
 import Control.Monad (forM_)
 import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (
     MonadBuildTx,
+    TxBuilder (..),
     addOutput,
     addReference,
+    addTxBuilder,
     addWithdrawalWithTxBody,
     buildScriptWitness,
     findIndexReference,
     findIndexSpending,
     spendPlutusInlineDatum,
+    spendPlutusRefWithInlineDatum,
  )
 import Convex.CardanoApi.Lenses as L
 import Convex.Class (MonadBlockchain (queryNetworkId))
 import Convex.PlutusLedger.V1 (transPolicyId)
 import Convex.Utils qualified as Utils
 import Data.Foldable (find)
-import Data.List (findIndex, partition)
+import Data.List (findIndex, nub, partition)
 import Data.Maybe (fromMaybe)
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (CurrencySymbol (..))
 import ProgrammableTokens.OffChain.Env qualified as Env
-import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedeemer (..))
+import SmartTokens.Contracts.ProgrammableLogicBase (
+    mkSeizeActRedeemerFromAbsoluteInputIdxs,
+ )
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
 import SmartTokens.Types.ProtocolParams
 import Wst.Offchain.Query (UTxODat (..))
@@ -78,10 +83,16 @@ seizeProgrammableToken ::
     m ()
 seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicyId directoryList = Utils.inBabbage @era $ do
     nid <- queryNetworkId
-    globalStakeScript <- asks (Env.dsProgrammableLogicGlobalScript . Env.directoryEnv)
+    -- SeizeAct is witnessed by the standalone seize validator (mkProgrammableSeize),
+    -- not the global validator: mkProgrammableLogicGlobal rejects SeizeAct (it only
+    -- handles TransferAct). The base spend stays authorized because
+    -- mkProgrammableLogicBase accepts either the global or the seize credential in
+    -- the transaction withdrawals.
+    seizeStakeScript <- asks (Env.dsProgrammableSeizeScript . Env.directoryEnv)
     baseSpendingScript <- asks (Env.dsProgrammableLogicBaseScript . Env.directoryEnv)
+    baseRefTxIn <- asks (Env.srProgrammableLogicBaseRefTxIn . Env.dsScriptRoot . Env.directoryEnv)
 
-    let globalStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 globalStakeScript
+    let seizeStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 seizeStakeScript
         programmableLogicBaseCredential = C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 baseSpendingScript
 
     -- Finds the directory node entry that references the programmable token symbol
@@ -92,7 +103,9 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicy
     -- destStakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential seizeDestinationCred
 
     forM_ seizingUTxOs $ \UTxODat{uIn = seizingTxIn, uOut = seizingTxOut} -> do
-        spendPlutusInlineDatum seizingTxIn baseSpendingScript ()
+        case baseRefTxIn of
+            Just baseRef -> spendPlutusRefWithInlineDatum seizingTxIn baseRef C.PlutusScriptV3 ()
+            Nothing -> spendPlutusInlineDatum seizingTxIn baseSpendingScript ()
         let (seizedAddr, remainingValue, seizedDatum, referenceScript) = case seizingTxOut of
                 (C.TxOut a v dat refScript) ->
                     let (_seized, other) =
@@ -115,7 +128,7 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicy
             fromIntegral @Int @Integer $ findIndexReference dirNodeRef txBody
 
         -- Finds the index of the issuer input in the transaction body
-        seizingInputIndex txBody =
+        seizingInputAbsoluteIndexes txBody =
             map (\UTxODat{uIn = seizingTxIn} -> fromIntegral @Int @Integer $ findIndexSpending seizingTxIn txBody) seizingUTxOs
 
         -- Finds the index of the first output to the programmable logic base credential
@@ -128,23 +141,31 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicy
                         )
                         (txBody ^. L.txOuts)
 
-        -- The seizing redeemer for the global script
-        programmableLogicGlobalRedeemer txBody =
-            SeizeAct
-                { plgrDirectoryNodeIdx = directoryNodeReferenceIndex txBody
-                , plgrInputIdxs = seizingInputIndex txBody
-                , plgrOutputsStartIdx = firstSeizeContinuationOutputIndex txBody
-                , plgrLengthInputIdxs = fromIntegral @Int @Integer $ length seizingUTxOs
-                }
+        -- Index of the protocol-params reference input (spec §11.4).
+        paramsReferenceIndex txBody =
+            fromIntegral @Int @Integer $ findIndexReference paramsTxIn txBody
 
-        programmableGlobalWitness txBody = buildScriptWitness globalStakeScript C.NoScriptDatumForStake (programmableLogicGlobalRedeemer txBody)
+        -- The SeizeAct redeemer for the standalone seize validator
+        seizeActRedeemer txBody =
+            mkSeizeActRedeemerFromAbsoluteInputIdxs
+                (directoryNodeReferenceIndex txBody)
+                (seizingInputAbsoluteIndexes txBody)
+                (firstSeizeContinuationOutputIndex txBody)
+                (paramsReferenceIndex txBody)
+
+        -- No reference-script input is deployed for the seize validator, so the
+        -- script is supplied inline in the withdrawal witness.
+        seizeWitness txBody =
+            buildScriptWitness seizeStakeScript C.NoScriptDatumForStake (seizeActRedeemer txBody)
 
     addReference paramsTxIn -- Protocol Params TxIn
     addReference dirNodeRef -- Directory Node TxIn
-    addWithdrawalWithTxBody -- Add the global script witness to the transaction
-        (C.makeStakeAddress nid globalStakeCred)
+    forM_ baseRefTxIn addReference
+    addTxBuilder (TxBuilder $ \_ -> over (L.txInsReference . L._TxInsReferenceIso . L._1) nub)
+    addWithdrawalWithTxBody -- Route SeizeAct to the standalone seize validator
+        (C.makeStakeAddress nid seizeStakeCred)
         (C.Quantity 0)
-        $ C.ScriptWitness C.ScriptWitnessForStakeAddr . programmableGlobalWitness
+        $ C.ScriptWitness C.ScriptWitnessForStakeAddr . seizeWitness
 
 -- TODO: check that the issuerTxOut is at a programmable logic payment credential
 _checkIssuerAddressIsProgLogicCred :: forall era ctx m. (MonadBuildTx era m) => C.PaymentCredential -> C.TxOut ctx era -> m ()

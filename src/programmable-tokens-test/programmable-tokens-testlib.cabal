@@ -50,6 +50,7 @@ library
   exposed-modules:
     ProgrammableTokens.Gen
     ProgrammableTokens.Test
+    ProgrammableTokens.Test.ScriptContext.Builder
 
   hs-source-dirs:  lib
   build-depends:
@@ -66,6 +67,7 @@ library
     , lens
     , mtl
     , plutus-ledger-api
+    , plutus-tx
     , programmable-tokens-offchain
     , programmable-tokens-onchain
     , QuickCheck
@@ -79,18 +81,103 @@ test-suite programmable-tokens-test
   hs-source-dirs: test
   main-is:        Spec.hs
   other-modules:
+    ProgrammableTokens.Test.DirectoryMint
     ProgrammableTokens.Test.DirectorySet
     ProgrammableTokens.Test.Error
+    ProgrammableTokens.Test.GoldenEncoding
+    ProgrammableTokens.Test.ProgrammableLogicGlobal
+    ProgrammableTokens.Test.ProgrammableLogicMinting
 
   build-depends:
     , base                          >=4.14.0
+    , bytestring
     , cardano-api
     , convex-base
     , convex-coin-selection
     , convex-wallet
     , lens
     , mtl
+    , plutarch
+    , plutarch-ledger-api
+    , plutarch-onchain-lib
+    , plutus-ledger-api
+    , plutus-tx
     , programmable-tokens-offchain
+    , programmable-tokens-onchain
     , programmable-tokens-testlib
+    , QuickCheck
     , tasty
     , tasty-hunit
+    , tasty-quickcheck
+
+executable benchmark-onchain-scripts
+  import:         lang
+  hs-source-dirs: exe
+  main-is:        BenchmarkOnchainScripts.hs
+  other-modules:
+    BenchmarkOnchain.CardanoScriptHelpers
+    BenchmarkOnchain.Compile
+    BenchmarkOnchain.Formatting
+    BenchmarkOnchain.MainnetDexFixture
+    BenchmarkOnchain.ScriptFixtureIds
+    BenchmarkOnchain.ScriptHelpers
+    BenchmarkOnchain.ScriptRunner
+    BenchmarkOnchain.ScriptScenario
+    BenchmarkOnchain.TxD29Fixture
+
+  build-depends:
+    , base
+    , bytestring
+    , cardano-api
+    , plutarch
+    , plutus-ledger-api
+    , plutus-tx
+    , programmable-tokens-offchain
+    , programmable-tokens-onchain
+    , programmable-tokens-testlib
+
+executable benchmark-onchain-aiken-scripts
+  import:         lang
+  hs-source-dirs: exe
+  main-is:        BenchmarkOnchainAikenScripts.hs
+  other-modules:
+    BenchmarkOnchain.CardanoScriptHelpers
+    BenchmarkOnchain.Formatting
+    BenchmarkOnchain.MainnetDexFixture
+    BenchmarkOnchain.ScriptFixtureIds
+    BenchmarkOnchain.ScriptHelpers
+    BenchmarkOnchain.ScriptRunner
+    BenchmarkOnchain.ScriptScenario
+    BenchmarkOnchain.TxD29Fixture
+
+  build-depends:
+    , base
+    , bytestring
+    , cardano-api
+    , plutarch
+    , plutus-ledger-api
+    , plutus-tx
+    , programmable-tokens-offchain
+    , programmable-tokens-onchain
+    , programmable-tokens-testlib
+
+executable benchmark-onchain-functions
+  import:         lang
+  hs-source-dirs: exe
+  main-is:        BenchmarkOnchainFunctions.hs
+  other-modules:
+    BenchmarkOnchain.Compile
+    BenchmarkOnchain.Formatting
+    BenchmarkOnchain.ScriptHelpers
+    BenchmarkOnchain.SimpleRunner
+
+  build-depends:
+    , base
+    , bytestring
+    , plutarch
+    , plutarch-ledger-api
+    , plutarch-onchain-lib
+    , plutus-ledger-api
+    , plutus-tx
+    , programmable-tokens-onchain
+    , programmable-tokens-testlib

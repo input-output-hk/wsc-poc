@@ -31,6 +31,7 @@ constraints:
   cardano-api == 10.17.2.0
   , plutus-core == 1.51.0.0
   , plutus-ledger-api == 1.51.0.0
+  , plutarch == 1.12.0
   , quickcheck-dynamic == 3.4.2
   , QuickCheck == 2.16.0.0
 

@@ -56,6 +56,7 @@ library
     Wst.Offchain.BuildTx.Failing
     Wst.Offchain.BuildTx.LinkedList
     Wst.Offchain.BuildTx.ProgrammableLogic
+    Wst.Offchain.BuildTx.ReferenceScripts
     Wst.Offchain.BuildTx.TransferLogic
     Wst.Offchain.BuildTx.Utils
     Wst.Offchain.Endpoints.Deployment
@@ -120,6 +121,7 @@ executable convert-key
   ghc-options:    -threaded -rtsopts -O2 -with-rtsopts=-N
   build-depends:
     , base
+    , bytestring
     , cardano-api
     , convex-wallet
     , text
@@ -149,6 +151,7 @@ executable export-smart-tokens
     , bytestring
     , cardano-api
     , cardano-binary
+    , convex-base
     , directory
     , filepath
     , mtl
@@ -156,6 +159,7 @@ executable export-smart-tokens
     , plutarch
     , plutus-ledger-api
     , plutus-tx
+    , programmable-tokens-offchain
     , programmable-tokens-onchain
     , regulated-stablecoin
     , text
@@ -174,11 +178,14 @@ test-suite regulated-stablecoin-test
   build-depends:
     , base                          >=4.14.0
     , cardano-api
+    , containers
     , convex-base
     , convex-coin-selection
     , convex-mockchain
+    , convex-optics
     , convex-wallet
     , hset
+    , lens
     , mtl
     , programmable-tokens-offchain
     , programmable-tokens-onchain
@@ -198,3 +205,28 @@ executable write-openapi-schema
     , bytestring
     , regulated-stablecoin
     , servant-openapi3
+
+executable full-transaction-benchmarks
+  import:         lang
+  main-is:        FullTransactionBenchmarks.hs
+  hs-source-dirs: exe/full-transaction-benchmarks test/unit
+  other-modules:  Wst.Test.Env
+  ghc-options:    -threaded -rtsopts -O2 -with-rtsopts=-N
+  build-depends:
+    , base
+    , bytestring
+    , cardano-api
+    , containers
+    , convex-base
+    , convex-coin-selection
+    , convex-mockchain
+    , convex-wallet
+    , hset
+    , mtl
+    , plutus-ledger-api
+    , programmable-tokens-offchain
+    , programmable-tokens-onchain
+    , programmable-tokens-testlib
+    , regulated-stablecoin
+    , transformers
+    , type-fun

@@ -29,6 +29,8 @@ genGlobalParams =
   ProgrammableLogicGlobalParams
     <$> genCurrencySymbol
     <*> genCredential
+    <*> genCredential
+    <*> genCredential
 
 genCurrencySymbol :: Gen CurrencySymbol
 genCurrencySymbol = PL.transPolicyId <$> hedgehog Gen.genPolicyId

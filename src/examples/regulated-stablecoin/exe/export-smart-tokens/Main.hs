@@ -48,14 +48,18 @@ import PlutusLedgerApi.Common (toData)
 import PlutusLedgerApi.V2 (Data, ExBudget)
 import PlutusLedgerApi.V3 qualified as V3
 import PlutusTx.Builtins.HasOpaque
+import PlutusTx.Builtins (fromBuiltin, serialiseData)
+import Convex.PlutusLedger.V1 (transPolicyId)
 import SmartTokens.Contracts.ExampleTransferLogic (
     mkFreezeAndSeizeTransfer,
     mkPermissionedTransfer,
  )
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
+import SmartTokens.Contracts.IssuanceCborHex (mkIssuanceCborHexMinting)
 import SmartTokens.Contracts.ProgrammableLogicBase (
     mkProgrammableLogicBase,
     mkProgrammableLogicGlobal,
+    mkProgrammableSeize,
  )
 import SmartTokens.Contracts.ProtocolParams (
     alwaysFailScript,
@@ -74,12 +78,13 @@ import Wst.Offchain.Env (
     BlacklistEnv (..),
     BlacklistTransferLogicScriptRoot (..),
     DirectoryEnv (..),
-    DirectoryScriptRoot (DirectoryScriptRoot),
+    DirectoryScriptRoot (..),
     HasBlacklistEnv (..),
     HasDirectoryEnv (directoryEnv),
     TransferLogicEnv (..),
     globalParams,
     mkDirectoryEnv,
+    protocolParamsPolicyId,
     programmableTokenMintingScript,
     transferLogicEnv,
     withBlacklistFor,
@@ -102,11 +107,17 @@ evalWithArgsT cfg x args = do
     scr <- first (pack . show) escr
     pure (scr, budg, trc)
 
+-- NOTE: write the *compiled* script directly (like the applied-script export
+-- path does via tryCompile). The previous implementation wrote the
+-- CEK-*evaluated* result (evalT/evalScript), whose value read-back produces
+-- broken (out-of-scope) deBruijn indices for these multi-parameter terms —
+-- the exported blueprints were open UPLC terms and failed evaluation with
+-- "cannot evaluate an open term" once parameters were applied off-chain.
 writePlutusScript :: Config -> String -> FilePath -> (forall s. Term s a) -> IO ()
 writePlutusScript cfg title filepath term = do
-    case evalT cfg term of
+    case compile cfg term of
         Left e -> print e
-        Right (script, _, _) -> do
+        Right script -> do
             let
                 scriptType = "PlutusScriptV3" :: String
                 plutusJson = object ["type" .= scriptType, "description" .= title, "cborHex" .= encodeSerialiseCBOR script]
@@ -130,13 +141,18 @@ writePlutusScriptTrace = writePlutusScript (Tracing LogInfo DoTracing)
 writePlutusScriptNoTrace :: String -> FilePath -> (forall s. Term s a) -> IO ()
 writePlutusScriptNoTrace = writePlutusScript NoTracing
 
-issuerPrefixPostfixBytes :: V3.Credential -> (Text, Text)
-issuerPrefixPostfixBytes progLogicCred =
+-- | Mirror of the library derivation (see
+-- 'ProgrammableTokens.OffChain.BuildTx.IssuanceCborHexRef'): the issuance policy
+-- is applied to @protocolParamsCS@ and the CBOR is split around the placeholder
+-- minting-logic hash. Kept as a local helper here only because this exporter
+-- emits the prefix/postfix as hex text files.
+issuerPrefixPostfixBytes :: V3.CurrencySymbol -> (Text, Text)
+issuerPrefixPostfixBytes protocolParamsCS =
     let
-        dummyHex = "deadbeefcafebabe"
-        placeholderMintingLogic = V3.ScriptHash $ stringToBuiltinByteStringHex "deadbeefcafebabe"
+        placeholderMintingLogic = V3.ScriptHash $ stringToBuiltinByteStringHex "deadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeef"
+        dummyHex = Text.decodeUtf8 $ Base16.encode $ fromBuiltin $ serialiseData $ V3.toBuiltinData placeholderMintingLogic
         issuerScriptBase =
-            case compile NoTracing (mkProgrammableLogicMinting # pconstant progLogicCred) of
+            case compile NoTracing (mkProgrammableLogicMinting # pdata (pconstant protocolParamsCS)) of
                 Right compiledScript -> compiledScript
                 Left err -> error $ "Failed to compile issuer script: " <> show err
         dummyIssuerInstanceCborHex = encodeSerialiseCBOR $ applyArguments issuerScriptBase [toData placeholderMintingLogic]
@@ -182,7 +198,14 @@ writeAppliedScripts baseFolder AppliedScriptArgs{asaTxIn, asaIssuerCborHexTxIn, 
         stakeCred = case issuerAddr of
             (C.ShelleyAddress _ntw _pmt (C.fromShelleyStakeReference -> C.StakeAddressByValue sCred)) -> Just sCred
             _ -> Nothing
-        dirRoot = DirectoryScriptRoot asaTxIn asaIssuerCborHexTxIn Production
+        dirRoot =
+            DirectoryScriptRoot
+                { srTxIn = asaTxIn
+                , srIssuanceCborHexTxIn = asaIssuerCborHexTxIn
+                , srTarget = Production
+                , srProgrammableLogicBaseRefTxIn = Nothing
+                , srProgrammableLogicGlobalRefTxIn = Nothing
+                }
         blacklistTransferRoot = BlacklistTransferLogicScriptRoot Production (mkDirectoryEnv dirRoot) opkh stakeCred
     putStrLn "Writing applied Plutus scripts to files"
     createDirectoryIfMissing True baseFolder
@@ -208,10 +231,10 @@ writeAppliedScripts baseFolder AppliedScriptArgs{asaTxIn, asaIssuerCborHexTxIn, 
                         , dsProtocolParamsSpendingScript
                         , dsProgrammableLogicBaseScript
                         , dsProgrammableLogicGlobalScript
+                        , dsProgrammableSeizeScript
                         } <-
                         asks directoryEnv
-                    let ProgrammableLogicGlobalParams{progLogicCred} = globalParams dirEnv
-                        (prefixIssuerCborHex, postfixIssuerCborHex) = issuerPrefixPostfixBytes progLogicCred
+                    let (prefixIssuerCborHex, postfixIssuerCborHex) = issuerPrefixPostfixBytes (transPolicyId (protocolParamsPolicyId dirEnv))
                     liftIO $ TIO.writeFile (baseFolder </> "prefixIssuerCborHex.txt") prefixIssuerCborHex
                     liftIO $ TIO.writeFile (baseFolder </> "postfixIssuerCborHex.txt") postfixIssuerCborHex
                     let programmableMinting = programmableTokenMintingScript dirEnv transferEnv
@@ -219,6 +242,7 @@ writeAppliedScripts baseFolder AppliedScriptArgs{asaTxIn, asaIssuerCborHexTxIn, 
                     writeAppliedScript (baseFolder </> "protocolParametersSpending") "Protocol Parameters Spending" dsProtocolParamsSpendingScript
                     writeAppliedScript (baseFolder </> "programmableLogicBaseSpending") "Programmable Logic Base" dsProgrammableLogicBaseScript
                     writeAppliedScript (baseFolder </> "programmableLogicGlobalStake") "Programmable Logic Global" dsProgrammableLogicGlobalScript
+                    writeAppliedScript (baseFolder </> "programmableSeizeStake") "Programmable Seize" dsProgrammableSeizeScript
                     writeAppliedScript (baseFolder </> "directoryNodeMinting") "Directory Node Minting Policy" dsDirectoryMintingScript
                     writeAppliedScript (baseFolder </> "directoryNodeSpending") "Directory Spending" dsDirectorySpendingScript
                     writeAppliedScript (baseFolder </> "blacklistSpending") "Blacklist Spending" bleSpendingScript
@@ -266,6 +290,8 @@ exportUnapplied fp = do
     writePlutusScriptTraceBind "Directory Node Minting Policy" (binds </> "directoryNodeMintingPolicy.json") mkDirectoryNodeMP
     writePlutusScriptTraceBind "Directory Spending" (binds </> "directorySpending.json") pmkDirectorySpending
     writePlutusScriptTraceBind "Blacklist Spending" (binds </> "blacklistSpending.json") pmkBlacklistSpending
+    writePlutusScriptTraceBind "Programmable Seize" (binds </> "programmableSeize.json") mkProgrammableSeize
+    writePlutusScriptTraceBind "Issuance Cbor Hex NFT" (binds </> "issuanceCborHexNFTMinting.json") mkIssuanceCborHexMinting
 
     writePlutusScriptTrace "Programmable Logic Base" (tracing </> "programmableLogicBase.json") mkProgrammableLogicBase
     writePlutusScriptTrace "Programmable Logic Global" (tracing </> "programmableLogicGlobal.json") mkProgrammableLogicGlobal
@@ -278,6 +304,8 @@ exportUnapplied fp = do
     writePlutusScriptTrace "Directory Node Minting Policy" (tracing </> "directoryNodeMintingPolicy.json") mkDirectoryNodeMP
     writePlutusScriptTrace "Directory Spending" (tracing </> "directorySpending.json") pmkDirectorySpending
     writePlutusScriptTrace "Blacklist Spending" (tracing </> "blacklistSpending.json") pmkBlacklistSpending
+    writePlutusScriptTrace "Programmable Seize" (tracing </> "programmableSeize.json") mkProgrammableSeize
+    writePlutusScriptTrace "Issuance Cbor Hex NFT" (tracing </> "issuanceCborHexNFTMinting.json") mkIssuanceCborHexMinting
 
     writePlutusScriptNoTrace "Programmable Logic Base" (prod </> "programmableLogicBase.json") mkProgrammableLogicBase
     writePlutusScriptNoTrace "Programmable Logic Global" (prod </> "programmableLogicGlobal.json") mkProgrammableLogicGlobal
@@ -290,6 +318,8 @@ exportUnapplied fp = do
     writePlutusScriptNoTrace "Directory Node Minting Policy" (prod </> "directoryNodeMintingPolicy.json") mkDirectoryNodeMP
     writePlutusScriptNoTrace "Directory Spending" (prod </> "directorySpending.json") pmkDirectorySpending
     writePlutusScriptNoTrace "Blacklist Spending" (prod </> "blacklistSpending.json") pmkBlacklistSpending
+    writePlutusScriptNoTrace "Programmable Seize" (prod </> "programmableSeize.json") mkProgrammableSeize
+    writePlutusScriptNoTrace "Issuance Cbor Hex NFT" (prod </> "issuanceCborHexNFTMinting.json") mkIssuanceCborHexMinting
 
 -- | Arguments for computing the applied scripts
 data AppliedScriptArgs
