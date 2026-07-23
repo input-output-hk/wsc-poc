@@ -12,12 +12,15 @@
 
 module SmartTokens.Contracts.ProgrammableLogicBase (
     ProgrammableLogicGlobalRedeemer (..),
+    PProgrammableLogicGlobalRedeemer (..),
+    MintProof (..),
     absoluteToRelativeInputIdxs,
     mkSeizeActRedeemerFromAbsoluteInputIdxs,
     mkSeizeActRedeemerFromRelativeInputIdxs,
     mkProgrammableLogicBase,
     mkProgrammableLogicGlobal,
     mkProgrammableSeize,
+    pparamsAtRefIdx,
     pisScriptInvokedEntries,
     pvalueFromCred,
     pvalueToCred,
@@ -805,6 +808,30 @@ pfindReferenceInputByCS currencySymbol referenceInputs =
                         (self # (ptail # remainingRefInputs))
      in go # referenceInputs
 
+{- | Indexed variant of 'pfindReferenceInputByCS' (spec §11.3/§11.4): resolve the
+protocol-params reference input directly at the redeemer-supplied @paramsRefIdx@
+rather than scanning. The index is a self-validating hint — a wrong or
+out-of-bounds index makes the mandatory 'phasCSH' authentication fail (or
+@perror@s), so honesty is a liveness concern only, never a trust assumption. The
+hardened anchor policy (§4.1) guarantees the authenticated UTxO's datum is
+well-formed, so raw decode is sound.
+-}
+pparamsAtRefIdx ::
+    Term s PCurrencySymbol ->
+    Term s (PBuiltinList (PAsData PTxInInfo)) ->
+    Term s PInteger ->
+    Term s PProgrammableLogicGlobalParams
+pparamsAtRefIdx currencySymbol referenceInputs paramsRefIdx =
+    plet (ptxInInfoResolved $ pfromData (phead # (pdropFast # paramsRefIdx # referenceInputs))) $ \resolvedOut ->
+        pif
+            (phasCSH # currencySymbol # ptxOutValue resolvedOut)
+            ( pmatch (ptxOutDatum resolvedOut) $ \case
+                POutputDatum paramDat' ->
+                    pfromData $ punsafeCoerce @(PAsData PProgrammableLogicGlobalParams) (pto paramDat')
+                _ -> ptraceInfoError "protocol params datum missing"
+            )
+            (ptraceInfoError "params ref input not authenticated at index")
+
 {- | Filter input value down to programmable policies by validating one directory
 node witness per policy entry.
 
@@ -900,75 +927,79 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
             # pto (pto pemptyLedgerValue)
             # initialCachedTransferScript
 
-{- | Filter the tx mint field down to programmable policies by validating one
-directory-node witness per minted policy.
+-- | Plutarch mirror of 'MintProof' (defined here, ahead of the mint walk that
+-- consumes it, because Template Haskell splices further down split the module
+-- into scope groups). Constructor indices match the Haskell type: @Member = 0@,
+-- @NonMember = 1@.
+data PMintProof (s :: S)
+    = PMember
+    | PNonMember {pnonMemberNodeIdx :: Term s (PAsData PInteger)}
+    deriving stock (Generic)
+    deriving anyclass (SOP.Generic, PIsData, PEq, PShow)
+    deriving (PlutusType) via (DeriveAsDataStruct PMintProof)
+
+{- | Filter the tx mint field down to programmable policies by classifying one
+`MintProof` per minted policy (spec §11.3).
 
 High-level purpose:
 - Prove which minted or burned policies are programmable and return only those
   signed entries for later output containment checks.
 
 Security invariants:
-- `proofList` must be aligned with the currency-symbol order of `totalMintValue`.
-- A positive proof must reference the exact directory node and the referenced
-  transfer logic script must be invoked.
-- A negative proof must reference a covering node whose `(key, next)` interval
-  excludes the minted currency symbol.
-- Every referenced directory node must be legitimate, proven by the directory
-  state token.
+- `proofList` must be aligned with the currency-symbol order of `totalMintValue`
+  (no-omission: one proof per minted policy, no more, no fewer).
+- A `Member` proof simply counts its entry toward the base-credential containment
+  expectation. It needs NO node reference, datum decode, node authentication, or
+  transfer-logic invocation (the §11.3 deletion): a Member claim is self-penalizing
+  — it can only ADD the claimant's delta to what must land at the base. Its per-name
+  quantity is the ledger-truth mint value, which the attacker cannot inflate.
+- A `NonMember` proof MUST reference a covering node whose authenticated
+  `(key, next)` interval strictly excludes the minted currency symbol. This is the
+  only escape-critical direction (a registered policy must never obtain one), so it
+  keeps the covering-interval check and the directory-NFT authentication.
 - Missing or extra proofs must fail validation.
 -}
 pcheckMintLogicAndGetProgrammableValue ::
     Term s PCurrencySymbol ->
     Term s (PBuiltinList (PAsData PTxInInfo)) ->
-    Term s (PBuiltinList (PAsData PInteger)) ->
-    Term s (PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace))) ->
+    Term s (PBuiltinList (PAsData PMintProof)) ->
     Term s (PValue 'Sorted 'NoGuarantees) ->
     Term s (PValue 'Sorted 'NoGuarantees)
-pcheckMintLogicAndGetProgrammableValue directoryNodeCS refInputs proofList withdrawalEntries totalMintValue =
+pcheckMintLogicAndGetProgrammableValue directoryNodeCS refInputs proofList totalMintValue =
     let mintedEntries :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
         mintedEntries = pto (pto totalMintValue)
         go = pfix #$ plam $ \self proofs remainingMintEntries programmableMintValue ->
             pelimList
                 ( \mintCsPair mintCsPairs ->
                     pelimList
-                        ( \nodeIdx proofsRest ->
-                            let mintCs = pfstBuiltin # mintCsPair
-                             in P.do
-                                    PTxOut{ptxOut'value = directoryNodeUTxOFValue, ptxOut'datum = directoryNodeUTxOFDatum} <-
-                                        pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropFast # pfromData nodeIdx # refInputs))
-                                    POutputDatum paramDat' <- pmatch directoryNodeUTxOFDatum
-                                    PDirectorySetNode
-                                        { pkey = directoryNodeDatumFkey
-                                        , pnext = directoryNodeDatumFNext
-                                        , ptransferLogicScript = directoryNodeDatumFTransferLogicScript
-                                        } <-
-                                        pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto paramDat'))
-                                    let currCS = pfromData mintCs
-                                        nodeKey = pfromData directoryNodeDatumFkey
-                                        nodeNext = pfromData directoryNodeDatumFNext
-                                    pif
-                                        (nodeKey #== currCS)
-                                        ( let checks =
-                                                pand'List
-                                                    [ ptraceInfoIfFalse "Missing required transfer script" (pisScriptInvokedEntries # directoryNodeDatumFTransferLogicScript # withdrawalEntries)
-                                                    , ptraceInfoIfFalse "invalid dir node m" (phasCSH # directoryNodeCS # directoryNodeUTxOFValue)
-                                                    ]
-                                           in pif
-                                                checks
-                                                (self # proofsRest # mintCsPairs # (pcons # mintCsPair # programmableMintValue))
-                                                perror
-                                        )
-                                        ( let checks =
+                        ( \mintProofData proofsRest ->
+                            let currCS = pfromData (pfstBuiltin # mintCsPair)
+                             in pmatch (pfromData mintProofData) $ \case
+                                    -- Member: count the entry, touch no node.
+                                    PMember ->
+                                        self # proofsRest # mintCsPairs # (pcons # mintCsPair # programmableMintValue)
+                                    -- NonMember: authenticate a covering directory node.
+                                    PNonMember nodeIdx -> P.do
+                                        PTxOut{ptxOut'value = directoryNodeUTxOFValue, ptxOut'datum = directoryNodeUTxOFDatum} <-
+                                            pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropFast # pfromData nodeIdx # refInputs))
+                                        POutputDatum paramDat' <- pmatch directoryNodeUTxOFDatum
+                                        PDirectorySetNode
+                                            { pkey = directoryNodeDatumFkey
+                                            , pnext = directoryNodeDatumFNext
+                                            } <-
+                                            pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto paramDat'))
+                                        let nodeKey = pfromData directoryNodeDatumFkey
+                                            nodeNext = pfromData directoryNodeDatumFNext
+                                            checks =
                                                 pand'List
                                                     [ ptraceInfoIfFalse "dir mint neg-proof node must cover" (nodeKey #< currCS)
                                                     , ptraceInfoIfFalse "dir mint neg-proof node must cover" (currCS #< nodeNext)
                                                     , ptraceInfoIfFalse "invalid dir node n" (phasCSH # directoryNodeCS # directoryNodeUTxOFValue)
                                                     ]
-                                           in pif
-                                                checks
-                                                (self # proofsRest # mintCsPairs # programmableMintValue)
-                                                perror
-                                        )
+                                        pif
+                                            checks
+                                            (self # proofsRest # mintCsPairs # programmableMintValue)
+                                            perror
                         )
                         (ptraceInfoError "mint proof missing")
                         proofs
@@ -980,16 +1011,35 @@ pcheckMintLogicAndGetProgrammableValue directoryNodeCS refInputs proofList withd
                 remainingMintEntries
      in go # proofList # mintedEntries # pnil
 
+-- | Classification of a single minted currency symbol against the directory
+-- (spec §11.3). A @Member@ proof carries no node index: the mint entry is simply
+-- counted toward the base-credential containment expectation (self-penalizing —
+-- it can only ADD the claimant's delta to what must land at the base). A
+-- @NonMember@ proof carries the reference-input index of a covering directory
+-- node whose @(key, next)@ interval strictly excludes the symbol, and is the only
+-- direction that must be authenticated (a registered policy must never obtain
+-- one). Constructor indices are frozen: @Member = 0@, @NonMember = 1@.
+data MintProof
+    = Member
+    | NonMember Integer
+    deriving (Show, Eq, Generic)
+
+PlutusTx.makeIsDataIndexed
+    ''MintProof
+    [('Member, 0), ('NonMember, 1)]
+
 data ProgrammableLogicGlobalRedeemer
     = TransferAct
         { plgrTransferProofs :: [Integer]
-        , plgrMintProofs :: [Integer]
+        , plgrMintProofs :: [MintProof]
+        , plgrParamsRefIdx :: Integer
         }
     | SeizeAct
         { plgrDirectoryNodeIdx :: Integer
         , plgrInputIdxs :: [Integer]
         , plgrOutputsStartIdx :: Integer
         , plgrLengthInputIdxs :: Integer
+        , plgrSeizeParamsRefIdx :: Integer
         }
     deriving (Show, Eq, Generic)
 
@@ -1031,8 +1081,8 @@ Security invariants:
 - `plgrLengthInputIdxs` must equal the true list length.
 - The constructor must not reorder or rewrite the supplied witness list.
 -}
-mkSeizeActRedeemerFromRelativeInputIdxs :: Integer -> [Integer] -> Integer -> ProgrammableLogicGlobalRedeemer
-mkSeizeActRedeemerFromRelativeInputIdxs directoryNodeIdx relativeInputIdxs outputsStartIdx
+mkSeizeActRedeemerFromRelativeInputIdxs :: Integer -> [Integer] -> Integer -> Integer -> ProgrammableLogicGlobalRedeemer
+mkSeizeActRedeemerFromRelativeInputIdxs directoryNodeIdx relativeInputIdxs outputsStartIdx paramsRefIdx
     | any (< 0) relativeInputIdxs = error "mkSeizeActRedeemerFromRelativeInputIdxs: negative relative index"
     | otherwise =
         SeizeAct
@@ -1040,6 +1090,7 @@ mkSeizeActRedeemerFromRelativeInputIdxs directoryNodeIdx relativeInputIdxs outpu
             , plgrInputIdxs = relativeInputIdxs
             , plgrOutputsStartIdx = outputsStartIdx
             , plgrLengthInputIdxs = fromIntegral (length relativeInputIdxs)
+            , plgrSeizeParamsRefIdx = paramsRefIdx
             }
 
 {- | Construct a `SeizeAct` redeemer from absolute input indexes.
@@ -1054,7 +1105,7 @@ Security invariants:
 - The resulting redeemer must address the same inputs as the original absolute
   list.
 -}
-mkSeizeActRedeemerFromAbsoluteInputIdxs :: Integer -> [Integer] -> Integer -> ProgrammableLogicGlobalRedeemer
+mkSeizeActRedeemerFromAbsoluteInputIdxs :: Integer -> [Integer] -> Integer -> Integer -> ProgrammableLogicGlobalRedeemer
 mkSeizeActRedeemerFromAbsoluteInputIdxs directoryNodeIdx absoluteInputIdxs =
     mkSeizeActRedeemerFromRelativeInputIdxs
         directoryNodeIdx
@@ -1062,19 +1113,21 @@ mkSeizeActRedeemerFromAbsoluteInputIdxs directoryNodeIdx absoluteInputIdxs =
 
 data PProgrammableLogicGlobalRedeemer (s :: S)
     = PTransferAct
-        -- The witness lists contain reference-input indices for directory nodes.
-        -- Exact-match vs covering-node proofs are derived onchain from the referenced datum.
+        -- ptransferProofs are reference-input indices for directory nodes (input
+        -- side; exact-match vs covering derived onchain from the referenced datum).
+        -- pmintProofs are per-minted-symbol Member|NonMember classifications.
+        -- pparamsRefIdx indexes the protocol-params reference input.
         { ptransferProofs :: Term s (PAsData (PBuiltinList (PAsData PInteger)))
-        , pmintProofs :: Term s (PAsData (PBuiltinList (PAsData PInteger)))
+        , pmintProofs :: Term s (PAsData (PBuiltinList (PAsData PMintProof)))
+        , pparamsRefIdx :: Term s (PAsData PInteger)
         }
-    | -- The proofs validate currency-symbol membership against the directory:
-      -- ptransferProofs correspond to programmable input value entries.
-      -- pmintProofs correspond to tx mint currency-symbol entries.
+    | -- ptransferProofs correspond to programmable input value entries.
       PSeizeAct
         { pdirectoryNodeIdx :: Term s (PAsData PInteger)
         , pinputIdxs :: Term s (PAsData (PBuiltinList (PAsData PInteger)))
         , poutputsStartIdx :: Term s (PAsData PInteger)
         , plengthInputIdxs :: Term s (PAsData PInteger)
+        , pseizeParamsRefIdx :: Term s (PAsData PInteger)
         }
     deriving stock (Generic)
     deriving anyclass (SOP.Generic, PIsData, PEq, PShow)
@@ -1109,17 +1162,16 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
         -- - No programmable value may escape from outputs at `progLogicCred`.
         -- - Transfer and mint proofs must be consumed in lockstep with the
         --   programmable policies they witness.
-        PTransferAct transferProofs mintProofs -> P.do
+        PTransferAct transferProofs mintProofs paramsRefIdx -> P.do
             -- Reference inputs and protocol params are only needed on the transfer
-            -- path, so both the ref-input decode and the params scan happen here
-            -- (not in the shared preamble): the SeizeAct delegation branch must
-            -- stay cheap since it now runs alongside the separate seize validator,
-            -- and forcing the reference-input list (with its datums) was the bulk
-            -- of the delegation's cost.
+            -- path, so the ref-input decode happens here (not in the shared
+            -- preamble). The params UTxO is resolved by the redeemer-supplied
+            -- index (§11.3) instead of a scan; a wrong index fails the phasCSH
+            -- authentication inside 'pparamsAtRefIdx'.
             referenceInputs <- plet $ pfromData ptxInfo'referenceInputs
             PProgrammableLogicGlobalParams{pdirectoryNodeCS, pprogLogicCred} <-
                 pmatch $
-                    pfindReferenceInputByCS (pfromData protocolParamsCS) referenceInputs
+                    pparamsAtRefIdx (pfromData protocolParamsCS) referenceInputs (pfromData paramsRefIdx)
             progLogicCred <- plet $ pfromData pprogLogicCred
             cachedTransferScript0 <- plet $ pfstBuiltin # (phead @PBuiltinList # withdrawalEntries)
             totalProgTokenValue <-
@@ -1167,7 +1219,6 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                                                         (pfromData pdirectoryNodeCS)
                                                         referenceInputs
                                                         (pfromData mintProofs)
-                                                        withdrawalEntries
                                                         mintValueNoGuarantees
                                                     )
                                                 )
@@ -1216,18 +1267,19 @@ mkProgrammableSeize = plam $ \protocolParamsCS ctx -> P.do
     PTxInfo{ptxInfo'inputs, ptxInfo'referenceInputs, ptxInfo'outputs, ptxInfo'wdrl, ptxInfo'mint, ptxInfo'redeemers} <- pmatch pscriptContext'txInfo
     let red = pfromData $ punsafeCoerce @(PAsData PProgrammableLogicGlobalRedeemer) (pto pscriptContext'redeemer)
     referenceInputs <- plet $ pfromData ptxInfo'referenceInputs
-    PProgrammableLogicGlobalParams{pdirectoryNodeCS, pprogLogicCred} <-
-        pmatch $
-            pfindReferenceInputByCS (pfromData protocolParamsCS) referenceInputs
-    progLogicCred <- plet $ pfromData pprogLogicCred
     withdrawalEntries <- plet $ pto (pfromData ptxInfo'wdrl)
     pmatch red $ \case
-        PTransferAct _ _ -> ptraceInfoError "seize validator invoked with TransferAct"
+        PTransferAct{} -> ptraceInfoError "seize validator invoked with TransferAct"
         -- `pinputIdxs`/`plengthInputIdxs` are no longer read: the seize validator
         -- walks every input and classifies it by credential, so it needs no
         -- redeemer-supplied input index list. Only the directory-node reference
-        -- index and the outputs start index remain (both verified after lookup).
-        PSeizeAct{pdirectoryNodeIdx, poutputsStartIdx} -> P.do
+        -- index, the outputs start index, and the params ref index remain (all
+        -- verified after lookup).
+        PSeizeAct{pdirectoryNodeIdx, poutputsStartIdx, pseizeParamsRefIdx} -> P.do
+            PProgrammableLogicGlobalParams{pdirectoryNodeCS, pprogLogicCred} <-
+                pmatch $
+                    pparamsAtRefIdx (pfromData protocolParamsCS) referenceInputs (pfromData pseizeParamsRefIdx)
+            progLogicCred <- plet $ pfromData pprogLogicCred
             let remainingOutputs = pdropFast # pfromData poutputsStartIdx # pfromData ptxInfo'outputs
             let directoryNodeUTxO = phead # (pdropFast # pfromData pdirectoryNodeIdx # referenceInputs)
             PTxOut{ptxOut'value = seizeDirectoryNodeValue, ptxOut'datum = seizeDirectoryNodeDatum} <- pmatch (ptxInInfoResolved $ pfromData directoryNodeUTxO)

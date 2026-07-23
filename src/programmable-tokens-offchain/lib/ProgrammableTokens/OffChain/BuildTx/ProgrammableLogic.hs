@@ -2,6 +2,7 @@
 
 module ProgrammableTokens.OffChain.BuildTx.ProgrammableLogic (
     registerProgrammableGlobalScript,
+    registerProgrammableSeizeScript,
     issueProgrammableToken,
     paySmartTokensToDestination,
     invokeMintingStakeScript,
@@ -11,18 +12,19 @@ module ProgrammableTokens.OffChain.BuildTx.ProgrammableLogic (
 ) where
 
 import Cardano.Api qualified as C
-import Control.Lens (over, (^.), _1)
+import Control.Lens (over, view, (^.), _1, _2)
 import Control.Monad (unless)
 import Control.Monad.Reader (MonadReader, asks)
-import Convex.BuildTx (MonadBuildTx, TxBuilder (..), mintPlutus, payToAddress, spendPlutusRefWithInlineDatum)
+import Convex.BuildTx (MonadBuildTx, TxBuilder (..), addMintWithTxBody, buildScriptWitness, mintPlutus, payToAddress, spendPlutusRefWithInlineDatum)
 import Convex.BuildTx qualified as BuildTx
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain, queryNetworkId)
-import Convex.PlutusLedger.V1 (transPolicyId, transPubKeyHash, transScriptHash)
+import Convex.PlutusLedger.V1 (transPolicyId, transPubKeyHash, transScriptHash, unTransAssetName)
 import Convex.Utils qualified as Utils
 import Data.Foldable (traverse_)
-import Data.List (nub, sortOn)
+import Data.List (findIndex, nub, sortOn)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Ord (Down (..))
 import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (CurrencySymbol (..))
@@ -32,9 +34,10 @@ import ProgrammableTokens.OffChain.BuildTx.Utils qualified as Utils
 import ProgrammableTokens.OffChain.Env (TransferLogicEnv (..))
 import ProgrammableTokens.OffChain.Env qualified as Env
 import ProgrammableTokens.OffChain.UTxODat (UTxODat (..))
-import SmartTokens.Contracts.Issuance (SmartTokenMintingAction (..))
+import SmartTokens.Contracts.Issuance (MintRedeemer (..), RegistrationWitness (..))
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex)
 import SmartTokens.Contracts.ProgrammableLogicBase (
+    MintProof (..),
     ProgrammableLogicGlobalRedeemer (..),
  )
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
@@ -49,6 +52,24 @@ registerProgrammableGlobalScript = case C.babbageBasedEra @era of
             credGlobal = C.StakeCredentialByScript hshGlobal
         Utils.addConwayStakeCredentialCertificate credGlobal
 
+-- | Register the standalone seize validator's stake credential.
+--
+-- 'mkProgrammableSeize' runs as a withdraw-zero (rewarding) script, exactly like
+-- the global validator, so its stake credential must be a registered reward
+-- account before any 'SeizeAct' withdrawal can be included in a transaction
+-- (otherwise the ledger rejects it with 'WithdrawalsNotInRewardsCERTS'). This is
+-- the deployment-side counterpart of splitting the seize logic out of the global
+-- validator into its own script: the split introduced a second rewarding
+-- credential that must be registered alongside the global one.
+registerProgrammableSeizeScript :: forall env era m. (MonadReader env m, C.IsBabbageBasedEra era, MonadBuildTx era m, Env.HasDirectoryEnv env) => m ()
+registerProgrammableSeizeScript = case C.babbageBasedEra @era of
+    C.BabbageEraOnwardsBabbage -> error "babbage era registration not implemented"
+    C.BabbageEraOnwardsConway -> Utils.inConway @era $ do
+        programmableSeizeScript' <- asks (Env.dsProgrammableSeizeScript . Env.directoryEnv)
+        let hshSeize = C.hashScript $ C.PlutusScript C.plutusScriptVersion programmableSeizeScript'
+            credSeize = C.StakeCredentialByScript hshSeize
+        Utils.addConwayStakeCredentialCertificate credSeize
+
 {- Issue a programmable token and register it in the directory set if necessary. The caller should ensure that the specific
    minting logic stake script witness is included in the final transaction.
   - If the programmable token is not in the directory, then it is registered
@@ -59,11 +80,13 @@ issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) udat@UTxODat{uDa
     inta@TransferLogicEnv{tleMintingScript} <- asks Env.transferLogicEnv
     glParams <- asks (Env.globalParams . Env.directoryEnv)
     dir <- asks Env.directoryEnv
+    netId <- queryNetworkId
 
     let mintingLogicHash = C.hashScript $ C.PlutusScript C.plutusScriptVersion tleMintingScript
-        mintingLogicCred = SmartTokenMintingAction $ transCredential $ C.PaymentCredentialByScript mintingLogicHash
-
-    -- Debug.Trace.traceM $ "mintingLogicHash: " <> show mintingLogicHash
+        -- The token's minting-logic authorization runs as a withdraw-zero script;
+        -- its stake address is what the issuance policy looks for at
+        -- 'mrMintingLogicWdrlIdx'.
+        mintingLogicStakeAddr = C.makeStakeAddress netId (C.StakeCredentialByScript mintingLogicHash)
 
     -- The global params in the UTxO need to match those in our 'DirectoryEnv'.
     -- If they don't, we get a script error when trying to balance the transaction.
@@ -75,32 +98,64 @@ issueProgrammableToken paramsTxOut issuanceCborHexTxOut (an, q) udat@UTxODat{uDa
     let mintingScript = Env.programmableTokenMintingScript dir inta
         issuedPolicyId = C.scriptPolicyId $ C.PlutusScript C.PlutusScriptV3 mintingScript
         issuedSymbol = transPolicyId issuedPolicyId
+        -- The directory NFT for this policy is named after the policy id, under
+        -- the directory minting policy.
+        nodeAssetId =
+            C.AssetId
+                (Env.directoryNodePolicyId dir)
+                (unTransAssetName (PV3.TokenName (unCurrencySymbol issuedSymbol)))
 
-    -- Debug.Trace.traceM $ "mintingLogicScript: " <> BSC.unpack (Base16.encode $ C.serialiseToRawBytes mintingScript)
-    -- Debug.Trace.traceM $ "issuedCurrencySymbol: " <> show issuedSymbol
+        -- Indices shared by both Local sub-cases, computed against the balanced
+        -- transaction: the minting-logic withdrawal and the protocol-params
+        -- reference input.
+        mkLocal registration txBody =
+            Local
+                (fromIntegral (BuildTx.findIndexWithdrawal mintingLogicStakeAddr txBody))
+                (fromIntegral (BuildTx.findIndexReference (uIn paramsTxOut) txBody))
+                registration
+
+    -- Mint the token with a redeemer computed against the FINAL transaction body
+    -- (addMintWithTxBody, not the WithRedeemerFn variant, so that later-added
+    -- withdrawals/outputs are visible when the indices are resolved).
+    let mintWith registrationOf =
+            addMintWithTxBody
+                issuedPolicyId
+                an
+                q
+                (\txBody -> buildScriptWitness mintingScript C.NoScriptDatumForMint (mkLocal (registrationOf txBody) txBody))
 
     if key dirNodeData == issuedSymbol
         then do
-            -- Debug.Trace.traceM "NO insert directory node"
-            mintPlutus mintingScript mintingLogicCred an q
-            -- Security S2: the mint validator now requires proof that the minted
-            -- policy is registered. The matching directory node is already this
-            -- UTxO, so reference it (Aiken's RefInput mode).
+            -- Already registered: reference the existing directory node and prove
+            -- registration by that reference input (Local + RegisteredByReferenceInput).
+            -- The Local arm reads its base/directory credentials from the
+            -- protocol-params reference input, so reference it here (the
+            -- register-and-mint branch gets it from 'insertDirectoryNode').
+            BuildTx.addReference (uIn paramsTxOut)
+            mintWith (\txBody -> RegisteredByReferenceInput (fromIntegral (BuildTx.findIndexReference (uIn udat) txBody)))
             BuildTx.addReference (uIn udat)
         else do
-            -- Debug.Trace.traceM "insert directory node"
             -- Register-and-mint in one tx: insertDirectoryNode produces the new
-            -- node as an OUTPUT, which satisfies the mint validator's S2 check
-            -- via its output scan (Aiken's OutputIndex mode).
-            mintPlutus mintingScript mintingLogicCred an q
+            -- node as an OUTPUT (and references the params UTxO); prove registration
+            -- by that output (Local + RegisteredByOutput). The output is located by
+            -- content — the directory NFT — because its position depends on the tx.
+            mintWith (\txBody -> RegisteredByOutput (findNodeOutputIndex nodeAssetId txBody))
             insertDirectoryNode paramsTxOut issuanceCborHexTxOut udat
 
     pure issuedPolicyId
-  where
-    transCredential :: C.PaymentCredential -> PV3.Credential
-    transCredential = \case
-        C.PaymentCredentialByKey k -> PV3.PubKeyCredential (transPubKeyHash k)
-        C.PaymentCredentialByScript k -> PV3.ScriptCredential (transScriptHash k)
+
+-- | Index of the transaction output that holds one unit of @assetId@ (the
+-- directory node NFT), located by content because its position depends on the
+-- full transaction layout.
+findNodeOutputIndex :: (C.IsMaryBasedEra era) => C.AssetId -> C.TxBodyContent C.BuildTx era -> Integer
+findNodeOutputIndex assetId txBody =
+    fromIntegral $
+        fromMaybe (error "issueProgrammableToken: directory node output not found") $
+            findIndex
+                ( \txOut ->
+                    C.selectAsset (view (L._TxOut . _2 . L._TxOutValue) txOut) assetId == 1
+                )
+                (txBody ^. L.txOuts)
 
 {- | Add a smart token output that locks the given value,
 addressed to the payment credential
@@ -200,9 +255,26 @@ transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol director
         transferProofs txBody =
             [proofNodeIndex txBody (proofNodeForSymbol sortedDirectoryNodes programmableTokenSymbol)]
 
-        mintProofs txBody = map (proofNodeIndex txBody . proofNodeForSymbol sortedDirectoryNodes) (mintedCurrencySymbols txBody)
+        -- Classify each minted currency symbol against the directory (spec §11.3):
+        -- the covering node found by 'proofNodeForSymbol' is a Member when its key
+        -- equals the symbol (registered — no index needed), otherwise a NonMember
+        -- whose covering-node reference index the mint walk authenticates.
+        mintProofFor txBody cs =
+            let node = proofNodeForSymbol sortedDirectoryNodes cs
+             in if key (uDatum node) == cs
+                    then Member
+                    else NonMember (proofNodeIndex txBody node)
 
-        mintProofReferences txBody = map (uIn . proofNodeForSymbol sortedDirectoryNodes) (mintedCurrencySymbols txBody)
+        mintProofs txBody = map (mintProofFor txBody) (mintedCurrencySymbols txBody)
+
+        -- Only NonMember proofs need their covering node referenced; Member proofs
+        -- touch no reference input.
+        mintProofReferences txBody =
+            [ uIn node
+            | cs <- mintedCurrencySymbols txBody
+            , let node = proofNodeForSymbol sortedDirectoryNodes cs
+            , key (uDatum node) /= cs
+            ]
 
         transferProofReferences _ = map (uIn . proofNodeForSymbol sortedDirectoryNodes) [programmableTokenSymbol]
 
@@ -210,6 +282,7 @@ transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol director
             TransferAct
                 { plgrTransferProofs = transferProofs txBody
                 , plgrMintProofs = mintProofs txBody
+                , plgrParamsRefIdx = fromIntegral (BuildTx.findIndexReference (uIn paramsTxIn) txBody)
                 }
 
         programmableGlobalWitness txBody =

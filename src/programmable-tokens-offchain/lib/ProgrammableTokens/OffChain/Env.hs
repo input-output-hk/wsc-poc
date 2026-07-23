@@ -19,6 +19,7 @@ import ProgrammableTokens.OffChain.Env.Directory as Directory (DirectoryEnv (..)
                                                                mkDirectoryEnv,
                                                                programmableLogicBaseCredential,
                                                                programmableLogicStakeCredential,
+                                                               programmableSeizeStakeCredential,
                                                                programmableTokenReceivingAddress,
                                                                protocolParamsPolicyId)
 import ProgrammableTokens.OffChain.Env.Operator as Operator

@@ -392,9 +392,11 @@ mint-presence requirement — the blake2b preimage binding already guarantees
 the key is the real issuance policy, and custody is enforced at actual mint
 time. Simplifies item 16 away.
 
-**35. Precise mint-delegation to the global validator (Aiken Finding 04/R-04).**
-Aiken's issuance policy can delegate custody checking to the running global
-validator only when the global redeemer *names the same registry node*
+**35. Precise mint-delegation to the global validator (Aiken's landed Finding 04 + re-audit R-04 fixes).**
+Both are fixed in Aiken `main` (PR #80 precise delegation, PR #89 `no_escape`); this
+item ports the *fix* mechanism, not an open finding. Aiken's issuance policy can
+delegate custody checking to the running global validator only when the global
+redeemer *names the same registry node*
 (decoding the PLG redeemer from `tx.redeemers`; `issuance_mint.ak:196-260`).
 This enables mint-into-existing-transfer in one tx with no per-output sweep.
 Port: in the issuance policy's ref-input branch, decode the global stake

@@ -20,9 +20,9 @@ import PlutusTx.Builtins qualified as BI
 import ProgrammableTokens.OffChain.Scripts qualified as OffchainScripts
 import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buildBalancedScriptContext, buildScriptContext, mkAdaValue, withAddress, withFee, withInlineDatum, withInput, withMint, withMintingScript, withOutRef, withOutput, withRedeemer, withRewardingScript, withScriptInput, withSigner, withTxOutAddress, withTxOutInlineDatum, withTxOutValue, withValue, withWithdrawal)
 import SmartTokens.Contracts.AlwaysYields (palwaysSucceed)
-import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
+import SmartTokens.Contracts.Issuance (MintRedeemer (..), RegistrationWitness (..), mkProgrammableLogicMinting)
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (IssuanceCborHex), mkIssuanceCborHexMinting)
-import SmartTokens.Contracts.ProgrammableLogicBase (ProgrammableLogicGlobalRedeemer (TransferAct), mkProgrammableLogicBase, mkProgrammableLogicGlobal, mkProgrammableSeize, mkSeizeActRedeemerFromAbsoluteInputIdxs)
+import SmartTokens.Contracts.ProgrammableLogicBase (MintProof (..), ProgrammableLogicGlobalRedeemer (TransferAct), mkProgrammableLogicBase, mkProgrammableLogicGlobal, mkProgrammableSeize, mkSeizeActRedeemerFromAbsoluteInputIdxs)
 import SmartTokens.Contracts.ProtocolParams (mkProtocolParametersMinting)
 import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import SmartTokens.LinkedList.MintDirectory (DirectoryNodeAction (InitDirectory, InsertDirectoryNode), mkDirectoryNodeMP)
@@ -185,7 +185,7 @@ issuanceAlwaysFailHash =
 
 protocolParamsDatum :: ProgrammableLogicGlobalParams
 protocolParamsDatum =
-    ProgrammableLogicGlobalParams directoryNodeCS progLogicBaseCred
+    ProgrammableLogicGlobalParams directoryNodeCS progLogicBaseCred globalCred seizeCredBench
 
 issuanceDatum :: BuiltinData
 issuanceDatum =
@@ -232,6 +232,17 @@ mintingRegistryNodeRefBuilder =
         (pubKeyAddress signerPkh)
         (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, mintingPolicyNodeTokenName, 1)])
         (PlutusTx.toBuiltinData directoryMintingNode)
+
+-- | The protocol-params reference input for pure-mint issuance contexts. Sorts
+-- to reference-input index 0 (paramRef "aa.." < directoryMintingNodeRef "bb.."),
+-- so the directory node lands at index 1.
+mintingParamsRefBuilder :: ScriptContextBuilder
+mintingParamsRefBuilder =
+    withRefInputDatumValue
+        paramRef
+        (pubKeyAddress signerPkh)
+        (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+        (PlutusTx.toBuiltinData protocolParamsDatum)
 
 directoryProgrammableNode2 :: DirectorySetNode
 directoryProgrammableNode2 =
@@ -322,7 +333,7 @@ globalTransferCtx :: ScriptContext
 globalTransferCtx =
     buildBalancedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData $ TransferAct [1] [])
+            (PlutusTx.toBuiltinData $ TransferAct [1] [] 0)
             globalCred
             0
             <> withSigner signerPkh
@@ -364,7 +375,7 @@ globalTransferDoesNotExistCtx :: ScriptContext
 globalTransferDoesNotExistCtx =
     buildBalancedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData $ TransferAct [1] [])
+            (PlutusTx.toBuiltinData $ TransferAct [1] [] 0)
             globalCred
             0
             <> withSigner signerPkh
@@ -402,7 +413,7 @@ globalTransferMixedManyCtx :: ScriptContext
 globalTransferMixedManyCtx =
     buildBalancedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData $ TransferAct [1, 2, 3, 4, 1] [])
+            (PlutusTx.toBuiltinData $ TransferAct [1, 2, 3, 4, 1] [] 0)
             globalCred
             0
             <> withSigner signerPkh
@@ -498,7 +509,7 @@ mkGlobalTransferManyCtx inputCount =
         qtyInSecondOutput = inputCount - qtyInFirstOutput
      in buildBalancedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1, 2] [])
+                (PlutusTx.toBuiltinData $ TransferAct [1, 2] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -562,7 +573,7 @@ mkGlobalTransferManyTokensCtx tokenCount =
     let manyTokensValue = mkValue [(programmableTransferCS, manyTokensTokenName i, 2) | i <- [0 .. (tokenCount - 1)]]
      in buildBalancedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1] [])
+                (PlutusTx.toBuiltinData $ TransferAct [1] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -608,7 +619,7 @@ mkGlobalTransferManyOutputsCtx outputCount =
         recipientOutputsBuilder = mconcat (replicate (fromIntegral outputCount) recipientOutputBuilder)
      in buildBalancedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1] [])
+                (PlutusTx.toBuiltinData $ TransferAct [1] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -677,7 +688,7 @@ mkGlobalTransferManyPoliciesCtx policyCount =
                 ]
      in buildBalancedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1 + i | i <- idxs] [])
+                (PlutusTx.toBuiltinData $ TransferAct [1 + i | i <- idxs] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -711,7 +722,7 @@ mkGlobalSeizeCtx :: Integer -> ScriptContext
 mkGlobalSeizeCtx seizeInputCount =
     let seizeInputIdxs = seizeInputIdxsFor seizeInputCount
         seizeInputRefs = [0 .. (seizeInputCount - 1)]
-        seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 seizeInputIdxs 0
+        seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 seizeInputIdxs 0 0
         seizeInputsBuilder = mconcat (map seizeInputBuilder seizeInputRefs)
         correspondingOutputsBuilder = mconcat (replicate (fromIntegral seizeInputCount) seizeCorrespondingOutputBuilder)
      in stripZeroChangeOutput $
@@ -771,7 +782,7 @@ globalSeize150Ctx =
 -- only partially seized. Clawback needs no owner authorization, so no signer.
 globalSeizeNoiseCtx :: ScriptContext
 globalSeizeNoiseCtx =
-    let seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 [0, 1] 0
+    let seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 [0, 1] 0 0
      in stripZeroChangeOutput $
             buildBalancedScriptContext
                 ( withRewardingScript
@@ -846,6 +857,7 @@ mkGlobalSeizeExternalScriptAndManyPubKeyCtx pubKeyInputCount =
                 -- the transaction, so the external script spend is listed too.
                 [pubKeyInputCount, pubKeyInputCount + 1]
                 0
+                0 -- paramsRefIdx
         pubKeyInputsBuilder = mconcat (map leadingPubKeyInputBuilder pubKeyInputIdxs)
      in buildBalancedScriptContext
             ( withRewardingScript
@@ -913,7 +925,7 @@ directoryInsertCtx =
         issuancePostfix = "0e"
         hashedMintingParam = bs28 0x55
         insertProtocolParamsDatum =
-            ProgrammableLogicGlobalParams directoryPolicyCS progLogicBaseCred
+            ProgrammableLogicGlobalParams directoryPolicyCS progLogicBaseCred globalCred seizeCredBench
         insertedCs = computeRegisteredCs issuancePrefix issuancePostfix hashedMintingParam
         insertedCsBs = case insertedCs of
             CurrencySymbol bs -> bs
@@ -989,7 +1001,7 @@ directoryInsertCtx =
 
 programmableMintCtx :: ScriptContext
 programmableMintCtx =
-    let scriptRedeemer = PlutusTx.toBuiltinData (ScriptCredential mintingLogicHash)
+    let scriptRedeemer = PlutusTx.toBuiltinData (Local 0 0 (RegisteredByReferenceInput 1))
         mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
      in buildBalancedScriptContext
             ( withFee 0
@@ -1002,16 +1014,17 @@ programmableMintCtx =
                     ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
                     )
+                <> mintingParamsRefBuilder
                 <> mintingRegistryNodeRefBuilder
             )
 
 programmableBurnCtx :: ScriptContext
 programmableBurnCtx =
-    let scriptRedeemer = PlutusTx.toBuiltinData (ScriptCredential mintingLogicHash)
+    let scriptRedeemer = PlutusTx.toBuiltinData (BurnOnly 2)
         burnValue = mkValue [(mintingPolicyCS, TokenName "0c", -1)]
         remainingValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
         burnInputValue = mkAdaValue 10_000_000 <> mkValue [(mintingPolicyCS, TokenName "0c", 2)]
-        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [1]
+        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [Member] 0
      in stripZeroChangeOutput $
             buildBalancedScriptContext
                 ( withRedeemer scriptRedeemer
@@ -1057,10 +1070,10 @@ burnRedeemInputBuilder idx =
 -- is the 1-input degenerate case.
 programmableBurnRedeem10Ctx :: ScriptContext
 programmableBurnRedeem10Ctx =
-    let scriptRedeemer = PlutusTx.toBuiltinData (ScriptCredential mintingLogicHash)
+    let scriptRedeemer = PlutusTx.toBuiltinData (BurnOnly 2)
         burnValue = mkValue [(mintingPolicyCS, TokenName "0c", -10)]
         remainingValue = mkValue [(mintingPolicyCS, TokenName "0c", 10)]
-        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [1]
+        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [Member] 0
         inputsBuilder = mconcat (map burnRedeemInputBuilder [0 .. 9])
      in stripZeroChangeOutput $
             buildBalancedScriptContext
@@ -1094,10 +1107,10 @@ programmableBurnRedeem10Ctx =
 -- mint delta).
 programmableMintTopUpCtx :: ScriptContext
 programmableMintTopUpCtx =
-    let scriptRedeemer = PlutusTx.toBuiltinData (ScriptCredential mintingLogicHash)
+    let scriptRedeemer = PlutusTx.toBuiltinData (DelegateTransfer 2 0 1 0)
         mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 5)]
         existingValue = mkValue [(mintingPolicyCS, TokenName "0c", 5)]
-        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [1]
+        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [Member] 0
      in stripZeroChangeOutput $
             buildBalancedScriptContext
                 ( withRedeemer scriptRedeemer
@@ -1159,7 +1172,7 @@ globalTransferMixedOwners5Ctx =
         inputsBuilder = mconcat (map inputBuilder (zip [0 ..] ownerStakes))
      in buildBalancedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1] [])
+                (PlutusTx.toBuiltinData $ TransferAct [1] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -1198,7 +1211,7 @@ globalTransfer120Ctx = mkGlobalTransferManyCtx 120
 -- output-heavy tx shape.
 programmableMintBusyTxCtx :: ScriptContext
 programmableMintBusyTxCtx =
-    let scriptRedeemer = PlutusTx.toBuiltinData (ScriptCredential mintingLogicHash)
+    let scriptRedeemer = PlutusTx.toBuiltinData (Local 0 0 (RegisteredByReferenceInput 1))
         mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
         extraOutputBuilder =
             withOutput
@@ -1220,6 +1233,7 @@ programmableMintBusyTxCtx =
                     ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
                     )
+                <> mintingParamsRefBuilder
                 <> mintingRegistryNodeRefBuilder
             )
 
@@ -1230,7 +1244,7 @@ programmableMintBusyTxCtx =
 -- delegation detection both pay their cost on a withdrawal-cluttered tx.
 programmableMintManyWithdrawalsCtx :: ScriptContext
 programmableMintManyWithdrawalsCtx =
-    let scriptRedeemer = PlutusTx.toBuiltinData (ScriptCredential mintingLogicHash)
+    let scriptRedeemer = PlutusTx.toBuiltinData (Local 0 0 (RegisteredByReferenceInput 1))
         mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
         unrelatedWithdrawalsBuilder =
             mconcat
@@ -1249,6 +1263,7 @@ programmableMintManyWithdrawalsCtx =
                     ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
                     )
+                <> mintingParamsRefBuilder
                 <> mintingRegistryNodeRefBuilder
             )
 
@@ -1392,7 +1407,7 @@ mainnetDexGlobalTransferCtx =
                         -- nonProgrammableCS (0x1a) then programmableTransferCS (0x1b).
                         -- So proof[0]=1 (covering/does-not-exist for 0x1a) and
                         -- proof[1]=2 (exists for the registered 0x1b node).
-                        (PlutusTx.toBuiltinData $ TransferAct [1, 2] [])
+                        (PlutusTx.toBuiltinData $ TransferAct [1, 2] [] 0)
                         globalCred
                         0
                     <> withSigner signerPkh
@@ -1435,7 +1450,7 @@ mainnetDexBaseSpendingCtx =
 -- Tx d29c... replay fixture retained to benchmark a realistic spending path.
 txD29GlobalStakeRedeemer :: BuiltinData
 txD29GlobalStakeRedeemer =
-    PlutusTx.toBuiltinData $ TransferAct [2] []
+    PlutusTx.toBuiltinData $ TransferAct [2] [] 0
 
 txD29ProtocolParamsDatumData :: BuiltinData
 txD29ProtocolParamsDatumData =
@@ -1514,12 +1529,12 @@ benchCases =
     , mkCase "programmableLogicGlobal.SeizeAct2.PartialSeizeWithNoise" (EvalAlwaysSucceedsReward "programmableSeize" seizeCredBench) mkProgrammableSeize [toData protocolParamsCS, toData globalSeizeNoiseCtx] globalSeizeNoiseCtx
     , mkCase "directoryNodeMinting.InitDirectory" (EvalDirectoryMint directoryPolicyCS) mkDirectoryNodeMP [toData initRef, toData issuancePolicyCS, toData directoryInitCtx] directoryInitCtx
     , mkCase "directoryNodeMinting.InsertDirectoryNode" (EvalDirectoryMint directoryPolicyCS) mkDirectoryNodeMP [toData initRef, toData issuancePolicyCS, toData directoryInsertCtx] directoryInsertCtx
-    , mkCase "programmableLogicMinting.Mint" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData directoryNodeCS, toData mintingLogicHash, toData programmableMintCtx] programmableMintCtx
-    , mkCase "programmableLogicMinting.Mint.BusyTx20Outputs" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData directoryNodeCS, toData mintingLogicHash, toData programmableMintBusyTxCtx] programmableMintBusyTxCtx
-    , mkCase "programmableLogicMinting.Mint.TenUnrelatedWithdrawals" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData directoryNodeCS, toData mintingLogicHash, toData programmableMintManyWithdrawalsCtx] programmableMintManyWithdrawalsCtx
-    , mkCase "programmableLogicMinting.Mint.TopUpExistingTreasury" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData directoryNodeCS, toData mintingLogicHash, toData programmableMintTopUpCtx] programmableMintTopUpCtx
-    , mkCase "programmableLogicMinting.Burn" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData directoryNodeCS, toData mintingLogicHash, toData programmableBurnCtx] programmableBurnCtx
-    , mkCase "programmableLogicMinting.Burn.Redeem10Utxos" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData progLogicBaseCred, toData directoryNodeCS, toData mintingLogicHash, toData programmableBurnRedeem10Ctx] programmableBurnRedeem10Ctx
+    , mkCase "programmableLogicMinting.Mint" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData protocolParamsCS, toData mintingLogicHash, toData programmableMintCtx] programmableMintCtx
+    , mkCase "programmableLogicMinting.Mint.BusyTx20Outputs" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData protocolParamsCS, toData mintingLogicHash, toData programmableMintBusyTxCtx] programmableMintBusyTxCtx
+    , mkCase "programmableLogicMinting.Mint.TenUnrelatedWithdrawals" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData protocolParamsCS, toData mintingLogicHash, toData programmableMintManyWithdrawalsCtx] programmableMintManyWithdrawalsCtx
+    , mkCase "programmableLogicMinting.Mint.TopUpExistingTreasury" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData protocolParamsCS, toData mintingLogicHash, toData programmableMintTopUpCtx] programmableMintTopUpCtx
+    , mkCase "programmableLogicMinting.Burn" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData protocolParamsCS, toData mintingLogicHash, toData programmableBurnCtx] programmableBurnCtx
+    , mkCase "programmableLogicMinting.Burn.Redeem10Utxos" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData protocolParamsCS, toData mintingLogicHash, toData programmableBurnRedeem10Ctx] programmableBurnRedeem10Ctx
     , mkCase "protocolParamsMinting" (EvalProtocolParamsMint protocolParamsCS) mkProtocolParametersMinting [toData protocolParamsInitRef, toData protocolParamsMintCtx] protocolParamsMintCtx
     , mkCase "issuanceCborHexMinting" (EvalIssuanceMint issuancePolicyCS) mkIssuanceCborHexMinting [toData issuanceInitRef, toData issuanceMintCtx] issuanceMintCtx
     , mkCase

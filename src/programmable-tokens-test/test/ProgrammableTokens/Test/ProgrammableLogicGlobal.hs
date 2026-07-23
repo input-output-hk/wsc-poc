@@ -43,6 +43,7 @@ import ProgrammableTokens.Test.ScriptContext.Builder (
     withWithdrawal,
  )
 import SmartTokens.Contracts.ProgrammableLogicBase (
+    MintProof (Member, NonMember),
     ProgrammableLogicGlobalRedeemer (TransferAct),
     mkProgrammableLogicGlobal,
     mkProgrammableSeize,
@@ -137,7 +138,7 @@ unit_transferAct_burn_with_mint_proof_succeeds :: Assertion
 unit_transferAct_burn_with_mint_proof_succeeds =
     assertScriptSucceeds $
         mkGlobalTransferMintCtx
-            (TransferAct [1] [1])
+            (TransferAct [1] [Member] 0)
             (-1)
             0
 
@@ -145,7 +146,7 @@ unit_transferAct_burn_without_mint_proof_rejected :: Assertion
 unit_transferAct_burn_without_mint_proof_rejected =
     assertScriptFails $
         mkGlobalTransferMintCtx
-            (TransferAct [1] [])
+            (TransferAct [1] [] 0)
             (-1)
             0
 
@@ -160,7 +161,7 @@ unit_transferAct_two_policies_wholesale_succeeds :: Assertion
 unit_transferAct_two_policies_wholesale_succeeds =
     assertScriptSucceeds $
         mkGlobalTransferTwoPoliciesCtx
-            (TransferAct [1, 2] [])
+            (TransferAct [1, 2] [] 0)
             []
             ( mkValue
                 [ (programmableTransferCS, TokenName "0c", 3)
@@ -172,7 +173,7 @@ unit_transferAct_two_policies_partial_escape_rejected :: Assertion
 unit_transferAct_two_policies_partial_escape_rejected =
     assertScriptFails $
         mkGlobalTransferTwoPoliciesCtx
-            (TransferAct [1, 2] [])
+            (TransferAct [1, 2] [] 0)
             []
             ( mkValue
                 [ (programmableTransferCS, TokenName "0c", 3)
@@ -187,7 +188,7 @@ unit_transferAct_two_policies_mint_containment_succeeds :: Assertion
 unit_transferAct_two_policies_mint_containment_succeeds =
     assertScriptSucceeds $
         mkGlobalTransferTwoPoliciesCtx
-            (TransferAct [1, 2] [2])
+            (TransferAct [1, 2] [Member] 0)
             [(programmableTransferCS2, TokenName "1c", 2)]
             ( mkValue
                 [ (programmableTransferCS, TokenName "0c", 3)
@@ -199,7 +200,7 @@ unit_transferAct_two_policies_mint_smuggle_rejected :: Assertion
 unit_transferAct_two_policies_mint_smuggle_rejected =
     assertScriptFails $
         mkGlobalTransferTwoPoliciesCtx
-            (TransferAct [1, 2] [2])
+            (TransferAct [1, 2] [Member] 0)
             [(programmableTransferCS2, TokenName "1c", 2)]
             ( mkValue
                 [ (programmableTransferCS, TokenName "0c", 3)
@@ -211,7 +212,7 @@ unit_transferAct_mint_smuggle_rejected :: Assertion
 unit_transferAct_mint_smuggle_rejected =
     assertScriptFails $
         mkGlobalTransferMintCtx
-            (TransferAct [1] [1])
+            (TransferAct [1] [Member] 0)
             1
             1
 
@@ -219,7 +220,7 @@ unit_transferAct_mint_with_proof_and_containment_succeeds :: Assertion
 unit_transferAct_mint_with_proof_and_containment_succeeds =
     assertScriptSucceeds $
         mkGlobalTransferMintCtx
-            (TransferAct [1] [1])
+            (TransferAct [1] [Member] 0)
             1
             2
 
@@ -227,7 +228,7 @@ unit_transferAct_mint_without_mint_proof_rejected :: Assertion
 unit_transferAct_mint_without_mint_proof_rejected =
     assertScriptFails $
         mkGlobalTransferMintCtx
-            (TransferAct [1] [])
+            (TransferAct [1] [] 0)
             1
             2
 
@@ -480,6 +481,12 @@ globalScriptHash = ScriptHash (bs28 0x13)
 globalCred :: Credential
 globalCred = ScriptCredential globalScriptHash
 
+seizeScriptHash :: ScriptHash
+seizeScriptHash = ScriptHash (bs28 0x1c)
+
+seizeCred :: Credential
+seizeCred = ScriptCredential seizeScriptHash
+
 progLogicBaseCred :: Credential
 progLogicBaseCred = ScriptCredential progLogicBaseHash
 
@@ -539,7 +546,7 @@ withRefInputDatumValue ref addr value dat =
 
 protocolParamsDatum :: ProgrammableLogicGlobalParams
 protocolParamsDatum =
-    ProgrammableLogicGlobalParams directoryNodeCS (ScriptCredential progLogicBaseHash)
+    ProgrammableLogicGlobalParams directoryNodeCS (ScriptCredential progLogicBaseHash) globalCred seizeCred
 
 directoryProgrammableNode :: DirectorySetNode
 directoryProgrammableNode =
@@ -715,7 +722,7 @@ mkGlobalTransferEscapeCtx :: ScriptContext
 mkGlobalTransferEscapeCtx =
     buildBalancedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData $ TransferAct [1] [])
+            (PlutusTx.toBuiltinData $ TransferAct [1] [] 0)
             globalCred
             0
             <> withSigner signerPkh
@@ -745,7 +752,7 @@ mkGlobalTransferEscapeCtx =
 mkGlobalSeizeCtx :: Integer -> [Integer] -> ScriptContext
 mkGlobalSeizeCtx inputCount providedIdxs =
     let expectedIdxs = [0 .. (inputCount - 1)]
-        seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 providedIdxs 0
+        seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 providedIdxs 0 0
         seizeInputsBuilder = mconcat (map seizeInputBuilder expectedIdxs)
         correspondingOutputsBuilder = mconcat (replicate (length providedIdxs) seizeCorrespondingOutputBuilder)
      in buildBalancedScriptContext
@@ -771,7 +778,7 @@ mkGlobalSeizeCtx inputCount providedIdxs =
 mkGlobalSeizeCtxWithLeadingPubKey :: Integer -> [Integer] -> ScriptContext
 mkGlobalSeizeCtxWithLeadingPubKey inputCount providedIdxs =
     let expectedIdxs = [0 .. (inputCount - 1)]
-        seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 providedIdxs 0
+        seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 providedIdxs 0 0
         leadingPubKeyInput =
             withInput
                 ( withOutRef (TxOutRef "0000" 0)
@@ -803,7 +810,7 @@ mkGlobalSeizeCtxWithLeadingPubKey inputCount providedIdxs =
 
 mkGlobalSeizeDatumMismatchCtx :: ScriptContext
 mkGlobalSeizeDatumMismatchCtx =
-    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0 0
      in buildBalancedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData seizeRedeemer)
@@ -826,7 +833,7 @@ mkGlobalSeizeDatumMismatchCtx =
 
 mkGlobalSeizeReferenceScriptMismatchCtx :: ScriptContext
 mkGlobalSeizeReferenceScriptMismatchCtx =
-    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0 0
      in buildBalancedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData seizeRedeemer)
@@ -849,7 +856,7 @@ mkGlobalSeizeReferenceScriptMismatchCtx =
 
 mkGlobalSeizeBurnCtx :: ScriptContext
 mkGlobalSeizeBurnCtx =
-    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0 0
      in buildBalancedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData seizeRedeemer)
@@ -878,7 +885,7 @@ mkGlobalSeizeBurnCtx =
 
 mkGlobalSeizeMintContainedCtx :: ScriptContext
 mkGlobalSeizeMintContainedCtx =
-    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0 0
      in buildBalancedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData seizeRedeemer)
@@ -911,7 +918,7 @@ mkGlobalSeizeMintContainedCtx =
 
 mkGlobalSeizeMintEscapeCtx :: ScriptContext
 mkGlobalSeizeMintEscapeCtx =
-    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 1
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 1 0
      in buildBalancedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData seizeRedeemer)
@@ -961,7 +968,7 @@ seizeInputValueMultiName =
 -- the head consumed by pairing, leaving no base residual to cover the delta.
 mkGlobalSeizeFullToPubKeyCtx :: ScriptContext
 mkGlobalSeizeFullToPubKeyCtx =
-    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0 0
      in buildBalancedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData seizeRedeemer)
@@ -998,7 +1005,7 @@ mkGlobalSeizeFullToPubKeyCtx =
 -- keeps {0c:5} but drops 0d; the 0d token reappears at a pubkey output.
 mkGlobalSeizePartialNameToPubKeyCtx :: ScriptContext
 mkGlobalSeizePartialNameToPubKeyCtx =
-    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0 0
      in buildBalancedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData seizeRedeemer)
@@ -1036,7 +1043,7 @@ mkGlobalSeizePartialNameToPubKeyCtx =
 -- the residual so conservation holds. Must succeed before and after the fix.
 mkGlobalSeizeFullToBaseCtx :: ScriptContext
 mkGlobalSeizeFullToBaseCtx =
-    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0 0
      in buildBalancedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData seizeRedeemer)
@@ -1074,7 +1081,7 @@ mkGlobalSeizeFullToBaseCtx =
 -- guard must reject the pairing because the input holds none of the seized policy.
 mkGlobalSeizeNoProgCSInputCtx :: ScriptContext
 mkGlobalSeizeNoProgCSInputCtx =
-    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0 0
      in buildBalancedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData seizeRedeemer)
@@ -1105,7 +1112,7 @@ mkGlobalSeizeNoProgCSInputCtx =
 
 mkGlobalSeizeDirectEscapeCtx :: ScriptContext
 mkGlobalSeizeDirectEscapeCtx =
-    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0 0
      in buildBalancedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData seizeRedeemer)

@@ -10,13 +10,11 @@ import Control.Monad.Reader (MonadReader, asks)
 import Convex.BuildTx (MonadBuildTx, mintPlutus, prependTxOut,
                        spendPublicKeyOutput)
 import Convex.Class (MonadBlockchain (..))
-import Convex.PlutusLedger.V1 (transCredential, unTransAssetName,
-                               unTransCredential)
+import Convex.PlutusLedger.V1 (transPolicyId, unTransAssetName)
 import Convex.Scripts (fromHashableScriptData, toHashableScriptData)
 import Convex.Utils qualified as Utils
 import Data.ByteString qualified as BS
 import Data.ByteString.Short qualified as SBS
-import Data.Either (fromRight)
 import GHC.Exts (IsList (..))
 import Plutarch.Evaluate (applyArguments)
 import Plutarch.Internal.Term (Config (..), compile)
@@ -27,7 +25,7 @@ import PlutusLedgerApi.V3 qualified as V3
 import PlutusTx qualified
 import PlutusTx.Builtins qualified as BI
 import PlutusTx.Builtins.HasOpaque (stringToBuiltinByteStringHex)
-import ProgrammableTokens.OffChain.Env (DirectoryEnv (..), globalParams)
+import ProgrammableTokens.OffChain.Env (DirectoryEnv (..))
 import ProgrammableTokens.OffChain.Env qualified as Env
 import ProgrammableTokens.OffChain.Scripts (scriptPolicyIdV3)
 import SmartTokens.Contracts.Issuance (mkProgrammableLogicMinting)
@@ -35,21 +33,21 @@ import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (IssuanceCborHex))
 import SmartTokens.Types.Constants (issuanceCborHexToken)
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams (..))
 
--- | The @directoryNodeCS@ argument (security S2) must be applied in the same
--- position as on-chain so the compiled prefix matches; the minting-logic hash
--- stays the last-applied argument and remains the CBOR split point.
-issuerPrefixPostfixBytes :: CurrencySymbol -> V3.Credential -> (BS.ByteString, BS.ByteString)
-issuerPrefixPostfixBytes directoryNodeCS progLogicCred =
+-- | The @protocolParamsCS@ argument must be applied in the same position as
+-- on-chain so the compiled prefix matches; the minting-logic hash stays the
+-- last-applied argument and remains the CBOR split point.
+issuerPrefixPostfixBytes :: CurrencySymbol -> (BS.ByteString, BS.ByteString)
+issuerPrefixPostfixBytes protocolParamsCS =
   let
       placeholderMintingLogic = V3.ScriptHash $ stringToBuiltinByteStringHex "deadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeef"
       dummyHex = fromBuiltin $ BI.serialiseData $ PlutusTx.toBuiltinData placeholderMintingLogic
-      progCred = fromRight (error "could not parse protocol params") $ unTransCredential progLogicCred
       -- Must mirror 'programmableLogicMintingScript' EXACTLY (same @pdata
-      -- (pconstant …)@ wrapping) so the compiled prefix/postfix match the real
-      -- issued policy id; otherwise the on-chain registration derivation
-      -- (_papplyHashedParameter) reconstructs a different hash.
+      -- (pconstant …)@ wrapping, same single applied parameter) so the compiled
+      -- prefix/postfix match the real issued policy id; otherwise the on-chain
+      -- registration derivation (_papplyHashedParameter) reconstructs a different
+      -- hash.
       issuerScriptBase =
-        case compile NoTracing (mkProgrammableLogicMinting # pdata (pconstant (transCredential progCred)) # pdata (pconstant directoryNodeCS)) of
+        case compile NoTracing (mkProgrammableLogicMinting # pdata (pconstant protocolParamsCS)) of
           Right compiledScript -> compiledScript
           Left err -> error $ "Failed to compile issuer script: " <> show err
       dummyIssuerInstanceCborHex = SBS.fromShort . serialiseUPLC . unScript $ applyArguments issuerScriptBase [toData placeholderMintingLogic]
@@ -72,8 +70,8 @@ mintIssuanceCborHexNFT = Utils.inBabbage @era $ do
   txIn <- asks (Env.srIssuanceCborHexTxIn . Env.dsScriptRoot . Env.directoryEnv)
   netId <- queryNetworkId
   dir@DirectoryEnv{dsIssuanceCborHexMintingScript, dsIssuanceCborHexSpendingScript} <- asks Env.directoryEnv
-  let ProgrammableLogicGlobalParams {directoryNodeCS, progLogicCred} = globalParams dir
-      (toBuiltin -> prefixCborHex, toBuiltin -> postfixCborHex) = issuerPrefixPostfixBytes directoryNodeCS progLogicCred
+  let protocolParamsCS = transPolicyId (Env.protocolParamsPolicyId dir)
+      (toBuiltin -> prefixCborHex, toBuiltin -> postfixCborHex) = issuerPrefixPostfixBytes protocolParamsCS
       issuanceCborHexDatum = IssuanceCborHex prefixCborHex postfixCborHex
 
   let policyId = scriptPolicyIdV3 dsIssuanceCborHexMintingScript

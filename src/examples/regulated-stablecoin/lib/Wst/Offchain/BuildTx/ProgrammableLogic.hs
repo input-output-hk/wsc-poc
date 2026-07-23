@@ -22,7 +22,6 @@ import Convex.BuildTx (
     addReference,
     addTxBuilder,
     addWithdrawalWithTxBody,
-    buildRefScriptWitness,
     buildScriptWitness,
     findIndexReference,
     findIndexSpending,
@@ -84,12 +83,16 @@ seizeProgrammableToken ::
     m ()
 seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicyId directoryList = Utils.inBabbage @era $ do
     nid <- queryNetworkId
-    globalStakeScript <- asks (Env.dsProgrammableLogicGlobalScript . Env.directoryEnv)
+    -- SeizeAct is witnessed by the standalone seize validator (mkProgrammableSeize),
+    -- not the global validator: mkProgrammableLogicGlobal rejects SeizeAct (it only
+    -- handles TransferAct). The base spend stays authorized because
+    -- mkProgrammableLogicBase accepts either the global or the seize credential in
+    -- the transaction withdrawals.
+    seizeStakeScript <- asks (Env.dsProgrammableSeizeScript . Env.directoryEnv)
     baseSpendingScript <- asks (Env.dsProgrammableLogicBaseScript . Env.directoryEnv)
     baseRefTxIn <- asks (Env.srProgrammableLogicBaseRefTxIn . Env.dsScriptRoot . Env.directoryEnv)
-    globalRefTxIn <- asks (Env.srProgrammableLogicGlobalRefTxIn . Env.dsScriptRoot . Env.directoryEnv)
 
-    let globalStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 globalStakeScript
+    let seizeStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 seizeStakeScript
         programmableLogicBaseCredential = C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 baseSpendingScript
 
     -- Finds the directory node entry that references the programmable token symbol
@@ -138,29 +141,31 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicy
                         )
                         (txBody ^. L.txOuts)
 
-        -- The seizing redeemer for the global script
-        programmableLogicGlobalRedeemer txBody =
+        -- Index of the protocol-params reference input (spec §11.4).
+        paramsReferenceIndex txBody =
+            fromIntegral @Int @Integer $ findIndexReference paramsTxIn txBody
+
+        -- The SeizeAct redeemer for the standalone seize validator
+        seizeActRedeemer txBody =
             mkSeizeActRedeemerFromAbsoluteInputIdxs
                 (directoryNodeReferenceIndex txBody)
                 (seizingInputAbsoluteIndexes txBody)
                 (firstSeizeContinuationOutputIndex txBody)
+                (paramsReferenceIndex txBody)
 
-        programmableGlobalWitness txBody =
-            case globalRefTxIn of
-                Just globalRef ->
-                    buildRefScriptWitness globalRef C.PlutusScriptV3 C.NoScriptDatumForStake (programmableLogicGlobalRedeemer txBody)
-                Nothing ->
-                    buildScriptWitness globalStakeScript C.NoScriptDatumForStake (programmableLogicGlobalRedeemer txBody)
+        -- No reference-script input is deployed for the seize validator, so the
+        -- script is supplied inline in the withdrawal witness.
+        seizeWitness txBody =
+            buildScriptWitness seizeStakeScript C.NoScriptDatumForStake (seizeActRedeemer txBody)
 
     addReference paramsTxIn -- Protocol Params TxIn
     addReference dirNodeRef -- Directory Node TxIn
     forM_ baseRefTxIn addReference
-    forM_ globalRefTxIn addReference
     addTxBuilder (TxBuilder $ \_ -> over (L.txInsReference . L._TxInsReferenceIso . L._1) nub)
-    addWithdrawalWithTxBody -- Add the global script witness to the transaction
-        (C.makeStakeAddress nid globalStakeCred)
+    addWithdrawalWithTxBody -- Route SeizeAct to the standalone seize validator
+        (C.makeStakeAddress nid seizeStakeCred)
         (C.Quantity 0)
-        $ C.ScriptWitness C.ScriptWitnessForStakeAddr . programmableGlobalWitness
+        $ C.ScriptWitness C.ScriptWitnessForStakeAddr . seizeWitness
 
 -- TODO: check that the issuerTxOut is at a programmable logic payment credential
 _checkIssuerAddressIsProgLogicCred :: forall era ctx m. (MonadBuildTx era m) => C.PaymentCredential -> C.TxOut ctx era -> m ()

@@ -12,6 +12,7 @@ module ProgrammableTokens.OffChain.Env.Directory (
     mkDirectoryEnv,
     loadFromFile,
     programmableLogicStakeCredential,
+    programmableSeizeStakeCredential,
     programmableLogicBaseCredential,
     directoryNodePolicyId,
     protocolParamsPolicyId,
@@ -61,6 +62,7 @@ import ProgrammableTokens.OffChain.Scripts (
     issuanceCborHexSpendingScript,
     programmableLogicBaseScript,
     programmableLogicGlobalScript,
+    programmableSeizeScript,
     protocolParamsMintingScript,
     protocolParamsSpendingScript,
     scriptPolicyIdV3,
@@ -123,6 +125,7 @@ data DirectoryEnv
     , dsIssuanceCborHexSpendingScript :: PlutusScript PlutusScriptV3
     , dsProgrammableLogicBaseScript :: PlutusScript PlutusScriptV3
     , dsProgrammableLogicGlobalScript :: PlutusScript PlutusScriptV3
+    , dsProgrammableSeizeScript :: PlutusScript PlutusScriptV3
     }
 
 mkDirectoryEnv :: DirectoryScriptRoot -> DirectoryEnv
@@ -135,6 +138,7 @@ mkDirectoryEnv dsScriptRoot@DirectoryScriptRoot{srTxIn, srIssuanceCborHexTxIn, s
         dsDirectorySpendingScript = directoryNodeSpendingScript srTarget (protocolParamsPolicyId result)
         dsProgrammableLogicBaseScript = programmableLogicBaseScript srTarget (programmableLogicStakeCredential result) (protocolParamsPolicyId result) -- global stake cred + params policy id (to derive the seize cred)
         dsProgrammableLogicGlobalScript = programmableLogicGlobalScript srTarget (protocolParamsPolicyId result) -- Parameterized by the CS holding protocol params datum
+        dsProgrammableSeizeScript = programmableSeizeScript srTarget (protocolParamsPolicyId result) -- standalone seize validator; its credential fills params field 3
         result =
             DirectoryEnv
                 { dsScriptRoot
@@ -145,6 +149,7 @@ mkDirectoryEnv dsScriptRoot@DirectoryScriptRoot{srTxIn, srIssuanceCborHexTxIn, s
                 , dsIssuanceCborHexSpendingScript
                 , dsProgrammableLogicBaseScript
                 , dsProgrammableLogicGlobalScript
+                , dsProgrammableSeizeScript
                 , dsDirectorySpendingScript
                 }
      in result
@@ -152,6 +157,12 @@ mkDirectoryEnv dsScriptRoot@DirectoryScriptRoot{srTxIn, srIssuanceCborHexTxIn, s
 programmableLogicStakeCredential :: DirectoryEnv -> C.StakeCredential
 programmableLogicStakeCredential =
     C.StakeCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsProgrammableLogicGlobalScript
+
+-- | Stake credential of the standalone seize validator ('mkProgrammableSeize'),
+-- the withdraw-zero script that witnesses 'SeizeAct'.
+programmableSeizeStakeCredential :: DirectoryEnv -> C.StakeCredential
+programmableSeizeStakeCredential =
+    C.StakeCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsProgrammableSeizeScript
 
 programmableLogicBaseCredential :: DirectoryEnv -> C.PaymentCredential
 programmableLogicBaseCredential =
@@ -166,11 +177,23 @@ protocolParamsPolicyId = scriptPolicyIdV3 . dsProtocolParamsMintingScript
 issuanceCborHexPolicyId :: DirectoryEnv -> C.PolicyId
 issuanceCborHexPolicyId = scriptPolicyIdV3 . dsIssuanceCborHexMintingScript
 
+-- | Rewarding credential of the global transfer validator (params field 2).
+programmableLogicGlobalCredential :: DirectoryEnv -> C.PaymentCredential
+programmableLogicGlobalCredential =
+    C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsProgrammableLogicGlobalScript
+
+-- | Rewarding credential of the standalone seize validator (params field 3).
+programmableSeizeCredential :: DirectoryEnv -> C.PaymentCredential
+programmableSeizeCredential =
+    C.PaymentCredentialByScript . C.hashScript . C.PlutusScript C.PlutusScriptV3 . dsProgrammableSeizeScript
+
 globalParams :: DirectoryEnv -> ProgrammableLogicGlobalParams
 globalParams scripts =
     ProgrammableLogicGlobalParams
         { directoryNodeCS = transPolicyId (directoryNodePolicyId scripts)
-        , progLogicCred = transCredential (programmableLogicBaseCredential scripts) -- its the script hash of the programmable base spending script
+        , progLogicCred = transCredential (programmableLogicBaseCredential scripts) -- script hash of the programmable base spending script
+        , globalLogicCred = transCredential (programmableLogicGlobalCredential scripts) -- global transfer rewarding credential
+        , seizeLogicCred = transCredential (programmableSeizeCredential scripts) -- standalone seize rewarding credential
         }
 
 getGlobalParams :: (MonadReader e m, HasDirectoryEnv e) => m ProgrammableLogicGlobalParams

@@ -60,8 +60,7 @@ import ProgrammableTokens.Test (
  )
 import SmartTokens.Contracts.ExampleTransferLogic (BlacklistProof (NonmembershipProof))
 import SmartTokens.Contracts.ProgrammableLogicBase (
-    ProgrammableLogicGlobalRedeemer (TransferAct, plgrMintProofs, plgrTransferProofs),
-    TokenProof (TokenDoesNotExist, TokenExists),
+    ProgrammableLogicGlobalRedeemer (TransferAct, plgrMintProofs, plgrParamsRefIdx, plgrTransferProofs),
  )
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import SmartTokens.Types.PTokenDirectory (BlacklistNode (..), DirectorySetNode (..))
@@ -603,6 +602,7 @@ directoryBenchLabels = do
         stakeNames =
             Map.fromList
                 [ (C.makeStakeAddress networkId (Env.programmableLogicStakeCredential dirEnv), "programmableLogicGlobal")
+                , (C.makeStakeAddress networkId (Env.programmableSeizeStakeCredential dirEnv), "programmableSeize")
                 ]
     pure BenchLabels{blPaymentCreds = paymentNames, blStakeAddresses = stakeNames, blPolicies = policyNames}
 
@@ -1138,11 +1138,14 @@ oneOutputPerInputTransferTx assetId utxoCount destCred refScripts = do
                 globalStakeScript = Env.dsProgrammableLogicGlobalScript directoryEnv
                 globalStakeCred = C.StakeCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 globalStakeScript
                 directoryProofNode = directoryProofNodeForSymbol directory programmableTokenSymbol
-                transferProof txBody = directoryProofToTokenProof txBody directoryProofNode
+                transferProof txBody = directoryProofRefIndex txBody directoryProofNode
                 programmableLogicGlobalRedeemer txBody =
                     TransferAct
                         { plgrTransferProofs = [transferProof txBody]
                         , plgrMintProofs = []
+                        , plgrParamsRefIdx =
+                            fromIntegral @Int @Integer $
+                                BuildTx.findIndexReference (WstQuery.uIn paramsTxIn) txBody
                         }
                 programmableGlobalWitness txBody =
                     BuildTx.buildRefScriptWitness
@@ -1388,16 +1391,15 @@ directoryProofNodeForSymbol directoryNodes targetSymbol =
                     then DirectoryProofExists node
                     else DirectoryProofDoesNotExist node
 
-directoryProofToTokenProof :: (C.IsBabbageBasedEra era) => C.TxBodyContent C.BuildTx era -> DirectoryProofNode era -> TokenProof
-directoryProofToTokenProof txBody proofNode =
-    let refIndex =
-            fromIntegral @Int @Integer $
-                BuildTx.findIndexReference
-                    (WstQuery.uIn (case proofNode of DirectoryProofExists node -> node; DirectoryProofDoesNotExist node -> node))
-                    txBody
-     in case proofNode of
-            DirectoryProofExists _ -> TokenExists refIndex
-            DirectoryProofDoesNotExist _ -> TokenDoesNotExist refIndex
+-- Input-side transfer proofs are now plain reference-input indices; the global
+-- validator (mkProgrammableLogicGlobal) derives exact-match vs covering from the
+-- referenced directory node's datum.
+directoryProofRefIndex :: (C.IsBabbageBasedEra era) => C.TxBodyContent C.BuildTx era -> DirectoryProofNode era -> Integer
+directoryProofRefIndex txBody proofNode =
+    fromIntegral @Int @Integer $
+        BuildTx.findIndexReference
+            (WstQuery.uIn (case proofNode of DirectoryProofExists node -> node; DirectoryProofDoesNotExist node -> node))
+            txBody
 
 blacklistProofNodeForCredential :: [WstQuery.UTxODat era BlacklistNode] -> Credential -> WstQuery.UTxODat era BlacklistNode
 blacklistProofNodeForCredential blacklistNodes cred =
