@@ -67,3 +67,27 @@ Update it whenever a benchmark-backed optimization insight is discovered.
   - `programmableLogicGlobal.TransferAct.TokenDoesNotExist`: CPU `36,098,125 -> 35,359,305` (`-738,820`, `-2.05%`), Mem `110,764 -> 107,830` (`-2,934`, `-2.65%`)
   - `programmableLogicMinting.Burn`: CPU `98,089,703 -> 94,783,294` (`-3,306,409`, `-3.37%`), Mem `272,804 -> 269,870` (`-2,934`, `-1.08%`)
 - Full script-suite comparison showed no regressions; `SeizeAct` rows were unchanged and every changed row moved downward.
+
+## 2026-07-23
+
+- Van Rossem (PV11) `dropList` builtin replaces every tail-walk drop in the hot
+  paths: `pdropFast` sites in `ProgrammableLogicBase` (`pparamsAtRefIdx`, the
+  transfer-proof and `NonMember` covering-node fetches, the seize
+  `outputsStartIdx`/`directoryNodeIdx` drops) and the loop inside `pcheckedDrop`
+  in `Issuance` (the negative-index guard stays: the builtin clamps negative
+  counts to zero instead of erroring, and the §14.1 red test pins rejection).
+- Isolation benchmark (`benchmark-onchain-functions`, `decision.d.drop.*`,
+  300-element list): builtin vs tail-loop CPU 552,595 vs 3,121,220 at n=1 up to
+  1,049,673 vs 43,315,600 at n=255 (5.6x-41x); builtin memory flat 2,100 vs
+  13,940-124,024. Cost function: CPU 116,711 + 1,957/element, mem constant 4.
+- Full-suite result vs the post-bump baseline (validators otherwise identical):
+  zero regressions; ManyPolicies40 -32.5% CPU / -42.9% mem, MixedMany -14.4% /
+  -21.3%, Mint -12.5% / -18.9%, SeizeAct1 -7.5% / -12.0%, TransferAct -5.0% /
+  -7.7%. Projected Policies dimension maximum at the 14M mainnet mem limit rose
+  from 220 to 410. The two previously-behind-Aiken rows flipped:
+  Mint.BusyTx20Outputs mem 0.98x -> 1.04x, SeizeAct1.External50 mem 0.96x ->
+  1.00x; only the untouched directoryNodeMinting scenarios remain behind.
+- Adoption note: indices that feed `dropList` directly are self-validating
+  hints backed by authenticated checks (params NFT, covering-node NFT+interval,
+  containment pairing), so negative-clamps-to-zero grants no new power; keep an
+  explicit guard only where negative rejection is contract behaviour.

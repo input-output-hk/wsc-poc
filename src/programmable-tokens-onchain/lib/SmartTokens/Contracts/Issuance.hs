@@ -25,7 +25,7 @@ module SmartTokens.Contracts.Issuance (
 import Generics.SOP qualified as SOP
 import GHC.Generics (Generic)
 import Plutarch.Core.Context (paddressCredential, ptxInInfoResolved)
-import Plutarch.Core.List (pdropFast)
+import Plutarch.Builtin.List (pdropList)
 import Plutarch.Core.ValidationLogic (pvalidateConditions)
 import Plutarch.Core.Value (phasCS, ptryLookupValue)
 import Plutarch.LedgerApi.AssocMap (KeyGuarantees (Sorted))
@@ -125,7 +125,9 @@ data PMintRedeemer (s :: S)
 -- not rely on budget exhaustion).
 pcheckedDrop :: (PIsListLike PBuiltinList a) => Term s (PInteger :--> PBuiltinList a :--> PBuiltinList a)
 pcheckedDrop = phoistAcyclic $ plam $ \idx xs ->
-  pif (idx #< 0) (ptraceInfoError "negative index") (pdropFast # idx # xs)
+  -- The dropList builtin treats a negative count as zero, so the explicit
+  -- guard stays: redeemer indices must be rejected, not silently clamped.
+  pif (idx #< 0) (ptraceInfoError "negative index") (pdropList # idx # xs)
 
 mkProgrammableLogicMinting :: Term s (PAsData PCurrencySymbol :--> PAsData PScriptHash :--> PScriptContext :--> PUnit)
 mkProgrammableLogicMinting = plam $ \protocolParamsCS mintingLogicHash' ctx -> P.do

@@ -28,10 +28,6 @@ packages:
     src/programmable-tokens-test
     src/examples/regulated-stablecoin
     src/examples/aiken/haskell
-    -- Local patched plutarch (choener 99315dad backport + plutus-1.63 fixes);
-    -- switched to a pinned source-repository-package before merge.
-    /tmp/claude-1000/-home-gumbo-iohk-wsc-poc/90086b56-acba-48fb-a84e-84ffdd98908b/scratchpad/plutarch-163/.
-    /tmp/claude-1000/-home-gumbo-iohk-wsc-poc/90086b56-acba-48fb-a84e-84ffdd98908b/scratchpad/plutarch-163/plutarch-ledger-api
 
 constraints:
   cardano-node == 11.0.0
@@ -56,6 +52,17 @@ allow-newer:
   , *:plutus-core
   , *:plutus-ledger-api
   , servant-multipart-client:random
+
+-- Plutarch 1.12-API (GHC 9.6.6) line with the Van Rossem backport:
+-- plutus-1.63 compatibility + Plutarch.Builtin.Value (CIP-153) +
+-- Plutarch.Builtin.List (CIP-132 dropList). choener 99315dad + f91c649d.
+source-repository-package
+  type: git
+  location: https://github.com/colll78/plutarch-plutus
+  tag: f91c649d0a57ed820952a43513b6007884c44b7e
+  subdir:
+    .
+    plutarch-ledger-api
 
 source-repository-package
   type: git

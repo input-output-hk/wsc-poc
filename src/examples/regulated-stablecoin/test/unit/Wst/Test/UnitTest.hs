@@ -19,7 +19,7 @@ import Convex.Class (
 import Convex.CoinSelection (ChangeOutputPosition (TrailingChange))
 import Convex.MockChain (fromLedgerUTxO)
 import Convex.MockChain.CoinSelection (tryBalanceAndSubmit)
-import Convex.MockChain.Utils (mockchainFails)
+import Convex.MockChain.Utils (mockchainFailsWith)
 import Convex.PlutusLedger.V1 (unTransPolicyId)
 import Convex.Utils (failOnError, mapError)
 import Convex.Wallet.MockWallet qualified as Wallet
@@ -69,7 +69,10 @@ scriptTargetTests target =
             , testCase "smart token transfer" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target $ deployDirectorySet admin >>= transferSmartTokens)
             , testCase "blacklist credential" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target $ void $ deployDirectorySet admin >>= blacklistCredential)
             , testCase "unblacklist credential" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target $ void $ deployDirectorySet admin >>= unblacklistCredential)
-            , testCase "blacklisted transfer" (mockchainFails (blacklistTransfer DontSubmitFailingTx) assertBlacklistedAddressException)
+            , -- mockchainFails would run at sc-tools' PV10 defaults, where the
+              -- PV11 builtins our validators now use are unavailable; pin the
+              -- Van Rossem node params explicitly.
+              testCase "blacklisted transfer" (mockchainFailsWith (Test.nodeParamsFor target) (blacklistTransfer DontSubmitFailingTx) assertBlacklistedAddressException)
             , testCase "blacklisted transfer (failing tx)" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target (blacklistTransfer SubmitFailingTx >>= Test.assertFailingTx))
             , testCase "seize user output" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target $ deployDirectorySet admin >>= seizeUserOutput)
             , testCase "seize multi user outputs" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target $ deployDirectorySet admin >>= seizeMultiUserOutputs)

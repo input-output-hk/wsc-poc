@@ -26,8 +26,11 @@ module ProgrammableTokens.Test (
 import Cardano.Api (Quantity)
 import Cardano.Api qualified as C
 import Cardano.Ledger.Api qualified as Ledger
+import Cardano.Ledger.BaseTypes (ProtVer (ProtVer), natVersion)
+import Cardano.Ledger.Plutus.CostModels qualified as CostModels
 import Cardano.Ledger.Plutus.ExUnits (ExUnits (..))
-import Control.Lens ((%~), (&), (^.))
+import Cardano.Ledger.Plutus.Language (Language (PlutusV3))
+import Control.Lens ((%~), (&), (.~), (^.))
 import Control.Monad.Except (ExceptT, MonadError)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader, ReaderT (runReaderT), ask, asks)
@@ -62,7 +65,9 @@ import Convex.Wallet.Operator (
  )
 import Data.Functor (void)
 import Data.List (findIndex)
+import Data.Map.Strict qualified as Map
 import PlutusLedgerApi.V3 (ExBudget (..), ExCPU (..), ExMemory (..))
+import PlutusLedgerApi.Test.V3.EvaluationContext qualified as V3Params
 import PlutusLedgerApi.V3 qualified as PV3
 import ProgrammableTokens.OffChain.BuildTx qualified as BuildTx
 import ProgrammableTokens.OffChain.Endpoints qualified as Endpoints
@@ -107,10 +112,34 @@ nodeParamsFor = \case
     Debug ->
         let scaleUp ExUnits{exUnitsSteps = steps, exUnitsMem = mem} =
                 ExUnits{exUnitsSteps = 20 * steps, exUnitsMem = 20 * mem}
-         in Defaults.nodeParams
+         in vanRossemNodeParams
                 & ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxSizeL %~ (* 20)
                 & ledgerProtocolParameters . protocolParameters . Ledger.ppMaxTxExUnitsL %~ scaleUp
-    Production -> Defaults.nodeParams
+    Production -> vanRossemNodeParams
+
+{- | 'Defaults.nodeParams' upgraded to the Van Rossem hard fork: protocol
+version 11 and the full plutus-1.63 PlutusV3 cost model (349 parameters,
+including the batch6 builtins: dropList, arrays, expModInteger, BLS
+multi-scalar-mul and the CIP-153 Value builtins).
+
+Both overrides are required together: sc-tools' defaults sit at ProtVer 10
+with a 297-parameter V3 cost model, and plutus-ledger-api pads missing cost
+model parameters with 'maxBound' — so at PV11 the batch6 builtins would be
+/legal/ but priced at 'maxBound', failing every transaction that uses them.
+-}
+vanRossemNodeParams :: NodeParams C.ConwayEra
+vanRossemNodeParams =
+    Defaults.nodeParams
+        & ledgerProtocolParameters . protocolParameters . Ledger.ppProtocolVersionL
+            .~ ProtVer (natVersion @11) 0
+        & ledgerProtocolParameters . protocolParameters . Ledger.ppCostModelsL
+            %~ installV3
+  where
+    v3CostModel =
+        either (error . ("vanRossemNodeParams: invalid V3 cost model: " <>) . show) id $
+            CostModels.mkCostModel PlutusV3 (fmap snd V3Params.costModelParamsForTesting)
+    installV3 costModels =
+        CostModels.mkCostModels (Map.insert PlutusV3 v3CostModel (CostModels.costModelsValid costModels))
 
 productionMaxTxExBudget :: ExBudget
 productionMaxTxExBudget =

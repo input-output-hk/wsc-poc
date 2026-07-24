@@ -39,6 +39,7 @@ import Plutarch.Core.Context (
  )
 import Plutarch.Core.Integrity (pisRewardingScript)
 import Plutarch.Core.Internal.Builtins (pmapData, ppairDataBuiltinRaw)
+import Plutarch.Builtin.List (pdropList)
 import Plutarch.Core.List
 import Plutarch.Core.Utils
 import Plutarch.Core.ValidationLogic hiding (pemptyLedgerValue, pvalueFromCred, pvalueToCred)
@@ -822,7 +823,7 @@ pparamsAtRefIdx ::
     Term s PInteger ->
     Term s PProgrammableLogicGlobalParams
 pparamsAtRefIdx currencySymbol referenceInputs paramsRefIdx =
-    plet (ptxInInfoResolved $ pfromData (phead # (pdropFast # paramsRefIdx # referenceInputs))) $ \resolvedOut ->
+    plet (ptxInInfoResolved $ pfromData (phead # (pdropList # paramsRefIdx # referenceInputs))) $ \resolvedOut ->
         pif
             (phasCSH # currencySymbol # ptxOutValue resolvedOut)
             ( pmatch (ptxOutDatum resolvedOut) $ \case
@@ -868,7 +869,7 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
                 ( \csPair csPairs ->
                     P.do
                         PTxOut{ptxOut'value = directoryNodeUTxOFValue, ptxOut'datum = directoryNodeUTxOFDatum} <-
-                            pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropFast # pfromData (phead # proofs) # refInputs))
+                            pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropList # pfromData (phead # proofs) # refInputs))
                         POutputDatum directoryNodeDatum' <- pmatch directoryNodeUTxOFDatum
                         PDirectorySetNode
                             { pkey = directoryNodeDatumFkey
@@ -981,7 +982,7 @@ pcheckMintLogicAndGetProgrammableValue directoryNodeCS refInputs proofList total
                                     -- NonMember: authenticate a covering directory node.
                                     PNonMember nodeIdx -> P.do
                                         PTxOut{ptxOut'value = directoryNodeUTxOFValue, ptxOut'datum = directoryNodeUTxOFDatum} <-
-                                            pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropFast # pfromData nodeIdx # refInputs))
+                                            pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropList # pfromData nodeIdx # refInputs))
                                         POutputDatum paramDat' <- pmatch directoryNodeUTxOFDatum
                                         PDirectorySetNode
                                             { pkey = directoryNodeDatumFkey
@@ -1280,8 +1281,8 @@ mkProgrammableSeize = plam $ \protocolParamsCS ctx -> P.do
                 pmatch $
                     pparamsAtRefIdx (pfromData protocolParamsCS) referenceInputs (pfromData pseizeParamsRefIdx)
             progLogicCred <- plet $ pfromData pprogLogicCred
-            let remainingOutputs = pdropFast # pfromData poutputsStartIdx # pfromData ptxInfo'outputs
-            let directoryNodeUTxO = phead # (pdropFast # pfromData pdirectoryNodeIdx # referenceInputs)
+            let remainingOutputs = pdropList # pfromData poutputsStartIdx # pfromData ptxInfo'outputs
+            let directoryNodeUTxO = phead # (pdropList # pfromData pdirectoryNodeIdx # referenceInputs)
             PTxOut{ptxOut'value = seizeDirectoryNodeValue, ptxOut'datum = seizeDirectoryNodeDatum} <- pmatch (ptxInInfoResolved $ pfromData directoryNodeUTxO)
             POutputDatum seizeDat' <- pmatch seizeDirectoryNodeDatum
             PDirectorySetNode
