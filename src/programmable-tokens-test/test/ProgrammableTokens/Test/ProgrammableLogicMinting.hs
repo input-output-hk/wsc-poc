@@ -467,7 +467,7 @@ unit_delegateSeize_matching_node_succeeds =
             ( withRedeemer (delegateSeizeRedeemer 1)
                 <> withMintingScript (mintValue 1) (delegateSeizeRedeemer 1)
                 <> withWithdrawal (ScriptCredential mintingLogicHash) 0
-                <> withRewardingScriptWitness (PlutusTx.toBuiltinData (SeizeAct 1 [0] 0 1 0)) seizeCred 0
+                <> withRewardingScriptWitness (PlutusTx.toBuiltinData (SeizeAct 1 [0] 0 1 0 1)) seizeCred 0
                 <> paramsRefBuilder
                 <> registryNodeRefBuilder
                 <> withOutput
@@ -486,7 +486,7 @@ unit_delegateSeize_wrong_node_rejected =
             ( withRedeemer (delegateSeizeRedeemer 1)
                 <> withMintingScript (mintValue 1) (delegateSeizeRedeemer 1)
                 <> withWithdrawal (ScriptCredential mintingLogicHash) 0
-                <> withRewardingScriptWitness (PlutusTx.toBuiltinData (SeizeAct 7 [0] 0 1 0)) seizeCred 0
+                <> withRewardingScriptWitness (PlutusTx.toBuiltinData (SeizeAct 7 [0] 0 1 0 1)) seizeCred 0
                 <> paramsRefBuilder
                 <> registryNodeRefBuilder
                 <> withOutput

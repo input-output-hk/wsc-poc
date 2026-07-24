@@ -123,3 +123,21 @@ Update it whenever a benchmark-backed optimization insight is discovered.
 - Semantics note: expected-value assembly stays on the positive-filtered pairs
   path, so `valueContains`'s negatives-error can never fire and over-burn
   behaviour is unchanged.
+
+## 2026-07-23 (third entry)
+
+- Scan-proofness witnesses: TransferAct proofs gained a lockstep withdrawal
+  index list (`plgrTransferWdrlIdxs`) and SeizeAct an `plgrIssuerWdrlIdx`.
+  The per-policy transfer-logic check keeps its rolling cache and, on a miss,
+  verifies the credential at the witnessed index (dropList + head + equality)
+  instead of scanning the withdrawal map; the seize issuer check is indexed
+  directly. mkProgrammableLogicBase deliberately keeps its scan: the
+  global/seize validator hashes are mined lexically minimal at deployment, so
+  their withdrawals sort to the front of the (sorted) withdrawal map and the
+  scan hits within the first entries.
+- Cost result: every scenario with an exact-match proof or a seize improved
+  (indexed fetch beats even a 2-entry scan): common TransferAct -2.4%/-1.5%,
+  SeizeAct1 -3.4%/-2.7%. The one regression is the covering-proof-only
+  TokenDoesNotExist (+1.5%/+1.7%) — it never consults the withdrawal map, so
+  it pays only the larger redeemer decode; this is the flat cost of bounding
+  the adversarial many-withdrawals shape to O(1) per policy.

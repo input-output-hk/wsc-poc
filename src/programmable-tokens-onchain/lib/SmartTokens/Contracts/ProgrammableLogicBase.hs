@@ -712,6 +712,12 @@ Security invariants:
   enforces delegation to one of those two validators. Whichever runs enforces its
   full invariants over the whole transaction, so authorizing either is sound.
 - The check must be credential-exact, so unrelated withdrawals cannot satisfy it.
+
+Deployment note (why this scan needs no redeemer index): the withdrawal map is
+sorted by reward-account bytes, and the global/seize validator hashes are mined
+to be lexically minimal at deployment, so their withdrawals sit at the front of
+the map and this linear scan terminates within the first entries regardless of
+how many other withdrawals a transaction carries.
 -}
 mkProgrammableLogicBase :: Term s (PAsData PCredential :--> PAsData PCredential :--> PScriptContext :--> PUnit)
 mkProgrammableLogicBase = plam $ \globalCred seizeCred ctx ->
@@ -854,15 +860,19 @@ pcheckTransferLogicAndGetProgrammableValue ::
     Term s PCurrencySymbol ->
     Term s (PBuiltinList (PAsData PTxInInfo)) ->
     Term s (PBuiltinList (PAsData PInteger)) ->
+    Term s (PBuiltinList (PAsData PInteger)) ->
     Term s (PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace))) ->
     Term s (PAsData PCredential) ->
     -- Accepts the aggregated non-Ada currency-pair list directly (as produced by
     -- `pvalueFromCred`), avoiding an unwrap of a re-wrapped PValue.
     Term s (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))) ->
     Term s (PValue 'Sorted 'Positive)
-pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList withdrawalEntries initialCachedTransferScript mapInnerList =
-    let -- Cache transfer-script invocation checks across adjacent positive proofs.
-        go = pfix #$ plam $ \self proofs inputInnerValue actualProgrammableTokenValue cachedTransferScript ->
+pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList wdrlIdxList withdrawalEntries initialCachedTransferScript mapInnerList =
+    let -- Cache transfer-script invocation checks across adjacent positive proofs;
+        -- on a cache miss, verify the redeemer-witnessed withdrawal index instead
+        -- of scanning the withdrawal map (scan-proof: O(1) per policy regardless
+        -- of how many withdrawals the transaction carries).
+        go = pfix #$ plam $ \self proofs wdrlIdxs inputInnerValue actualProgrammableTokenValue cachedTransferScript ->
             pelimList
                 ( \csPair csPairs ->
                     P.do
@@ -889,6 +899,7 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
                                     checks
                                     ( self
                                         # (ptail # proofs)
+                                        # (ptail # wdrlIdxs)
                                         # csPairs
                                         # actualProgrammableTokenValue
                                         # cachedTransferScript
@@ -899,7 +910,9 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
                                     pand'List
                                         [ ptraceInfoIfFalse "Missing required transfer script" $
                                             (directoryNodeDatumFTransferLogicScript #== cachedTransferScript)
-                                                #|| (pisScriptInvokedEntries # directoryNodeDatumFTransferLogicScript # withdrawalEntries)
+                                                #|| ( directoryNodeDatumFTransferLogicScript
+                                                        #== (pfstBuiltin # (phead # (pdropList # pfromData (phead # wdrlIdxs) # withdrawalEntries)))
+                                                    )
                                         , ptraceInfoIfFalse "directory proof mismatch" (nodeKey #== currCS)
                                         , ptraceInfoIfFalse "invalid dir node" (phasCSH # directoryNodeCS # directoryNodeUTxOFValue)
                                         ]
@@ -907,6 +920,7 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
                                     checks
                                     ( self
                                         # (ptail # proofs)
+                                        # (ptail # wdrlIdxs)
                                         # csPairs
                                         # (pcons # csPair # actualProgrammableTokenValue)
                                         # directoryNodeDatumFTransferLogicScript
@@ -922,6 +936,7 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
                 inputInnerValue
      in go
             # proofList
+            # wdrlIdxList
             # mapInnerList
             # pto (pto pemptyLedgerValue)
             # initialCachedTransferScript
@@ -1030,6 +1045,10 @@ PlutusTx.makeIsDataIndexed
 data ProgrammableLogicGlobalRedeemer
     = TransferAct
         { plgrTransferProofs :: [Integer]
+        , plgrTransferWdrlIdxs :: [Integer]
+        -- ^ Per-proof withdrawal index of the policy's transfer-logic script
+        -- (scan-proofness: the validator verifies the credential at this index
+        -- instead of scanning the withdrawal map).
         , plgrMintProofs :: [MintProof]
         , plgrParamsRefIdx :: Integer
         }
@@ -1039,6 +1058,8 @@ data ProgrammableLogicGlobalRedeemer
         , plgrOutputsStartIdx :: Integer
         , plgrLengthInputIdxs :: Integer
         , plgrSeizeParamsRefIdx :: Integer
+        , plgrIssuerWdrlIdx :: Integer
+        -- ^ Withdrawal index of the seized policy's issuer-logic script.
         }
     deriving (Show, Eq, Generic)
 
@@ -1080,8 +1101,8 @@ Security invariants:
 - `plgrLengthInputIdxs` must equal the true list length.
 - The constructor must not reorder or rewrite the supplied witness list.
 -}
-mkSeizeActRedeemerFromRelativeInputIdxs :: Integer -> [Integer] -> Integer -> Integer -> ProgrammableLogicGlobalRedeemer
-mkSeizeActRedeemerFromRelativeInputIdxs directoryNodeIdx relativeInputIdxs outputsStartIdx paramsRefIdx
+mkSeizeActRedeemerFromRelativeInputIdxs :: Integer -> [Integer] -> Integer -> Integer -> Integer -> ProgrammableLogicGlobalRedeemer
+mkSeizeActRedeemerFromRelativeInputIdxs directoryNodeIdx relativeInputIdxs outputsStartIdx paramsRefIdx issuerWdrlIdx
     | any (< 0) relativeInputIdxs = error "mkSeizeActRedeemerFromRelativeInputIdxs: negative relative index"
     | otherwise =
         SeizeAct
@@ -1090,6 +1111,7 @@ mkSeizeActRedeemerFromRelativeInputIdxs directoryNodeIdx relativeInputIdxs outpu
             , plgrOutputsStartIdx = outputsStartIdx
             , plgrLengthInputIdxs = fromIntegral (length relativeInputIdxs)
             , plgrSeizeParamsRefIdx = paramsRefIdx
+            , plgrIssuerWdrlIdx = issuerWdrlIdx
             }
 
 {- | Construct a `SeizeAct` redeemer from absolute input indexes.
@@ -1104,7 +1126,7 @@ Security invariants:
 - The resulting redeemer must address the same inputs as the original absolute
   list.
 -}
-mkSeizeActRedeemerFromAbsoluteInputIdxs :: Integer -> [Integer] -> Integer -> Integer -> ProgrammableLogicGlobalRedeemer
+mkSeizeActRedeemerFromAbsoluteInputIdxs :: Integer -> [Integer] -> Integer -> Integer -> Integer -> ProgrammableLogicGlobalRedeemer
 mkSeizeActRedeemerFromAbsoluteInputIdxs directoryNodeIdx absoluteInputIdxs =
     mkSeizeActRedeemerFromRelativeInputIdxs
         directoryNodeIdx
@@ -1114,9 +1136,12 @@ data PProgrammableLogicGlobalRedeemer (s :: S)
     = PTransferAct
         -- ptransferProofs are reference-input indices for directory nodes (input
         -- side; exact-match vs covering derived onchain from the referenced datum).
+        -- ptransferWdrlIdxs are the per-proof withdrawal indices of each policy's
+        -- transfer-logic script (verified, never scanned).
         -- pmintProofs are per-minted-symbol Member|NonMember classifications.
         -- pparamsRefIdx indexes the protocol-params reference input.
         { ptransferProofs :: Term s (PAsData (PBuiltinList (PAsData PInteger)))
+        , ptransferWdrlIdxs :: Term s (PAsData (PBuiltinList (PAsData PInteger)))
         , pmintProofs :: Term s (PAsData (PBuiltinList (PAsData PMintProof)))
         , pparamsRefIdx :: Term s (PAsData PInteger)
         }
@@ -1127,6 +1152,7 @@ data PProgrammableLogicGlobalRedeemer (s :: S)
         , poutputsStartIdx :: Term s (PAsData PInteger)
         , plengthInputIdxs :: Term s (PAsData PInteger)
         , pseizeParamsRefIdx :: Term s (PAsData PInteger)
+        , pissuerWdrlIdx :: Term s (PAsData PInteger)
         }
     deriving stock (Generic)
     deriving anyclass (SOP.Generic, PIsData, PEq, PShow)
@@ -1161,7 +1187,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
         -- - No programmable value may escape from outputs at `progLogicCred`.
         -- - Transfer and mint proofs must be consumed in lockstep with the
         --   programmable policies they witness.
-        PTransferAct transferProofs mintProofs paramsRefIdx -> P.do
+        PTransferAct transferProofs transferWdrlIdxs mintProofs paramsRefIdx -> P.do
             -- Reference inputs and protocol params are only needed on the transfer
             -- path, so the ref-input decode happens here (not in the shared
             -- preamble). The params UTxO is resolved by the redeemer-supplied
@@ -1186,6 +1212,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                         (pfromData pdirectoryNodeCS)
                         referenceInputs
                         (pfromData transferProofs)
+                        (pfromData transferWdrlIdxs)
                         withdrawalEntries
                         cachedTransferScript0
                         totalProgTokenValue
@@ -1274,7 +1301,7 @@ mkProgrammableSeize = plam $ \protocolParamsCS ctx -> P.do
         -- redeemer-supplied input index list. Only the directory-node reference
         -- index, the outputs start index, and the params ref index remain (all
         -- verified after lookup).
-        PSeizeAct{pdirectoryNodeIdx, poutputsStartIdx, pseizeParamsRefIdx} -> P.do
+        PSeizeAct{pdirectoryNodeIdx, poutputsStartIdx, pseizeParamsRefIdx, pissuerWdrlIdx} -> P.do
             PProgrammableLogicGlobalParams{pdirectoryNodeCS, pprogLogicCred} <-
                 pmatch $
                     pparamsAtRefIdx (pfromData protocolParamsCS) referenceInputs (pfromData pseizeParamsRefIdx)
@@ -1293,7 +1320,12 @@ mkProgrammableSeize = plam $ \protocolParamsCS ctx -> P.do
             let conditions =
                     [ pisRewardingScript (pdata pscriptContext'scriptInfo)
                     , ptraceInfoIfFalse "mini-ledger invariants violated" $ processThirdPartyTransfer directoryNodeDatumFKey progLogicCred (pfromData ptxInfo'inputs) remainingOutputs seizeMintedTokens
-                    , ptraceInfoIfFalse "issuer logic script must be invoked" $ pisScriptInvokedEntries # directoryNodeDatumFIssuerLogicScript # withdrawalEntries
+                    , -- Scan-proof: the redeemer witnesses the issuer withdrawal's
+                      -- index; a wrong index resolves to a different credential and
+                      -- fails the equality.
+                      ptraceInfoIfFalse "issuer logic script must be invoked" $
+                        directoryNodeDatumFIssuerLogicScript
+                            #== (pfstBuiltin # (phead # (pdropList # pfromData pissuerWdrlIdx # withdrawalEntries)))
                     , ptraceInfoIfFalse "directory node is not valid" $ phasCSH # pfromData pdirectoryNodeCS # seizeDirectoryNodeValue
                     ]
             pvalidateConditions conditions

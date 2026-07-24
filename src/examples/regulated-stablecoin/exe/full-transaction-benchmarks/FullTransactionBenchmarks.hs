@@ -60,7 +60,7 @@ import ProgrammableTokens.Test (
  )
 import SmartTokens.Contracts.ExampleTransferLogic (BlacklistProof (NonmembershipProof))
 import SmartTokens.Contracts.ProgrammableLogicBase (
-    ProgrammableLogicGlobalRedeemer (TransferAct, plgrMintProofs, plgrParamsRefIdx, plgrTransferProofs),
+    ProgrammableLogicGlobalRedeemer (TransferAct, plgrMintProofs, plgrParamsRefIdx, plgrTransferProofs, plgrTransferWdrlIdxs),
  )
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import SmartTokens.Types.PTokenDirectory (BlacklistNode (..), DirectorySetNode (..))
@@ -1142,6 +1142,10 @@ oneOutputPerInputTransferTx assetId utxoCount destCred refScripts = do
                 programmableLogicGlobalRedeemer txBody =
                     TransferAct
                         { plgrTransferProofs = [transferProof txBody]
+                        , plgrTransferWdrlIdxs =
+                            [ fromIntegral @Int @Integer $
+                                BuildTx.findIndexWithdrawal (C.makeStakeAddress networkId transferStakeCred) txBody
+                            ]
                         , plgrMintProofs = []
                         , plgrParamsRefIdx =
                             fromIntegral @Int @Integer $

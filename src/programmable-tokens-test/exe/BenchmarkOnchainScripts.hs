@@ -334,7 +334,7 @@ globalTransferCtx :: ScriptContext
 globalTransferCtx =
     buildBalancedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData $ TransferAct [1] [] 0)
+            (PlutusTx.toBuiltinData $ TransferAct [1] [1] [] 0)
             globalCred
             0
             <> withSigner signerPkh
@@ -376,7 +376,7 @@ globalTransferDoesNotExistCtx :: ScriptContext
 globalTransferDoesNotExistCtx =
     buildBalancedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData $ TransferAct [1] [] 0)
+            (PlutusTx.toBuiltinData $ TransferAct [1] [1] [] 0)
             globalCred
             0
             <> withSigner signerPkh
@@ -414,7 +414,7 @@ globalTransferMixedManyCtx :: ScriptContext
 globalTransferMixedManyCtx =
     buildBalancedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData $ TransferAct [1, 2, 3, 4, 1] [] 0)
+            (PlutusTx.toBuiltinData $ TransferAct [1, 2, 3, 4, 1] [1, 1, 1, 1, 1] [] 0)
             globalCred
             0
             <> withSigner signerPkh
@@ -510,7 +510,7 @@ mkGlobalTransferManyCtx inputCount =
         qtyInSecondOutput = inputCount - qtyInFirstOutput
      in buildBalancedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1, 2] [] 0)
+                (PlutusTx.toBuiltinData $ TransferAct [1, 2] [1, 1] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -574,7 +574,7 @@ mkGlobalTransferManyTokensCtx tokenCount =
     let manyTokensValue = mkValue [(programmableTransferCS, manyTokensTokenName i, 2) | i <- [0 .. (tokenCount - 1)]]
      in buildBalancedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1] [] 0)
+                (PlutusTx.toBuiltinData $ TransferAct [1] [1] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -627,7 +627,7 @@ mkGlobalTransferManyOutputsCtx outputCount =
         recipientOutputsBuilder = mconcat (replicate (fromIntegral outputCount) recipientOutputBuilder)
      in buildBalancedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1] [] 0)
+                (PlutusTx.toBuiltinData $ TransferAct [1] [1] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -703,7 +703,7 @@ mkGlobalTransferManyPoliciesCtx policyCount =
                 ]
      in buildBalancedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1 + i | i <- idxs] [] 0)
+                (PlutusTx.toBuiltinData $ TransferAct [1 + i | i <- idxs] [1 | i <- idxs] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -743,7 +743,7 @@ mkGlobalSeizeCtx :: Integer -> ScriptContext
 mkGlobalSeizeCtx seizeInputCount =
     let seizeInputIdxs = seizeInputIdxsFor seizeInputCount
         seizeInputRefs = [0 .. (seizeInputCount - 1)]
-        seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 seizeInputIdxs 0 0
+        seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 seizeInputIdxs 0 0 1
         seizeInputsBuilder = mconcat (map seizeInputBuilder seizeInputRefs)
         correspondingOutputsBuilder = mconcat (replicate (fromIntegral seizeInputCount) seizeCorrespondingOutputBuilder)
      in stripZeroChangeOutput $
@@ -803,7 +803,7 @@ globalSeize150Ctx =
 -- only partially seized. Clawback needs no owner authorization, so no signer.
 globalSeizeNoiseCtx :: ScriptContext
 globalSeizeNoiseCtx =
-    let seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 [0, 1] 0 0
+    let seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 [0, 1] 0 0 1
      in stripZeroChangeOutput $
             buildBalancedScriptContext
                 ( withRewardingScript
@@ -879,6 +879,7 @@ mkGlobalSeizeExternalScriptAndManyPubKeyCtx pubKeyInputCount =
                 [pubKeyInputCount, pubKeyInputCount + 1]
                 0
                 0 -- paramsRefIdx
+                1 -- issuerWdrlIdx
         pubKeyInputsBuilder = mconcat (map leadingPubKeyInputBuilder pubKeyInputIdxs)
      in buildBalancedScriptContext
             ( withRewardingScript
@@ -1045,7 +1046,7 @@ programmableBurnCtx =
         burnValue = mkValue [(mintingPolicyCS, TokenName "0c", -1)]
         remainingValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
         burnInputValue = mkAdaValue 10_000_000 <> mkValue [(mintingPolicyCS, TokenName "0c", 2)]
-        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [Member] 0
+        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [1] [Member] 0
      in stripZeroChangeOutput $
             buildBalancedScriptContext
                 ( withRedeemer scriptRedeemer
@@ -1094,7 +1095,7 @@ programmableBurnRedeem10Ctx =
     let scriptRedeemer = PlutusTx.toBuiltinData (BurnOnly 2)
         burnValue = mkValue [(mintingPolicyCS, TokenName "0c", -10)]
         remainingValue = mkValue [(mintingPolicyCS, TokenName "0c", 10)]
-        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [Member] 0
+        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [1] [Member] 0
         inputsBuilder = mconcat (map burnRedeemInputBuilder [0 .. 9])
      in stripZeroChangeOutput $
             buildBalancedScriptContext
@@ -1131,7 +1132,7 @@ programmableMintTopUpCtx =
     let scriptRedeemer = PlutusTx.toBuiltinData (DelegateTransfer 2 0 1 0)
         mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 5)]
         existingValue = mkValue [(mintingPolicyCS, TokenName "0c", 5)]
-        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [Member] 0
+        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [1] [Member] 0
      in stripZeroChangeOutput $
             buildBalancedScriptContext
                 ( withRedeemer scriptRedeemer
@@ -1193,7 +1194,7 @@ globalTransferMixedOwners5Ctx =
         inputsBuilder = mconcat (map inputBuilder (zip [0 ..] ownerStakes))
      in buildBalancedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1] [] 0)
+                (PlutusTx.toBuiltinData $ TransferAct [1] [1] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -1428,7 +1429,7 @@ mainnetDexGlobalTransferCtx =
                         -- nonProgrammableCS (0x1a) then programmableTransferCS (0x1b).
                         -- So proof[0]=1 (covering/does-not-exist for 0x1a) and
                         -- proof[1]=2 (exists for the registered 0x1b node).
-                        (PlutusTx.toBuiltinData $ TransferAct [1, 2] [] 0)
+                        (PlutusTx.toBuiltinData $ TransferAct [1, 2] [1, 1] [] 0)
                         globalCred
                         0
                     <> withSigner signerPkh
@@ -1471,7 +1472,7 @@ mainnetDexBaseSpendingCtx =
 -- Tx d29c... replay fixture retained to benchmark a realistic spending path.
 txD29GlobalStakeRedeemer :: BuiltinData
 txD29GlobalStakeRedeemer =
-    PlutusTx.toBuiltinData $ TransferAct [2] [] 0
+    PlutusTx.toBuiltinData $ TransferAct [2] [1] [] 0
 
 txD29ProtocolParamsDatumData :: BuiltinData
 txD29ProtocolParamsDatumData =
