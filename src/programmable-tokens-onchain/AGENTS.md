@@ -91,3 +91,35 @@ Update it whenever a benchmark-backed optimization insight is discovered.
   hints backed by authenticated checks (params NFT, covering-node NFT+interval,
   containment pairing), so negative-clamps-to-zero grants no new power; keep an
   explicit guard only where negative rejection is contract behaviour.
+
+## 2026-07-23 (second entry)
+
+- CIP-153 Value builtins adopted in `mkProgrammableLogicGlobal`'s TransferAct
+  pipeline. Three coordinated changes, iterated against the bench suite until
+  zero regressions remained:
+  1. `pvalueFromCred` hybrid accumulation: 0-1 contributing inputs extract raw
+     pairs (UnMapData + tail, the pre-PV11 cost); 2+ inputs switch to
+     `unValueData` per input + near-constant-memory `unionValue` merges, then
+     bridge back to pairs once (`insertCoin` amount 0 deletes the ada entry).
+     Kills the quadratic sorted-merge component on the inputs axis.
+  2. Containment multi-asset branch: subtract-walk replaced by builtin
+     accumulation of mini-ledger outputs + one `valueContains` (extra output
+     entries incl. ada are fine for a lower-bound check — no stripping).
+  3. Wholesale-move fast path retained IN FRONT of the builtin path: if the
+     first mini-ledger output's non-ada value equals the expected map
+     byte-for-byte (full transfer / consolidation, the dominant multi-asset
+     shape), one Data equality replaces every conversion. Without this the
+     ManyTokens axis regressed up to +131% CPU (unValueData is linear in value
+     size with a much larger constant than equalsData); with it every axis wins.
+- Deltas vs the dropList baseline: Spend100/120Utxos -41%/-53% (CPU/mem),
+  ManyPolicies40 -28%/-22%, MixedMany -16%/-16%, ManyTokens -6..-12%/-16%,
+  mainnet replay c3111df7 -18%/-29%, common TransferAct -1.2%/-2.2%; worst
+  regression 0.00% on both axes.
+- Projected transaction-scale maxima at the 14M mainnet mem limit
+  (validator-only): Inputs 227 -> 658, Policies 410 -> 527, Outputs 467 -> 472,
+  Tokens ~36k (CPU-bound). Aiken for comparison: 162 / 160 / 334 / 1,661.
+- Median ratios vs Aiken across all 49 shared scenarios: 1.57x CPU, 1.58x mem;
+  only the untouched directoryNodeMinting scenarios remain behind.
+- Semantics note: expected-value assembly stays on the positive-filtered pairs
+  path, so `valueContains`'s negatives-error can never fire and over-burn
+  behaviour is unchanged.
