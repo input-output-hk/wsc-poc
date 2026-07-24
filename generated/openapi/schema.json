@@ -127,8 +127,28 @@
                         "example": "0xc0000000000000000000000000000000000000000000000000000000",
                         "type": "string"
                     },
+                    "global_logic_credential": {
+                        "description": "plutus-data-encoded rewarding credential of the global transfer validator",
+                        "example": [
+                            0,
+                            [
+                                "0x0a0eb28fbaec9e61d20e9fe4c6ac5e5ee4520bb274b1e3292721d26f"
+                            ]
+                        ],
+                        "type": "array"
+                    },
                     "programmable_logic_credential": {
                         "description": "plutus-data-encoded payment credential of the programmable logic",
+                        "example": [
+                            0,
+                            [
+                                "0x0a0eb28fbaec9e61d20e9fe4c6ac5e5ee4520bb274b1e3292721d26f"
+                            ]
+                        ],
+                        "type": "array"
+                    },
+                    "seize_logic_credential": {
+                        "description": "plutus-data-encoded rewarding credential of the standalone seize validator",
                         "example": [
                             0,
                             [

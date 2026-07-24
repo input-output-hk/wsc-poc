@@ -19,7 +19,7 @@ import Convex.BuildTx (MonadBuildTx, TxBuilder (..), addMintWithTxBody, buildScr
 import Convex.BuildTx qualified as BuildTx
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain, queryNetworkId)
-import Convex.PlutusLedger.V1 (transPolicyId, transPubKeyHash, transScriptHash, unTransAssetName)
+import Convex.PlutusLedger.V1 (transPolicyId, transPubKeyHash, transScriptHash, unTransAssetName, unTransStakeCredential)
 import Convex.Utils qualified as Utils
 import Data.Foldable (traverse_)
 import Data.List (findIndex, nub, sortOn)
@@ -255,6 +255,19 @@ transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol director
         transferProofs txBody =
             [proofNodeIndex txBody (proofNodeForSymbol sortedDirectoryNodes programmableTokenSymbol)]
 
+        -- Scan-proof witness: the withdrawal index of each proof's
+        -- transfer-logic script (from the directory node datum), resolved
+        -- against the balanced transaction. The validator verifies the
+        -- credential at this index instead of scanning the withdrawal map.
+        transferWdrlIdxFor txBody symbol =
+            let node = proofNodeForSymbol sortedDirectoryNodes symbol
+                tlCred =
+                    either (error . ("transferWdrlIdxFor: bad transfer-logic credential: " <>) . show) id $
+                        unTransStakeCredential (transferLogicScript (uDatum node))
+             in fromIntegral (BuildTx.findIndexWithdrawal (C.makeStakeAddress nid tlCred) txBody)
+
+        transferWdrlIdxs txBody = [transferWdrlIdxFor txBody programmableTokenSymbol]
+
         -- Classify each minted currency symbol against the directory (spec §11.3):
         -- the covering node found by 'proofNodeForSymbol' is a Member when its key
         -- equals the symbol (registered — no index needed), otherwise a NonMember
@@ -281,6 +294,7 @@ transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol director
         programmableLogicGlobalRedeemer txBody =
             TransferAct
                 { plgrTransferProofs = transferProofs txBody
+                , plgrTransferWdrlIdxs = transferWdrlIdxs txBody
                 , plgrMintProofs = mintProofs txBody
                 , plgrParamsRefIdx = fromIntegral (BuildTx.findIndexReference (uIn paramsTxIn) txBody)
                 }

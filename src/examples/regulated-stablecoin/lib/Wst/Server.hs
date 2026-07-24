@@ -224,7 +224,7 @@ queryUserFunds _ (SerialiseAddress addr) = do
   env <- ask
   result <- liftIO $ runWstApp env (utxosByPaymentCredential credential)
   otherUTxOs <- case result of
-    Left (BlockfrostErr BlockfrostNotFound) -> pure mempty
+    Left (BlockfrostErr (BlockfrostNotFound _)) -> pure mempty
     Left err -> throwError err
     Right utxos -> pure utxos
   let userBalance = C.selectLovelace (Utxos.totalBalance otherUTxOs)
