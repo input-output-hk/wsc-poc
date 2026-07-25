@@ -18,7 +18,7 @@ import PlutusLedgerApi.V3
 import PlutusTx qualified
 import PlutusTx.Builtins qualified as BI
 import ProgrammableTokens.OffChain.Scripts qualified as OffchainScripts
-import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buildBalancedScriptContext, buildScriptContext, mkAdaValue, withAddress, withFee, withInlineDatum, withInput, withMint, withMintingScript, withOutRef, withOutput, withRedeemer, withRewardingScript, withScriptInput, withSigner, withTxOutAddress, withTxOutInlineDatum, withTxOutValue, withValue, withWithdrawal)
+import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buildLedgerShapedScriptContext, buildScriptContext, mkAdaValue, withAddress, withFee, withInlineDatum, withInput, withMint, withMintingScript, withOutRef, withOutput, withRedeemer, withRewardingScript, withScriptInput, withSigner, withTxOutAddress, withTxOutInlineDatum, withTxOutValue, withValue, withWithdrawal)
 import SmartTokens.Contracts.AlwaysYields (palwaysSucceed)
 import SmartTokens.Contracts.Issuance (MintRedeemer (..), RegistrationWitness (..), mkProgrammableLogicMinting)
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (IssuanceCborHex), mkIssuanceCborHexMinting)
@@ -120,7 +120,8 @@ scenarioBackend =
                 EvalSpec
                     (EvalProtocolParamsMint cs)
                     (compileNoTracing mkProtocolParametersMinting)
-                    [toData (Scenario.sseProtocolParamsInitRef env), toData purposeCtx]
+                    -- three arguments, see the catalogue entry for the same bug
+                    [toData protocolParamsAlwaysFailHash, toData (Scenario.sseProtocolParamsInitRef env), toData purposeCtx]
         }
 
 scenarioEnv :: Scenario.ScriptScenarioEnv
@@ -321,6 +322,19 @@ seizeResidualOutputBuilder n =
             <> withTxOutValue (seizeResidualOutputValueFor n)
         )
 
+-- | Ada that funds the transaction fee and the residual output's min-UTxO ada.
+--
+-- A seize transaction cannot take either from the seized inputs: the seize
+-- validator's corresponding-output check
+-- ('pvalueEqualsDeltaCurrencySymbol', ProgrammableLogicBase.hs:1462) requires
+-- every non-seized policy -- ada included -- to be preserved exactly across each
+-- input/output pair. So the ada must come from a separate pubkey input, exactly
+-- as it would on chain. Its 'TxOutRef' sorts last, so no other input's index
+-- moves (and the seize redeemer carries no input indexes anyway).
+seizeFeeFundingBuilder :: ScriptContextBuilder
+seizeFeeFundingBuilder =
+    withPubKeyInputValue signerPkh seizeFeeFundingRef 10_000_000
+
 -- Contexts / redeemer paths
 baseSpendingCtx :: ScriptContext
 baseSpendingCtx =
@@ -332,7 +346,7 @@ baseSpendingCtx =
 
 globalTransferCtx :: ScriptContext
 globalTransferCtx =
-    buildBalancedScriptContext
+    buildLedgerShapedScriptContext
         ( withRewardingScript
             (PlutusTx.toBuiltinData $ TransferAct [1] [1] [] 0)
             globalCred
@@ -374,7 +388,7 @@ globalTransferCtx =
 
 globalTransferDoesNotExistCtx :: ScriptContext
 globalTransferDoesNotExistCtx =
-    buildBalancedScriptContext
+    buildLedgerShapedScriptContext
         ( withRewardingScript
             (PlutusTx.toBuiltinData $ TransferAct [1] [1] [] 0)
             globalCred
@@ -412,7 +426,7 @@ globalTransferDoesNotExistCtx =
 
 globalTransferMixedManyCtx :: ScriptContext
 globalTransferMixedManyCtx =
-    buildBalancedScriptContext
+    buildLedgerShapedScriptContext
         ( withRewardingScript
             (PlutusTx.toBuiltinData $ TransferAct [1, 2, 3, 4, 1] [1, 1, 1, 1, 1] [] 0)
             globalCred
@@ -508,7 +522,7 @@ mkGlobalTransferManyCtx inputCount =
         scriptInputsBuilder = mconcat (map transferManyInputBuilder inputRefs)
         qtyInFirstOutput = inputCount `div` 2
         qtyInSecondOutput = inputCount - qtyInFirstOutput
-     in buildBalancedScriptContext
+     in buildLedgerShapedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData $ TransferAct [1, 2] [1, 1] [] 0)
                 globalCred
@@ -572,7 +586,7 @@ globalTransfer100Ctx = mkGlobalTransferManyCtx 100
 mkGlobalTransferManyTokensCtx :: Integer -> ScriptContext
 mkGlobalTransferManyTokensCtx tokenCount =
     let manyTokensValue = mkValue [(programmableTransferCS, manyTokensTokenName i, 2) | i <- [0 .. (tokenCount - 1)]]
-     in buildBalancedScriptContext
+     in buildLedgerShapedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData $ TransferAct [1] [1] [] 0)
                 globalCred
@@ -625,7 +639,7 @@ mkGlobalTransferManyOutputsCtx outputCount =
                     <> withTxOutValue (mkAdaValue 3_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 1)])
                 )
         recipientOutputsBuilder = mconcat (replicate (fromIntegral outputCount) recipientOutputBuilder)
-     in buildBalancedScriptContext
+     in buildLedgerShapedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData $ TransferAct [1] [1] [] 0)
                 globalCred
@@ -701,7 +715,7 @@ mkGlobalTransferManyPoliciesCtx policyCount =
                     (PlutusTx.toBuiltinData (manyPolicyNode i))
                 | i <- idxs
                 ]
-     in buildBalancedScriptContext
+     in buildLedgerShapedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData $ TransferAct [1 + i | i <- idxs] [1 | i <- idxs] [] 0)
                 globalCred
@@ -743,16 +757,20 @@ mkGlobalSeizeCtx :: Integer -> ScriptContext
 mkGlobalSeizeCtx seizeInputCount =
     let seizeInputIdxs = seizeInputIdxsFor seizeInputCount
         seizeInputRefs = [0 .. (seizeInputCount - 1)]
-        seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 seizeInputIdxs 0 0 1
+        -- issuerWdrlIdx is 0, not 1: the withdrawal map is now emitted in the
+        -- ledger's own Credential order (ScriptHashObj first, then ascending by
+        -- hash), which puts issuerCred (0x14..) before seizeCredBench (0x40..).
+        seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 seizeInputIdxs 0 0 0
         seizeInputsBuilder = mconcat (map seizeInputBuilder seizeInputRefs)
         correspondingOutputsBuilder = mconcat (replicate (fromIntegral seizeInputCount) seizeCorrespondingOutputBuilder)
      in stripZeroChangeOutput $
-            buildBalancedScriptContext
+            buildLedgerShapedScriptContext
                 ( withRewardingScript
                     (PlutusTx.toBuiltinData seizeRedeemer)
                     seizeCredBench
                     0
                     <> withAuxiliaryRewardingScript issuerCred (PlutusTx.toBuiltinData ())
+                    <> seizeFeeFundingBuilder
                     <> seizeInputsBuilder
                     -- put the residual output first so it is last in tx output order
                     -- (withOutput prepends in the builder)
@@ -803,14 +821,15 @@ globalSeize150Ctx =
 -- only partially seized. Clawback needs no owner authorization, so no signer.
 globalSeizeNoiseCtx :: ScriptContext
 globalSeizeNoiseCtx =
-    let seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 [0, 1] 0 0 1
+    let seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 [0, 1] 0 0 0 -- issuerWdrlIdx 0: see mkGlobalSeizeCtx
      in stripZeroChangeOutput $
-            buildBalancedScriptContext
+            buildLedgerShapedScriptContext
                 ( withRewardingScript
                     (PlutusTx.toBuiltinData seizeRedeemer)
                     seizeCredBench
                     0
                     <> withAuxiliaryRewardingScript issuerCred (PlutusTx.toBuiltinData ())
+                    <> seizeFeeFundingBuilder
                     <> withScriptInput
                         (PlutusTx.toBuiltinData ())
                         ( withOutRef (TxOutRef seizeNoiseInputTxId 0)
@@ -879,9 +898,9 @@ mkGlobalSeizeExternalScriptAndManyPubKeyCtx pubKeyInputCount =
                 [pubKeyInputCount, pubKeyInputCount + 1]
                 0
                 0 -- paramsRefIdx
-                1 -- issuerWdrlIdx
+                0 -- issuerWdrlIdx (0 under the canonical withdrawal order)
         pubKeyInputsBuilder = mconcat (map leadingPubKeyInputBuilder pubKeyInputIdxs)
-     in buildBalancedScriptContext
+     in buildLedgerShapedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData seizeRedeemer)
                 seizeCredBench
@@ -1025,13 +1044,12 @@ programmableMintCtx :: ScriptContext
 programmableMintCtx =
     let scriptRedeemer = PlutusTx.toBuiltinData (Local 0 0 (RegisteredByReferenceInput 1))
         mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
-     in buildBalancedScriptContext
-            ( withFee 0
-                <> withRedeemer scriptRedeemer
+     in buildLedgerShapedScriptContext
+            ( withRedeemer scriptRedeemer
                 <> withMintingScript mintValue scriptRedeemer
                 <> withSigner signerPkh
                 <> withAuxiliaryRewardingScript (ScriptCredential mintingLogicHash) scriptRedeemer
-                <> withPubKeyInputValue signerPkh programmableMintFundingRef 4_000_000
+                <> withPubKeyInputValue signerPkh programmableMintFundingRef 8_000_000
                 <> withOutput
                     ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
@@ -1045,10 +1063,10 @@ programmableBurnCtx =
     let scriptRedeemer = PlutusTx.toBuiltinData (BurnOnly 2)
         burnValue = mkValue [(mintingPolicyCS, TokenName "0c", -1)]
         remainingValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
-        burnInputValue = mkAdaValue 10_000_000 <> mkValue [(mintingPolicyCS, TokenName "0c", 2)]
+        burnInputValue = mkAdaValue 12_000_000 <> mkValue [(mintingPolicyCS, TokenName "0c", 2)]
         globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [1] [Member] 0
      in stripZeroChangeOutput $
-            buildBalancedScriptContext
+            buildLedgerShapedScriptContext
                 ( withRedeemer scriptRedeemer
                     <> withMintingScript burnValue scriptRedeemer
                     <> withSigner signerPkh
@@ -1098,7 +1116,7 @@ programmableBurnRedeem10Ctx =
         globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [1] [Member] 0
         inputsBuilder = mconcat (map burnRedeemInputBuilder [0 .. 9])
      in stripZeroChangeOutput $
-            buildBalancedScriptContext
+            buildLedgerShapedScriptContext
                 ( withRedeemer scriptRedeemer
                     <> withMintingScript burnValue scriptRedeemer
                     <> withSigner signerPkh
@@ -1108,7 +1126,7 @@ programmableBurnRedeem10Ctx =
                     <> inputsBuilder
                     <> withOutput
                         ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
-                            <> withTxOutValue (mkAdaValue 30_000_000 <> remainingValue)
+                            <> withTxOutValue (mkAdaValue 28_000_000 <> remainingValue)
                         )
                     <> withRefInputDatumValue
                         paramRef
@@ -1134,7 +1152,7 @@ programmableMintTopUpCtx =
         existingValue = mkValue [(mintingPolicyCS, TokenName "0c", 5)]
         globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [1] [Member] 0
      in stripZeroChangeOutput $
-            buildBalancedScriptContext
+            buildLedgerShapedScriptContext
                 ( withRedeemer scriptRedeemer
                     <> withMintingScript mintValue scriptRedeemer
                     <> withSigner signerPkh
@@ -1145,7 +1163,7 @@ programmableMintTopUpCtx =
                         (PlutusTx.toBuiltinData ())
                         ( withOutRef topUpInputRef
                             <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
-                            <> withValue (mkAdaValue 6_000_000 <> existingValue)
+                            <> withValue (mkAdaValue 8_000_000 <> existingValue)
                         )
                     -- withOutput prepends: the continuing-treasury output is
                     -- composed first (landing second), the minted-to output is
@@ -1192,7 +1210,7 @@ globalTransferMixedOwners5Ctx =
                     <> withValue (mkAdaValue 3_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 1)])
                 )
         inputsBuilder = mconcat (map inputBuilder (zip [0 ..] ownerStakes))
-     in buildBalancedScriptContext
+     in buildLedgerShapedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData $ TransferAct [1] [1] [] 0)
                 globalCred
@@ -1243,9 +1261,8 @@ programmableMintBusyTxCtx =
         -- withOutput prepends: compose the filler outputs FIRST so the
         -- minted-to output (composed last) stays at tx-output index 0.
         extraOutputsBuilder = mconcat (replicate 19 extraOutputBuilder)
-     in buildBalancedScriptContext
-            ( withFee 0
-                <> withRedeemer scriptRedeemer
+     in buildLedgerShapedScriptContext
+            ( withRedeemer scriptRedeemer
                 <> withMintingScript mintValue scriptRedeemer
                 <> withSigner signerPkh
                 <> withAuxiliaryRewardingScript (ScriptCredential mintingLogicHash) scriptRedeemer
@@ -1273,14 +1290,13 @@ programmableMintManyWithdrawalsCtx =
                 [ withWithdrawal (PubKeyCredential (PubKeyHash (bs28 w))) 0
                 | w <- [0x70 .. 0x79]
                 ]
-     in buildBalancedScriptContext
-            ( withFee 0
-                <> withRedeemer scriptRedeemer
+     in buildLedgerShapedScriptContext
+            ( withRedeemer scriptRedeemer
                 <> withMintingScript mintValue scriptRedeemer
                 <> withSigner signerPkh
                 <> withAuxiliaryRewardingScript (ScriptCredential mintingLogicHash) scriptRedeemer
                 <> unrelatedWithdrawalsBuilder
-                <> withPubKeyInputValue signerPkh programmableMintFundingRef 4_000_000
+                <> withPubKeyInputValue signerPkh programmableMintFundingRef 8_000_000
                 <> withOutput
                     ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
@@ -1292,7 +1308,7 @@ programmableMintManyWithdrawalsCtx =
 protocolParamsMintCtx :: ScriptContext
 protocolParamsMintCtx =
     let mintValue = mkValue [(protocolParamsCS, protocolParamsToken, 1)]
-     in buildBalancedScriptContext
+     in buildLedgerShapedScriptContext
             ( withMintingScript mintValue (PlutusTx.toBuiltinData ())
                 <> withSigner signerPkh
                 <> withInput
@@ -1310,7 +1326,7 @@ protocolParamsMintCtx =
 issuanceMintCtx :: ScriptContext
 issuanceMintCtx =
     let mintValue = mkValue [(issuancePolicyCS, issuanceCborHexToken, 1)]
-     in buildBalancedScriptContext
+     in buildLedgerShapedScriptContext
             ( withMintingScript mintValue (PlutusTx.toBuiltinData ())
                 <> withSigner signerPkh
                 <> withInput
@@ -1421,7 +1437,7 @@ mainnetDexGlobalTransferCtx =
                     mainnetDexSwapOutputAdaQtys
                     mainnetDexSwapOutputNightQtys
      in stripZeroChangeOutput $
-            buildBalancedScriptContext
+            buildLedgerShapedScriptContext
                 ( withFee mainnetDexFeeAda
                     <> withRewardingScript
                         -- Proofs are positional over the aggregated programmable input
@@ -1520,7 +1536,12 @@ txD29ProgrammableLogicBaseStakeCtx =
 -- Benchmark catalogue: keep this list close to the contexts it exercises.
 benchCases :: [BenchCase]
 benchCases =
-    [ mkCase "programmableLogicBase" (EvalBaseSpend progInputRef) mkProgrammableLogicBase [toData globalCred, toData baseSpendingCtx] baseSpendingCtx
+    [ -- mkProgrammableLogicBase takes THREE arguments (globalCred, seizeCred, ctx)
+      -- -- ProgrammableLogicBase.hs:722. Passing only two left the script as a
+      -- partially-applied lambda: it evaluated to a value without ever running a
+      -- single check, so its "PASS" was vacuous and its cost was the cost of
+      -- building a closure. Keep the argument list in step with the signature.
+      mkCase "programmableLogicBase" (EvalBaseSpend progInputRef) mkProgrammableLogicBase [toData globalCred, toData seizeCredBench, toData baseSpendingCtx] baseSpendingCtx
     , mkCase "programmableLogicGlobal.TransferAct" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferCtx] globalTransferCtx
     , mkCase "programmableLogicGlobal.TransferAct.TokenDoesNotExist" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferDoesNotExistCtx] globalTransferDoesNotExistCtx
     , mkCase "programmableLogicGlobal.TransferAct.MixedMany" (EvalGlobalReward globalCred) mkProgrammableLogicGlobal [toData protocolParamsCS, toData globalTransferMixedManyCtx] globalTransferMixedManyCtx
@@ -1568,13 +1589,25 @@ benchCases =
     , mkCase "programmableLogicMinting.Mint.TopUpExistingTreasury" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData protocolParamsCS, toData mintingLogicHash, toData programmableMintTopUpCtx] programmableMintTopUpCtx
     , mkCase "programmableLogicMinting.Burn" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData protocolParamsCS, toData mintingLogicHash, toData programmableBurnCtx] programmableBurnCtx
     , mkCase "programmableLogicMinting.Burn.Redeem10Utxos" (EvalProgrammableMint mintingPolicyCS) mkProgrammableLogicMinting [toData protocolParamsCS, toData mintingLogicHash, toData programmableBurnRedeem10Ctx] programmableBurnRedeem10Ctx
-    , mkCase "protocolParamsMinting" (EvalProtocolParamsMint protocolParamsCS) mkProtocolParametersMinting [toData protocolParamsInitRef, toData protocolParamsMintCtx] protocolParamsMintCtx
+    , -- mkProtocolParametersMinting takes THREE arguments
+      -- (paramsSpendScriptHash, oref, ctx) -- ProtocolParams.hs:48. Same latent
+      -- arity bug as programmableLogicBase above: the init ref was being passed
+      -- in the script-hash position and the context in the ref position, leaving
+      -- a lambda. The anchor output in 'protocolParamsMintCtx' sits at
+      -- 'protocolParamsAlwaysFailHash', which is what the validator's
+      -- "anchor must sit at params-spend script cred" check compares against.
+      mkCase "protocolParamsMinting" (EvalProtocolParamsMint protocolParamsCS) mkProtocolParametersMinting [toData protocolParamsAlwaysFailHash, toData protocolParamsInitRef, toData protocolParamsMintCtx] protocolParamsMintCtx
     , mkCase "issuanceCborHexMinting" (EvalIssuanceMint issuancePolicyCS) mkIssuanceCborHexMinting [toData issuanceInitRef, toData issuanceMintCtx] issuanceMintCtx
     , mkCase
         ("programmableLogicBase.Tx." <> take 8 mainnetDexTxHash <> ".Spending")
         (EvalBaseSpend mainnetDexBaseInputRef)
         mkProgrammableLogicBase
         [ toData globalCred
+        , -- This fixture replays a real mainnet transaction, which does not record
+          -- the deployment's seize-script hash; the placeholder is deliberately a
+          -- credential ABSENT from the tx's withdrawal map, so the validator's
+          -- accept comes from the real global stake credential, as on chain.
+          toData seizeCredBench
         , toData mainnetDexBaseSpendingCtx
         ]
         mainnetDexBaseSpendingCtx
@@ -1591,6 +1624,8 @@ benchCases =
         (EvalBaseSpend txD29ScriptInputRef)
         mkProgrammableLogicBase
         [ toData txD29GlobalStakeCred
+        , -- see the mainnet-dex case above: absent-by-construction seize cred.
+          toData seizeCredBench
         , toData txD29ProgrammableLogicBaseSpendingCtx
         ]
         txD29ProgrammableLogicBaseSpendingCtx

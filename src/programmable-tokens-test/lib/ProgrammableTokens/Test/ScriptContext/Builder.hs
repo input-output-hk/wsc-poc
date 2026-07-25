@@ -48,8 +48,14 @@ module ProgrammableTokens.Test.ScriptContext.Builder (
     addOutput,
     addReferenceInput,
     buildBalancedScriptContext,
+    buildLedgerShapedScriptContext,
     balanceWithChangeOutput,
     builderPlaceHolderTxOutRef,
+    defaultBalancedTxFee,
+    minAdaPerTxOut,
+    ensureMinAda,
+    compareCredentialLedger,
+    canonicaliseWdrl,
 ) where
 
 import Data.Function (on)
@@ -94,6 +100,62 @@ normalizeValue (Value m) =
                 [ (cs, Map.unsafeFromList $ sortOn fst (Map.toList inner))
                 | (cs, inner) <- Map.toList m
                 ]
+
+-- | Fee charged by 'buildLedgerShapedScriptContext'.
+--
+-- [LEDGER-RULE] A Cardano transaction cannot have a zero fee: the minimum fee is
+-- @minFeeA * size + minFeeB@, strictly positive for any non-empty transaction.
+-- A @txInfoFee = 0@ context is one no ledger would ever construct, so a
+-- validator benchmarked on it is measured against a transaction that could not
+-- exist. 0.5 ada is inside the range real script transactions pay.
+defaultBalancedTxFee :: Integer
+defaultBalancedTxFee = 500_000
+
+-- | Lovelace attached to an output that would otherwise carry no ada entry.
+--
+-- [LEDGER-RULE] Cardano's min-UTxO rule (@coinsPerUTxOByte@) forbids a UTxO with
+-- zero lovelace, so a token-only 'TxOut' is not a shape any ledger emits. The
+-- real minimum for a small multi-asset output is ~1.2-1.5 ada; 2 ada is a safe
+-- over-approximation and matches the ada the surrounding fixtures already use.
+minAdaPerTxOut :: Integer
+minAdaPerTxOut = 2_000_000
+
+-- | Attach 'minAdaPerTxOut' to a non-empty value carrying no lovelace entry at
+-- all. An entirely empty value is left alone: that is the "no change needed"
+-- marker, not a real output.
+ensureMinAda :: Value -> Value
+ensureMinAda v@(Value m)
+    | Map.null m = v
+    | otherwise = case Map.lookup adaSymbol m of
+        Just _ -> v
+        Nothing -> mkAdaValue (fromIntegral minAdaPerTxOut) <> v
+
+-- | Order two credentials the way @cardano-ledger@ does.
+--
+-- [LEDGER-RULE] @cardano-ledger@'s derived @Ord Credential@ puts
+-- @ScriptHashObj@ BEFORE @KeyHashObj@ (the constructor order in
+-- @Cardano.Ledger.Credential@) — the OPPOSITE of @PlutusLedgerApi@'s
+-- @Credential@, whose @PubKeyCredential@ comes first. The ledger builds
+-- @txInfoWdrl@ from a @Map RewardAccount Coin@ in that order, so a withdrawal
+-- map must be ascending under THIS comparison, not the Plutus derived one.
+compareCredentialLedger :: Credential -> Credential -> Ordering
+compareCredentialLedger a b =
+    comparing constructorTag a b <> comparing credentialHashBytes a b
+  where
+    -- ScriptHashObj < KeyHashObj
+    constructorTag :: Credential -> Int
+    constructorTag (ScriptCredential _) = 0
+    constructorTag (PubKeyCredential _) = 1
+
+    credentialHashBytes (ScriptCredential (ScriptHash h)) = h
+    credentialHashBytes (PubKeyCredential (PubKeyHash h)) = h
+
+-- | Put a withdrawal map into the ledger's own order (see
+-- 'compareCredentialLedger'). A permutation only: no credential, amount or
+-- balance is touched.
+canonicaliseWdrl :: Map.Map Credential Lovelace -> Map.Map Credential Lovelace
+canonicaliseWdrl =
+    Map.unsafeFromList . sortBy (compareCredentialLedger `on` fst) . Map.toList
 
 addMint :: ScriptContext -> Value -> BuiltinData -> ScriptContext
 addMint ctx newMint redeemer =
@@ -501,8 +563,23 @@ buildScriptContext modify =
                 }
      in ScriptContext txInfo (Redeemer $ scbRedeemer finalState) (scbScriptInfo finalState)
 
+-- | Order redeemer-map keys the way @cardano-ledger@ does.
+--
+-- [LEDGER-RULE] @txInfoRedeemers@ comes from a
+-- @Map (ConwayPlutusPurpose AsIx) …@ whose derived @Ord@ is
+-- @ConwaySpending < ConwayMinting < ConwayCertifying < ConwayRewarding < …@, and
+-- @transTxRedeemers@ converts it with @Map.toList@ without re-sorting. Note this
+-- puts @Spending@ BEFORE @Minting@ — the opposite of the Plutus @ScriptPurpose@
+-- constructor order. Do not "fix" that: it is what the chain emits, and every
+-- programmable-token mint carries both a spending and a minting redeemer.
+--
+-- Within one purpose kind the ledger key is @AsIx@ — the item's index in the
+-- corresponding canonically-sorted ledger list — so equal kinds are broken by
+-- the argument in ITS ledger order: inputs by 'TxOutRef' (the order
+-- @txInfoInputs@ is already built in), mint policies by 'CurrencySymbol', and
+-- reward accounts by 'compareCredentialLedger'.
 comparePurposeLedger :: ScriptPurpose -> ScriptPurpose -> Ordering
-comparePurposeLedger a b = comparing toInt a b
+comparePurposeLedger a b = comparing toInt a b <> sameKind a b
   where
     toInt :: ScriptPurpose -> Int
     toInt (Spending _) = 0
@@ -510,6 +587,13 @@ comparePurposeLedger a b = comparing toInt a b
     toInt (Certifying _ _) = 2
     toInt (Rewarding _) = 3
     toInt _ = 10
+
+    sameKind :: ScriptPurpose -> ScriptPurpose -> Ordering
+    sameKind (Spending x) (Spending y) = compare x y
+    sameKind (Minting x) (Minting y) = compare x y
+    sameKind (Certifying i _) (Certifying j _) = compare i j
+    sameKind (Rewarding x) (Rewarding y) = compareCredentialLedger x y
+    sameKind _ _ = EQ
 
 buildBalancedScriptContext :: ScriptContextBuilder -> ScriptContext
 buildBalancedScriptContext modify =
@@ -534,3 +618,130 @@ buildBalancedScriptContext modify =
                 , txInfoTreasuryDonation = Nothing
                 }
      in balanceWithChangeOutput $ ScriptContext txInfo (Redeemer $ scbRedeemer finalState) (scbScriptInfo finalState)
+
+-- | Build a context that satisfies the ledger invariants a real node would
+-- enforce, on top of everything 'buildBalancedScriptContext' already gives
+-- (canonical ada-first sorted values, `TxOutRef`-sorted inputs, redeemer map in
+-- `cardano-ledger`'s `ConwayPlutusPurpose AsIx` order, value-balancing change).
+--
+-- This exists as a SEPARATE entry point from 'buildBalancedScriptContext'
+-- deliberately. The three fixes below change the emitted context (a positive
+-- fee moves lovelace, canonical withdrawal order moves withdrawal INDEXES, and
+-- min-UTxO ada adds a value entry), so every redeemer that witnesses a
+-- withdrawal index has to be written against them. The unit-test suite builds
+-- precise hand-balanced contexts against the legacy behaviour and keeps using
+-- 'buildBalancedScriptContext'; the BENCHMARK catalogue and the golden
+-- ScriptContexts extracted from it use this one, because those are the artifacts
+-- whose fidelity to a real transaction is the whole point.
+--
+-- The three ledger invariants (each independently enforced by Cardano, each
+-- previously violated — see `WSC/LR-CTX-AUDIT.md` in CardanoLedgerApiBlaster,
+-- which found all 13 golden contexts failing a ledger-context predicate):
+--
+-- 1. __positive fee__ ('defaultBalancedTxFee'), taken out of the change output so
+--    value conservation still holds;
+-- 2. __withdrawal map in the ledger's own `Credential` order__
+--    ('canonicaliseWdrl'), which also fixes the `Rewarding` entries of
+--    `txInfoRedeemers` via 'comparePurposeLedger';
+-- 3. __min-UTxO ada on every output__ ('ensureMinAda'), because a token-only
+--    output cannot exist on chain.
+--
+-- A sub-min-UTxO ada leftover is folded into the fee and no change output is
+-- emitted — exactly what a real coin selector does, since a change output below
+-- min-UTxO would be rejected. A NEGATIVE leftover, or a token-carrying change
+-- output with too little ada, is an 'error': the scenario is underfunded and the
+-- context it would produce is one no ledger could construct.
+buildLedgerShapedScriptContext :: ScriptContextBuilder -> ScriptContext
+buildLedgerShapedScriptContext modify =
+    let finalState = runBuilder modify defaultScriptContextBuilderState
+        fee :: Integer
+        fee = case scbFee finalState of
+            0 -> defaultBalancedTxFee
+            f -> f
+        txInfo =
+            TxInfo
+                { txInfoInputs = scbInputs finalState
+                , txInfoReferenceInputs = scbReferenceInputs finalState
+                , -- (3) min-UTxO ada on every output
+                  txInfoOutputs =
+                    map
+                        (\o -> o{txOutValue = normalizeValue (ensureMinAda (txOutValue o))})
+                        (scbOutputs finalState)
+                , txInfoMint = UnsafeMintValue $ getValue (normalizeValue (scbMint finalState))
+                , txInfoRedeemers = Map.unsafeFromList $ sortBy (comparePurposeLedger `on` fst) $ Map.toList $ scbRedeemers finalState
+                , -- (1) a real fee
+                  txInfoFee = fromIntegral fee
+                , txInfoSignatories = scbSignatories finalState
+                , txInfoTxCerts = scbCerts finalState
+                , -- (2) the ledger's withdrawal order
+                  txInfoWdrl = canonicaliseWdrl (scbWdrl finalState)
+                , txInfoValidRange = scbValidRange finalState
+                , txInfoData = Map.empty
+                , txInfoId = scbTxId finalState
+                , txInfoVotes = Map.empty
+                , txInfoProposalProcedures = []
+                , txInfoCurrentTreasuryAmount = Nothing
+                , txInfoTreasuryDonation = Nothing
+                }
+     in balanceLedgerShaped $ ScriptContext txInfo (Redeemer $ scbRedeemer finalState) (scbScriptInfo finalState)
+
+-- | The change/fee reconciliation for 'buildLedgerShapedScriptContext'. See that
+-- function's haddock for the four cases and why the last two are errors.
+balanceLedgerShaped :: ScriptContext -> ScriptContext
+balanceLedgerShaped ctx
+    | Map.null changeMap = ctx -- exactly balanced: no change output at all
+    | changeAda < 0 =
+        error $
+            "buildLedgerShapedScriptContext: scenario is underfunded — leftover is "
+                <> show changeAda
+                <> " lovelace. Add ada to an input (or lower the fee) so inputs cover outputs + fee."
+                <> diagnostics
+    | changeHasTokens && changeAda < minAdaPerTxOut =
+        error $
+            "buildLedgerShapedScriptContext: change output carries tokens but only "
+                <> show changeAda
+                <> " lovelace, below the min-UTxO floor of "
+                <> show minAdaPerTxOut
+                <> ". Add ada to an input so the change output is a valid UTxO."
+                <> diagnostics
+    -- Dust: a real coin selector pays it as extra fee rather than create a
+    -- change output the ledger would reject.
+    | changeAda < minAdaPerTxOut =
+        ctx{scriptContextTxInfo = txInfo{txInfoFee = txInfoFee txInfo + fromIntegral changeAda}}
+    | otherwise =
+        ctx{scriptContextTxInfo = txInfo{txInfoOutputs = txInfoOutputs txInfo <> [changeOutput]}}
+  where
+    txInfo = scriptContextTxInfo ctx
+    resolvedInputs = map txInInfoResolved (txInfoInputs txInfo)
+    signerPkh = case filter (isPubKeyAddress . txOutAddress) resolvedInputs of
+        (TxOut (Address (PubKeyCredential pkh) _) _ _ _ : _) -> pkh
+        _ -> PubKeyHash "deadbeef"
+    totalInputValue = foldMap txOutValue resolvedInputs
+    totalOutputValue = foldMap txOutValue (txInfoOutputs txInfo)
+    feeValue = mkAdaValue $ fromIntegral $ getLovelace $ txInfoFee txInfo
+    mintedValue = Value $ mintValueToMap (txInfoMint txInfo)
+    changeValue = pruneZeroValue (mintedValue <> totalInputValue <> negateValue feeValue <> negateValue totalOutputValue)
+    Value changeMap = changeValue
+    changeAda = valueOf changeValue adaSymbol adaToken
+    changeHasTokens = any ((/= adaSymbol) . fst) (Map.toList changeMap)
+    changeOutput = TxOut (pubKeyHashAddress signerPkh) changeValue NoOutputDatum Nothing
+
+    isPubKeyAddress :: Address -> Bool
+    isPubKeyAddress (Address (PubKeyCredential _) _) = True
+    isPubKeyAddress _ = False
+
+    diagnostics =
+        "\n  inputs="
+            <> show (length (txInfoInputs txInfo))
+            <> " (lovelace "
+            <> show (valueOf totalInputValue adaSymbol adaToken)
+            <> "), outputs="
+            <> show (length (txInfoOutputs txInfo))
+            <> " (lovelace "
+            <> show (valueOf totalOutputValue adaSymbol adaToken)
+            <> "), fee="
+            <> show (getLovelace (txInfoFee txInfo))
+            <> "\n  first input outRef: "
+            <> show (fmap txInInfoOutRef (take 1 (txInfoInputs txInfo)))
+            <> "\n  first output address: "
+            <> show (fmap txOutAddress (take 1 (txInfoOutputs txInfo)))

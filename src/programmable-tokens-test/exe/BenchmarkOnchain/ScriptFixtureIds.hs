@@ -52,6 +52,7 @@ module BenchmarkOnchain.ScriptFixtureIds (
     protocolParamsCS,
     protocolParamsInitRef,
     recipientPkh,
+    seizeFeeFundingRef,
     seizeInputTxId,
     seizeNoiseInputTxId,
     signerPkh,
@@ -135,6 +136,12 @@ manyPubKeyInputCount = 50
 
 seizeInputTxId :: TxId
 seizeInputTxId = txId32 0x5e 0x12
+
+-- | Pubkey UTxO that funds the fee and the residual output's min-UTxO ada in the
+-- seize scenarios. Sorts after 'seizeInputTxId' so it is appended to the end of
+-- the (TxOutRef-sorted) input list and does not shift any other input's index.
+seizeFeeFundingRef :: TxOutRef
+seizeFeeFundingRef = txOutRef32 0x5e 0xfe 0
 
 leadingPubKeyInputTxId :: TxId
 leadingPubKeyInputTxId = txId32 0x00 0x00
