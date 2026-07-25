@@ -25,12 +25,13 @@ import Convex.BuildTx (
     buildScriptWitness,
     findIndexReference,
     findIndexSpending,
+    findIndexWithdrawal,
     spendPlutusInlineDatum,
     spendPlutusRefWithInlineDatum,
  )
 import Convex.CardanoApi.Lenses as L
 import Convex.Class (MonadBlockchain (queryNetworkId))
-import Convex.PlutusLedger.V1 (transPolicyId)
+import Convex.PlutusLedger.V1 (transPolicyId, unTransStakeCredential)
 import Convex.Utils qualified as Utils
 import Data.Foldable (find)
 import Data.List (findIndex, nub, partition)
@@ -96,9 +97,10 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicy
         programmableLogicBaseCredential = C.PaymentCredentialByScript $ C.hashScript $ C.PlutusScript C.PlutusScriptV3 baseSpendingScript
 
     -- Finds the directory node entry that references the programmable token symbol
-    dirNodeRef <-
-        maybe (error "Cannot seize non-programmable token. Entry does not exist in directoryList") (pure . uIn) $
+    dirNodeEntry <-
+        maybe (error "Cannot seize non-programmable token. Entry does not exist in directoryList") pure $
             find (isNodeWithProgrammableSymbol (transPolicyId seizingTokenPolicyId)) directoryList
+    let dirNodeRef = uIn dirNodeEntry
 
     -- destStakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential seizeDestinationCred
 
@@ -145,6 +147,14 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicy
         paramsReferenceIndex txBody =
             fromIntegral @Int @Integer $ findIndexReference paramsTxIn txBody
 
+        -- Scan-proof issuer witness: the withdrawal index of the seized
+        -- policy's issuer-logic script (from the directory node datum).
+        issuerWdrlIdx txBody =
+            let issuerCred =
+                    either (error . ("seizeProgrammableToken: bad issuer credential: " <>) . show) id $
+                        unTransStakeCredential (issuerLogicScript (uDatum dirNodeEntry))
+             in fromIntegral @Int @Integer $ findIndexWithdrawal (C.makeStakeAddress nid issuerCred) txBody
+
         -- The SeizeAct redeemer for the standalone seize validator
         seizeActRedeemer txBody =
             mkSeizeActRedeemerFromAbsoluteInputIdxs
@@ -152,6 +162,7 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicy
                 (seizingInputAbsoluteIndexes txBody)
                 (firstSeizeContinuationOutputIndex txBody)
                 (paramsReferenceIndex txBody)
+                (issuerWdrlIdx txBody)
 
         -- No reference-script input is deployed for the seize validator, so the
         -- script is supplied inline in the withdrawal witness.

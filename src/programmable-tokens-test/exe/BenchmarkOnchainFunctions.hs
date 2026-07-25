@@ -12,6 +12,7 @@ import Plutarch.Core.Context (
     ptxInInfoResolved,
  )
 import Plutarch.Core.Internal.Builtins (pmapData, ppairDataBuiltinRaw)
+import Plutarch.Builtin.List (pdropList)
 import Plutarch.Core.List (pdropFast)
 import Plutarch.Core.Utils
 import Plutarch.LedgerApi.V3
@@ -687,6 +688,34 @@ decisionBenchCases =
     , mkLocalIndexedCase "decision.c.local.indexed.outs020.dests02.ins20tok" (localCustodyCtx 20 2 False 20 True) [0, 1] 200
     , mkLocalIndexedCase "decision.c.local.indexed.outs020.dests02.ins50tok" (localCustodyCtx 20 2 False 50 True) [0, 1] 200
     ]
+        <> dropDecisionCases
+
+-- Decision benchmarks for the Van Rossem dropList adoption: the
+-- plutarch-onchain-lib tail-walk ('pdropFast', ptails30/20/10 unrolling +
+-- remainder loop) versus the PV11 dropList builtin, fetching the element at
+-- index n from a 300-element list.
+dropDecisionCases :: [BenchCase]
+dropDecisionCases =
+    [ mkCase ("decision.d.drop.tailLoop.n" <> pad n) pdropFastHead (dropArgs n)
+    | n <- dropSizes
+    ]
+        <> [ mkCase ("decision.d.drop.builtin.n" <> pad n) pdropListHead (dropArgs n)
+           | n <- dropSizes
+           ]
+  where
+    dropSizes = [1, 5, 20, 100, 255]
+    pad n = let s = show n in replicate (3 - length s) '0' <> s
+    dropInput :: [Integer]
+    dropInput = [0 .. 299]
+    dropArgs n = [PlutusTx.toData (n :: Integer), PlutusTx.toData dropInput]
+
+-- Args arrive as Data constants from the harness; both candidates pay the
+-- identical pasInt/pasList decode so the comparison isolates the drop itself.
+pdropFastHead :: Term s (PData :--> PData :--> PData)
+pdropFastHead = plam $ \n xs -> phead # (pdropFast # (pasInt # n) # (pasList # xs))
+
+pdropListHead :: Term s (PData :--> PData :--> PData)
+pdropListHead = plam $ \n xs -> phead # (pdropList # (pasInt # n) # (pasList # xs))
 
 -- ---- (a) base forwarding ----
 

@@ -1,0 +1,217 @@
+Only in /tmp/claude-1000/-home-gumbo-iohk-wsc-poc/90086b56-acba-48fb-a84e-84ffdd98908b/scratchpad/plutarch-163/Plutarch/Builtin: Value.hs
+diff -ru '--exclude=dist-newstyle' dist-newstyle/src/plutarch-_-d64e6f2a900d2ba7/Plutarch/Internal/Evaluate.hs /tmp/claude-1000/-home-gumbo-iohk-wsc-poc/90086b56-acba-48fb-a84e-84ffdd98908b/scratchpad/plutarch-163/Plutarch/Internal/Evaluate.hs
+--- dist-newstyle/src/plutarch-_-d64e6f2a900d2ba7/Plutarch/Internal/Evaluate.hs	2026-07-17 23:52:25.525673971 -0500
++++ /tmp/claude-1000/-home-gumbo-iohk-wsc-poc/90086b56-acba-48fb-a84e-84ffdd98908b/scratchpad/plutarch-163/Plutarch/Internal/Evaluate.hs	2026-07-23 15:43:25.902257658 -0500
+@@ -48,8 +48,9 @@
+ -}
+ evalScriptUnlimited :: Script -> (Either (Cek.CekEvaluationException PLC.NamedDeBruijn PLC.DefaultUni PLC.DefaultFun) Script, ExBudget, [Text])
+ evalScriptUnlimited (Script (Program _ _ t)) =
++  -- plutus-core >=1.62 returns a CekReport record instead of a tuple.
+   case Cek.runCekDeBruijn defaultCekParametersForTesting Cek.counting Cek.logEmitter (UPLC.termMapNames UPLC.fakeNameDeBruijn t) of
+-    (errOrRes, Cek.CountingSt final, logs) -> (Script . Program () uplcVersion . UPLC.termMapNames UPLC.unNameDeBruijn <$> errOrRes, final, logs)
++    Cek.CekReport res (Cek.CountingSt final) logs -> (Script . Program () uplcVersion . UPLC.termMapNames UPLC.unNameDeBruijn <$> Cek.cekResultToEither res, final, logs)
+ 
+ evalTerm ::
+   ExBudget ->
+@@ -61,5 +62,6 @@
+   , [Text]
+   )
+ evalTerm budget t =
++  -- plutus-core >=1.62 returns a CekReport record instead of a tuple.
+   case Cek.runCekDeBruijn defaultCekParametersForTesting (Cek.restricting (ExRestrictingBudget budget)) Cek.logEmitter t of
+-    (errOrRes, Cek.RestrictingSt (ExRestrictingBudget final), logs) -> (errOrRes, budget `minusExBudget` final, logs)
++    Cek.CekReport res (Cek.RestrictingSt (ExRestrictingBudget final)) logs -> (Cek.cekResultToEither res, budget `minusExBudget` final, logs)
+diff -ru '--exclude=dist-newstyle' dist-newstyle/src/plutarch-_-d64e6f2a900d2ba7/Plutarch/Internal/Lift.hs /tmp/claude-1000/-home-gumbo-iohk-wsc-poc/90086b56-acba-48fb-a84e-84ffdd98908b/scratchpad/plutarch-163/Plutarch/Internal/Lift.hs
+--- dist-newstyle/src/plutarch-_-d64e6f2a900d2ba7/Plutarch/Internal/Lift.hs	2026-07-17 23:52:25.525673971 -0500
++++ /tmp/claude-1000/-home-gumbo-iohk-wsc-poc/90086b56-acba-48fb-a84e-84ffdd98908b/scratchpad/plutarch-163/Plutarch/Internal/Lift.hs	2026-07-23 16:08:18.625499958 -0500
+@@ -84,7 +84,7 @@
+ import Plutarch.Script (Script (Script))
+ import Plutarch.Unsafe (punsafeCoerce)
+ import PlutusCore qualified as PLC
+-import PlutusCore.Builtin (BuiltinError, readKnownConstant)
++import PlutusCore.Builtin (BuiltinError, KnownBuiltinType, readKnownConstant)
+ import PlutusCore.Crypto.BLS12_381.G1 qualified as BLS12_381.G1
+ import PlutusCore.Crypto.BLS12_381.G2 qualified as BLS12_381.G2
+ import PlutusCore.Crypto.BLS12_381.Pairing qualified as BLS12_381.Pairing
+@@ -212,7 +212,7 @@
+ -}
+ plutToReprUni ::
+   forall (a :: S -> Type).
+-  (PLiftable a, PLC.DefaultUni `Includes` PlutusRepr a) =>
++  KnownBuiltinType (UPLC.Term UPLC.DeBruijn UPLC.DefaultUni UPLC.DefaultFun ()) (PlutusRepr a) =>
+   (forall (s :: S). PLifted s a) ->
+   Either LiftError (PlutusRepr a)
+ plutToReprUni t = case compile (Tracing LogInfo DoTracing) $ unPLifted t of
+@@ -288,6 +288,7 @@
+ instance
+   ( PlutusType a
+   , PLC.DefaultUni `Includes` h
++  , KnownBuiltinType (UPLC.Term UPLC.DeBruijn UPLC.DefaultUni UPLC.DefaultFun ()) h
+   ) =>
+   PLiftable (DeriveBuiltinPLiftable a h)
+   where
+@@ -358,6 +359,7 @@
+   ( PLiftable (PInner wrapper)
+   , Coercible h (AsHaskell (PInner wrapper))
+   , PLC.DefaultUni `Includes` PlutusRepr (PInner wrapper)
++  , KnownBuiltinType (UPLC.Term UPLC.DeBruijn UPLC.DefaultUni UPLC.DefaultFun ()) (PlutusRepr (PInner wrapper))
+   ) =>
+   PLiftable (DeriveNewtypePLiftable wrapper h)
+   where
+@@ -465,8 +467,10 @@
+ instance
+   ( PLiftable a
+   , PLC.DefaultUni `Includes` PlutusRepr a
++  , KnownBuiltinType (UPLC.Term UPLC.DeBruijn UPLC.DefaultUni UPLC.DefaultFun ()) (PlutusRepr a)
+   , PLiftable b
+   , PLC.DefaultUni `Includes` PlutusRepr b
++  , KnownBuiltinType (UPLC.Term UPLC.DeBruijn UPLC.DefaultUni UPLC.DefaultFun ()) (PlutusRepr b)
+   ) =>
+   PLiftable (PBuiltinPair a b)
+   where
+@@ -483,7 +487,10 @@
+ 
+ -- | @since 1.10.0
+ instance
+-  (PLiftable a, PLC.DefaultUni `Includes` PlutusRepr a) =>
++  ( PLiftable a
++  , PLC.DefaultUni `Includes` PlutusRepr a
++  , KnownBuiltinType (UPLC.Term UPLC.DeBruijn UPLC.DefaultUni UPLC.DefaultFun ()) (PlutusRepr a)
++  ) =>
+   PLiftable (PBuiltinList a)
+   where
+   type AsHaskell (PBuiltinList a) = [AsHaskell a]
+@@ -566,7 +573,13 @@
+     PLiftable PBuiltinBLS12_381_MlResult
+ 
+ -- | @since 1.11.0
+-instance (PLC.Contains UPLC.DefaultUni (PlutusRepr a), PLiftable a) => PLiftable (PArray a) where
++instance
++  ( PLC.Contains UPLC.DefaultUni (PlutusRepr a)
++  , PLiftable a
++  , KnownBuiltinType (UPLC.Term UPLC.DeBruijn UPLC.DefaultUni UPLC.DefaultFun ()) (PlutusRepr a)
++  ) =>
++  PLiftable (PArray a)
++  where
+   type AsHaskell (PArray a) = StrictVector.Vector (AsHaskell a)
+   type PlutusRepr (PArray a) = StrictVector.Vector (PlutusRepr a)
+   {-# INLINEABLE haskToRepr #-}
+diff -ru '--exclude=dist-newstyle' dist-newstyle/src/plutarch-_-d64e6f2a900d2ba7/Plutarch/Internal/Semigroup.hs /tmp/claude-1000/-home-gumbo-iohk-wsc-poc/90086b56-acba-48fb-a84e-84ffdd98908b/scratchpad/plutarch-163/Plutarch/Internal/Semigroup.hs
+--- dist-newstyle/src/plutarch-_-d64e6f2a900d2ba7/Plutarch/Internal/Semigroup.hs	2026-07-17 23:52:25.525673971 -0500
++++ /tmp/claude-1000/-home-gumbo-iohk-wsc-poc/90086b56-acba-48fb-a84e-84ffdd98908b/scratchpad/plutarch-163/Plutarch/Internal/Semigroup.hs	2026-07-23 16:08:57.462391503 -0500
+@@ -75,6 +75,8 @@
+ import Plutarch.Repr.Newtype (DeriveNewtypePlutusType (DeriveNewtypePlutusType))
+ import Plutarch.Unsafe (punsafeDowncast)
+ import PlutusCore qualified as PLC
++import PlutusCore.Builtin (KnownBuiltinType)
++import UntypedPlutusCore qualified as UPLC
+ import Universe (Includes)
+ 
+ {- | = Laws
+@@ -245,7 +247,10 @@
+ deriving via
+   DeriveNewtypePLiftable (PAnd a) (AsHaskell a)
+   instance
+-    (PLiftable a, PLC.DefaultUni `Includes` PlutusRepr a) => PLiftable (PAnd a)
++    ( PLiftable a
++    , PLC.DefaultUni `Includes` PlutusRepr a
++    , KnownBuiltinType (UPLC.Term UPLC.DeBruijn UPLC.DefaultUni UPLC.DefaultFun ()) (PlutusRepr a)
++    ) => PLiftable (PAnd a)
+ 
+ -- | @since 1.10.0
+ instance PSemigroup (PAnd PBool) where
+@@ -307,7 +312,10 @@
+ deriving via
+   DeriveNewtypePLiftable (POr a) (AsHaskell a)
+   instance
+-    (PLiftable a, PLC.DefaultUni `Includes` PlutusRepr a) => PLiftable (POr a)
++    ( PLiftable a
++    , PLC.DefaultUni `Includes` PlutusRepr a
++    , KnownBuiltinType (UPLC.Term UPLC.DeBruijn UPLC.DefaultUni UPLC.DefaultFun ()) (PlutusRepr a)
++    ) => PLiftable (POr a)
+ 
+ -- | @since 1.10.0
+ instance PSemigroup (POr PBool) where
+@@ -369,7 +377,10 @@
+ deriving via
+   DeriveNewtypePLiftable (PXor a) (AsHaskell a)
+   instance
+-    (PLiftable a, PLC.DefaultUni `Includes` PlutusRepr a) => PLiftable (PXor a)
++    ( PLiftable a
++    , PLC.DefaultUni `Includes` PlutusRepr a
++    , KnownBuiltinType (UPLC.Term UPLC.DeBruijn UPLC.DefaultUni UPLC.DefaultFun ()) (PlutusRepr a)
++    ) => PLiftable (PXor a)
+ 
+ -- | @since 1.10.0
+ instance PSemigroup (PXor PBool) where
+diff -ru '--exclude=dist-newstyle' dist-newstyle/src/plutarch-_-d64e6f2a900d2ba7/Plutarch/Internal/Term.hs /tmp/claude-1000/-home-gumbo-iohk-wsc-poc/90086b56-acba-48fb-a84e-84ffdd98908b/scratchpad/plutarch-163/Plutarch/Internal/Term.hs
+--- dist-newstyle/src/plutarch-_-d64e6f2a900d2ba7/Plutarch/Internal/Term.hs	2026-07-17 23:52:25.525673971 -0500
++++ /tmp/claude-1000/-home-gumbo-iohk-wsc-poc/90086b56-acba-48fb-a84e-84ffdd98908b/scratchpad/plutarch-163/Plutarch/Internal/Term.hs	2026-07-23 16:05:13.953524227 -0500
+@@ -51,7 +51,6 @@
+ ) where
+ 
+ import Control.Monad.Reader (ReaderT (ReaderT), ask, local)
+-import Control.Monad.State.Strict (evalStateT)
+ import Data.Aeson (
+   FromJSON (parseJSON),
+   ToJSON (toEncoding, toJSON),
+@@ -81,7 +80,8 @@
+ import PlutusCore.DeBruijn (DeBruijn (DeBruijn), Index (Index))
+ import Prettyprinter (Pretty (pretty), (<+>))
+ import UntypedPlutusCore qualified as UPLC
+-import UntypedPlutusCore.Transform.Simplifier qualified as UPLC
++-- plutus >=1.62: the UPLC simplifier became UntypedPlutusCore.Optimize (re-exported
++-- from the UntypedPlutusCore umbrella), stateless (no SimplifierTrace).
+ 
+ {- $hoisted
+  __Explanation for hoisted terms:__
+@@ -854,10 +854,10 @@
+     go ::
+       UPLC.Term UPLC.DeBruijn UPLC.DefaultUni UPLC.DefaultFun () ->
+       Either UPLC.FreeVariableError (UPLC.Term DeBruijn UPLC.DefaultUni UPLC.DefaultFun ())
+-    go compiled = flip evalStateT UPLC.initSimplifierTrace . PLC.runQuoteT $ do
++    go compiled = PLC.runQuoteT $ do
+       unDB <- UPLC.unDeBruijnTerm . UPLC.termMapNames UPLC.fakeNameDeBruijn $ compiled
+-      simplified <- UPLC.simplifyTerm UPLC.defaultSimplifyOpts def unDB
+-      debruijnd <- UPLC.deBruijnTerm simplified
++      optimized <- UPLC.optimizeTerm UPLC.defaultOptimizeOpts def unDB
++      debruijnd <- UPLC.deBruijnTerm optimized
+       pure . UPLC.termMapNames UPLC.unNameDeBruijn $ debruijnd
+ 
+ {- | Given a closed 'Term', run the UPLC optimizer on it.
+@@ -897,10 +897,10 @@
+     go ::
+       UPLC.Term UPLC.DeBruijn UPLC.DefaultUni UPLC.DefaultFun () ->
+       Either UPLC.FreeVariableError (UPLC.Term DeBruijn UPLC.DefaultUni UPLC.DefaultFun ())
+-    go compiled = flip evalStateT UPLC.initSimplifierTrace . PLC.runQuoteT $ do
++    go compiled = PLC.runQuoteT $ do
+       unDB <- UPLC.unDeBruijnTerm . UPLC.termMapNames UPLC.fakeNameDeBruijn $ compiled
+-      simplified <- UPLC.simplifyTerm UPLC.defaultSimplifyOpts def unDB
+-      debruijnd <- UPLC.deBruijnTerm simplified
++      optimized <- UPLC.optimizeTerm UPLC.defaultOptimizeOpts def unDB
++      debruijnd <- UPLC.deBruijnTerm optimized
+       pure . UPLC.termMapNames UPLC.unNameDeBruijn $ debruijnd
+ 
+ {- |
+diff -ru '--exclude=dist-newstyle' dist-newstyle/src/plutarch-_-d64e6f2a900d2ba7/Plutarch/Rational.hs /tmp/claude-1000/-home-gumbo-iohk-wsc-poc/90086b56-acba-48fb-a84e-84ffdd98908b/scratchpad/plutarch-163/Plutarch/Rational.hs
+--- dist-newstyle/src/plutarch-_-d64e6f2a900d2ba7/Plutarch/Rational.hs	2026-07-17 23:52:25.529882379 -0500
++++ /tmp/claude-1000/-home-gumbo-iohk-wsc-poc/90086b56-acba-48fb-a84e-84ffdd98908b/scratchpad/plutarch-163/Plutarch/Rational.hs	2026-07-23 16:09:16.630187324 -0500
+@@ -276,7 +276,7 @@
+           ]
+           (pcon $ PRational (pto xd) (punsafeCoerce xn))
+   {-# INLINEABLE fromRational #-}
+-  fromRational = pconstant . PlutusTx.fromGHC
++  fromRational = pconstant . PlutusTx.fromHaskellRatio
+ 
+ instance PShow PRational where
+   pshow' _ x =
+--- dist-newstyle/src/plutarch-_-d64e6f2a900d2ba7/plutarch.cabal	2026-07-17 23:52:24.703585565 -0500
++++ /tmp/claude-1000/-home-gumbo-iohk-wsc-poc/90086b56-acba-48fb-a84e-84ffdd98908b/scratchpad/plutarch-163/plutarch.cabal	2026-07-23 15:45:00.608917346 -0500
+@@ -86,6 +86,7 @@
+     Plutarch.Builtin.Opaque
+     Plutarch.Builtin.String
+     Plutarch.Builtin.Unit
++    Plutarch.Builtin.Value
+     Plutarch.DataRepr
+     Plutarch.DataRepr.Internal
+     Plutarch.DataRepr.Internal.Field

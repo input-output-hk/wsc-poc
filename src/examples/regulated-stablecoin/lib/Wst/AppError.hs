@@ -16,7 +16,8 @@ module Wst.AppError(
 import Blockfrost.Client.Core (BlockfrostError)
 import Cardano.Api (PolicyId)
 import Control.Lens (makeClassyPrisms)
-import Convex.Class (AsValidationError (..), ValidationError)
+import Cardano.Api qualified as C
+import Convex.Class (AsSendTxError (..), AsValidationError (..), SendTxError)
 import Convex.CoinSelection (AsBalanceTxError (..), AsCoinSelectionError (..))
 import Convex.CoinSelection qualified as CoinSelection
 import PlutusLedgerApi.V3 (Credential)
@@ -35,11 +36,12 @@ makeClassyPrisms ''RegulatedStablecoinError
 
 data AppError era =
   BalancingError (CoinSelection.BalanceTxError era)
-  | SubmitError (ValidationError era)
+  | SubmitError (SendTxError era)
   | ProgTokensError ProgrammableTokensError
   | RegStablecoinError RegulatedStablecoinError
   | BlockfrostErr BlockfrostError
-  deriving stock (Show)
+
+deriving stock instance C.IsAlonzoBasedEra era => Show (AppError era)
 
 makeClassyPrisms ''AppError
 
@@ -47,7 +49,7 @@ instance AsBalanceTxError (AppError era) era where
   _BalanceTxError = _BalancingError
 
 instance AsValidationError (AppError era) era where
-  _ValidationError = _SubmitError
+  _ValidationError = _SubmitError . _MockchainError
 
 instance AsProgrammableTokensError (AppError era) where
   _ProgrammableTokensError = _ProgTokensError

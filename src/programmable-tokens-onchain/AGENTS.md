@@ -67,3 +67,77 @@ Update it whenever a benchmark-backed optimization insight is discovered.
   - `programmableLogicGlobal.TransferAct.TokenDoesNotExist`: CPU `36,098,125 -> 35,359,305` (`-738,820`, `-2.05%`), Mem `110,764 -> 107,830` (`-2,934`, `-2.65%`)
   - `programmableLogicMinting.Burn`: CPU `98,089,703 -> 94,783,294` (`-3,306,409`, `-3.37%`), Mem `272,804 -> 269,870` (`-2,934`, `-1.08%`)
 - Full script-suite comparison showed no regressions; `SeizeAct` rows were unchanged and every changed row moved downward.
+
+## 2026-07-23
+
+- Van Rossem (PV11) `dropList` builtin replaces every tail-walk drop in the hot
+  paths: `pdropFast` sites in `ProgrammableLogicBase` (`pparamsAtRefIdx`, the
+  transfer-proof and `NonMember` covering-node fetches, the seize
+  `outputsStartIdx`/`directoryNodeIdx` drops) and the loop inside `pcheckedDrop`
+  in `Issuance` (the negative-index guard stays: the builtin clamps negative
+  counts to zero instead of erroring, and the §14.1 red test pins rejection).
+- Isolation benchmark (`benchmark-onchain-functions`, `decision.d.drop.*`,
+  300-element list): builtin vs tail-loop CPU 552,595 vs 3,121,220 at n=1 up to
+  1,049,673 vs 43,315,600 at n=255 (5.6x-41x); builtin memory flat 2,100 vs
+  13,940-124,024. Cost function: CPU 116,711 + 1,957/element, mem constant 4.
+- Full-suite result vs the post-bump baseline (validators otherwise identical):
+  zero regressions; ManyPolicies40 -32.5% CPU / -42.9% mem, MixedMany -14.4% /
+  -21.3%, Mint -12.5% / -18.9%, SeizeAct1 -7.5% / -12.0%, TransferAct -5.0% /
+  -7.7%. Projected Policies dimension maximum at the 14M mainnet mem limit rose
+  from 220 to 410. The two previously-behind-Aiken rows flipped:
+  Mint.BusyTx20Outputs mem 0.98x -> 1.04x, SeizeAct1.External50 mem 0.96x ->
+  1.00x; only the untouched directoryNodeMinting scenarios remain behind.
+- Adoption note: indices that feed `dropList` directly are self-validating
+  hints backed by authenticated checks (params NFT, covering-node NFT+interval,
+  containment pairing), so negative-clamps-to-zero grants no new power; keep an
+  explicit guard only where negative rejection is contract behaviour.
+
+## 2026-07-23 (second entry)
+
+- CIP-153 Value builtins adopted in `mkProgrammableLogicGlobal`'s TransferAct
+  pipeline. Three coordinated changes, iterated against the bench suite until
+  zero regressions remained:
+  1. `pvalueFromCred` hybrid accumulation: 0-1 contributing inputs extract raw
+     pairs (UnMapData + tail, the pre-PV11 cost); 2+ inputs switch to
+     `unValueData` per input + near-constant-memory `unionValue` merges, then
+     bridge back to pairs once (`insertCoin` amount 0 deletes the ada entry).
+     Kills the quadratic sorted-merge component on the inputs axis.
+  2. Containment multi-asset branch: subtract-walk replaced by builtin
+     accumulation of mini-ledger outputs + one `valueContains` (extra output
+     entries incl. ada are fine for a lower-bound check — no stripping).
+  3. Wholesale-move fast path retained IN FRONT of the builtin path: if the
+     first mini-ledger output's non-ada value equals the expected map
+     byte-for-byte (full transfer / consolidation, the dominant multi-asset
+     shape), one Data equality replaces every conversion. Without this the
+     ManyTokens axis regressed up to +131% CPU (unValueData is linear in value
+     size with a much larger constant than equalsData); with it every axis wins.
+- Deltas vs the dropList baseline: Spend100/120Utxos -41%/-53% (CPU/mem),
+  ManyPolicies40 -28%/-22%, MixedMany -16%/-16%, ManyTokens -6..-12%/-16%,
+  mainnet replay c3111df7 -18%/-29%, common TransferAct -1.2%/-2.2%; worst
+  regression 0.00% on both axes.
+- Projected transaction-scale maxima at the 14M mainnet mem limit
+  (validator-only): Inputs 227 -> 658, Policies 410 -> 527, Outputs 467 -> 472,
+  Tokens ~36k (CPU-bound). Aiken for comparison: 162 / 160 / 334 / 1,661.
+- Median ratios vs Aiken across all 49 shared scenarios: 1.57x CPU, 1.58x mem;
+  only the untouched directoryNodeMinting scenarios remain behind.
+- Semantics note: expected-value assembly stays on the positive-filtered pairs
+  path, so `valueContains`'s negatives-error can never fire and over-burn
+  behaviour is unchanged.
+
+## 2026-07-23 (third entry)
+
+- Scan-proofness witnesses: TransferAct proofs gained a lockstep withdrawal
+  index list (`plgrTransferWdrlIdxs`) and SeizeAct an `plgrIssuerWdrlIdx`.
+  The per-policy transfer-logic check keeps its rolling cache and, on a miss,
+  verifies the credential at the witnessed index (dropList + head + equality)
+  instead of scanning the withdrawal map; the seize issuer check is indexed
+  directly. mkProgrammableLogicBase deliberately keeps its scan: the
+  global/seize validator hashes are mined lexically minimal at deployment, so
+  their withdrawals sort to the front of the (sorted) withdrawal map and the
+  scan hits within the first entries.
+- Cost result: every scenario with an exact-match proof or a seize improved
+  (indexed fetch beats even a 2-entry scan): common TransferAct -2.4%/-1.5%,
+  SeizeAct1 -3.4%/-2.7%. The one regression is the covering-proof-only
+  TokenDoesNotExist (+1.5%/+1.7%) — it never consults the withdrawal map, so
+  it pays only the larger redeemer decode; this is the flat cost of bounding
+  the adversarial many-withdrawals shape to O(1) per policy.

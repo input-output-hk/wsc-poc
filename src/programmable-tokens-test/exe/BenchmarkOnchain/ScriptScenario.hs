@@ -1,11 +1,12 @@
 module BenchmarkOnchain.ScriptScenario (
     ScriptScenarioBackend (..),
     ScriptScenarioEnv (..),
+    scalingAxes,
     scenarioEvalSpecsFromCtx,
 ) where
 
 import BenchmarkOnchain.ScriptHelpers (mintingPurposeCtx, rewardingPurposeCtx, scriptCredentialHash, spendingPurposeCtx)
-import BenchmarkOnchain.ScriptRunner (EvalSpec)
+import BenchmarkOnchain.ScriptRunner (EvalSpec, ScalingAxis (..))
 import Data.Maybe (mapMaybe)
 import PlutusLedgerApi.V3
 import PlutusTx.AssocMap qualified as Map
@@ -46,6 +47,26 @@ data ScriptScenarioBackend = ScriptScenarioBackend
     , ssbProgrammableMintSpec :: ScriptScenarioEnv -> CurrencySymbol -> ScriptContext -> EvalSpec
     , ssbProtocolParamsMintSpec :: ScriptScenarioEnv -> CurrencySymbol -> ScriptContext -> EvalSpec
     }
+
+-- | The four scaling dimensions mirrored from the Aiken bench suite
+-- (@many_inputs@ / @many_outputs@ / @many_tokens@ / @many_policies@), each
+-- pointing at the scenario series both harnesses register under identical
+-- names. Used for the extrapolation fit at the end of each harness run.
+scalingAxes :: [ScalingAxis]
+scalingAxes =
+    [ ScalingAxis
+        "Inputs"
+        [(n, "programmableLogicGlobal.TransferAct.Spend" <> show n <> "Utxos") | n <- [5, 10, 15, 25, 50, 100, 120 :: Integer]]
+    , ScalingAxis
+        "Outputs"
+        [(n, "programmableLogicGlobal.TransferAct.ManyOutputs" <> show n) | n <- [5, 10, 20, 40, 80 :: Integer]]
+    , ScalingAxis
+        "Tokens"
+        [(n, "programmableLogicGlobal.TransferAct.ManyTokens" <> show n) | n <- [10, 25, 50, 100, 200 :: Integer]]
+    , ScalingAxis
+        "Policies"
+        [(n, "programmableLogicGlobal.TransferAct.ManyPolicies" <> show n) | n <- [5, 10, 20, 40 :: Integer]]
+    ]
 
 scenarioEvalSpecsFromCtx :: ScriptScenarioBackend -> ScriptScenarioEnv -> ScriptContext -> [EvalSpec]
 scenarioEvalSpecsFromCtx backend env ctx@(ScriptContext txInfo _ _) =

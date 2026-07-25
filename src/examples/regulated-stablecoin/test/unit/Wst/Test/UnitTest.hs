@@ -13,13 +13,13 @@ import Convex.Class (
     MonadBlockchain (sendTx),
     MonadMockchain,
     MonadUtxoQuery,
-    ValidationError,
+    SendTxError,
     getUtxo,
  )
 import Convex.CoinSelection (ChangeOutputPosition (TrailingChange))
 import Convex.MockChain (fromLedgerUTxO)
 import Convex.MockChain.CoinSelection (tryBalanceAndSubmit)
-import Convex.MockChain.Utils (mockchainFails)
+import Convex.MockChain.Utils (mockchainFailsWith)
 import Convex.PlutusLedger.V1 (unTransPolicyId)
 import Convex.Utils (failOnError, mapError)
 import Convex.Wallet.MockWallet qualified as Wallet
@@ -69,7 +69,10 @@ scriptTargetTests target =
             , testCase "smart token transfer" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target $ deployDirectorySet admin >>= transferSmartTokens)
             , testCase "blacklist credential" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target $ void $ deployDirectorySet admin >>= blacklistCredential)
             , testCase "unblacklist credential" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target $ void $ deployDirectorySet admin >>= unblacklistCredential)
-            , testCase "blacklisted transfer" (mockchainFails (blacklistTransfer DontSubmitFailingTx) assertBlacklistedAddressException)
+            , -- mockchainFails would run at sc-tools' PV10 defaults, where the
+              -- PV11 builtins our validators now use are unavailable; pin the
+              -- Van Rossem node params explicitly.
+              testCase "blacklisted transfer" (mockchainFailsWith (Test.nodeParamsFor target) (blacklistTransfer DontSubmitFailingTx) assertBlacklistedAddressException)
             , testCase "blacklisted transfer (failing tx)" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target (blacklistTransfer SubmitFailingTx >>= Test.assertFailingTx))
             , testCase "seize user output" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target $ deployDirectorySet admin >>= seizeUserOutput)
             , testCase "seize multi user outputs" (Test.mockchainSucceedsWithTarget @(AppError C.ConwayEra) target $ deployDirectorySet admin >>= seizeMultiUserOutputs)
@@ -192,7 +195,7 @@ unblacklistCredential scriptRoot = Env.withEnv $ do
 
     pure paymentCred
 
-blacklistTransfer :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => BlacklistedTransferPolicy -> m (Either (ValidationError C.ConwayEra) C.TxId)
+blacklistTransfer :: (MonadUtxoQuery m, MonadFail m, MonadMockchain C.ConwayEra m) => BlacklistedTransferPolicy -> m (Either (SendTxError C.ConwayEra) C.TxId)
 blacklistTransfer policy = failOnError @_ @(AppError C.ConwayEra) $ Env.withEnv $ do
     scriptRoot <- runReaderT (deployDirectorySet admin) Production
     userPkh <- asWallet @C.ConwayEra Wallet.w2 $ asks (fst . Env.bteOperator . Env.operatorEnv @C.ConwayEra)

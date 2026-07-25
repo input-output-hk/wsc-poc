@@ -8,7 +8,7 @@ import BenchmarkOnchain.CardanoScriptHelpers (scriptHashFromCardanoScript)
 import BenchmarkOnchain.MainnetDexFixture
 import BenchmarkOnchain.ScriptFixtureIds
 import BenchmarkOnchain.ScriptHelpers (bs28, mkValue, pubKeyAddress, scriptAddress, scriptAddressWithSignerStake, scriptAddressWithStakeCredential, stripZeroChangeOutput, withAuxiliaryRewardingScript, withPubKeyInputValue, withRefInputDatumValue)
-import BenchmarkOnchain.ScriptRunner (BenchCase, EvalKind (..), EvalSpec (..), mkBenchCase, runScriptBenchmark)
+import BenchmarkOnchain.ScriptRunner (BenchCase, EvalKind (..), EvalSpec (..), mkBenchCase, runScriptBenchmarkWithAxes)
 import BenchmarkOnchain.ScriptScenario qualified as Scenario
 import BenchmarkOnchain.TxD29Fixture
 import Cardano.Api qualified as C
@@ -30,10 +30,11 @@ data AikenTokenProof
 
 main :: IO ()
 main =
-    runScriptBenchmark
+    runScriptBenchmarkWithAxes
         "Onchain Aiken script benchmark (NoTracing, one case per redeemer path)"
         benchCases
         scenarioEvalSpecsFromCtx
+        Scenario.scalingAxes
 
 compiledAlwaysSucceedsScript :: Script
 compiledAlwaysSucceedsScript =
@@ -686,6 +687,13 @@ mkGlobalTransferManyTokensCtx tokenCount =
 globalTransferManyTokens50Ctx :: ScriptContext
 globalTransferManyTokens50Ctx = mkGlobalTransferManyTokensCtx manyTokensCount
 
+-- Scaling series for the tokens axis (extrapolation fit).
+globalTransferManyTokens10Ctx, globalTransferManyTokens25Ctx, globalTransferManyTokens100Ctx, globalTransferManyTokens200Ctx :: ScriptContext
+globalTransferManyTokens10Ctx = mkGlobalTransferManyTokensCtx 10
+globalTransferManyTokens25Ctx = mkGlobalTransferManyTokensCtx 25
+globalTransferManyTokens100Ctx = mkGlobalTransferManyTokensCtx 100
+globalTransferManyTokens200Ctx = mkGlobalTransferManyTokensCtx 200
+
 -- | Mirrors the Aiken bench @many_outputs@ axis: a single mini-ledger input
 -- fans out to @outputCount@ mini-ledger recipient outputs (airdrop shape).
 mkGlobalTransferManyOutputsCtx :: Integer -> ScriptContext
@@ -709,7 +717,7 @@ mkGlobalTransferManyOutputsCtx outputCount =
                         <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         -- Enough ada to fund every fan-out output (outputCount x 3 ada
                         -- + change) so the balanced context stays ledger-realizable.
-                        <> withValue (mkAdaValue 65_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", outputCount)])
+                        <> withValue (mkAdaValue (fromIntegral (3_000_000 * outputCount + 5_000_000)) <> mkValue [(programmableTransferCS, TokenName "0c", outputCount)])
                     )
                 <> recipientOutputsBuilder
                 <> withOutput
@@ -730,6 +738,13 @@ mkGlobalTransferManyOutputsCtx outputCount =
 
 globalTransferManyOutputs20Ctx :: ScriptContext
 globalTransferManyOutputs20Ctx = mkGlobalTransferManyOutputsCtx manyOutputsCount
+
+-- Scaling series for the outputs axis (extrapolation fit).
+globalTransferManyOutputs5Ctx, globalTransferManyOutputs10Ctx, globalTransferManyOutputs40Ctx, globalTransferManyOutputs80Ctx :: ScriptContext
+globalTransferManyOutputs5Ctx = mkGlobalTransferManyOutputsCtx 5
+globalTransferManyOutputs10Ctx = mkGlobalTransferManyOutputsCtx 10
+globalTransferManyOutputs40Ctx = mkGlobalTransferManyOutputsCtx 40
+globalTransferManyOutputs80Ctx = mkGlobalTransferManyOutputsCtx 80
 
 -- | Directory-node datum for the synthetic programmable policy at index @i@
 -- (see 'manyPolicyCS'), used by 'mkGlobalTransferManyPoliciesCtx'.
@@ -797,6 +812,12 @@ mkGlobalTransferManyPoliciesCtx policyCount =
 
 globalTransferManyPolicies10Ctx :: ScriptContext
 globalTransferManyPolicies10Ctx = mkGlobalTransferManyPoliciesCtx manyPoliciesCount
+
+-- Scaling series for the policies axis (extrapolation fit).
+globalTransferManyPolicies5Ctx, globalTransferManyPolicies20Ctx, globalTransferManyPolicies40Ctx :: ScriptContext
+globalTransferManyPolicies5Ctx = mkGlobalTransferManyPoliciesCtx 5
+globalTransferManyPolicies20Ctx = mkGlobalTransferManyPoliciesCtx 20
+globalTransferManyPolicies40Ctx = mkGlobalTransferManyPoliciesCtx 40
 
 mkGlobalSeizeCtx :: Integer -> ScriptContext
 mkGlobalSeizeCtx seizeInputCount =
@@ -1604,11 +1625,47 @@ benchCases =
         (aikenRewardArgs globalTransferMixedManyCtx)
         globalTransferMixedManyCtx
     , mkAikenCase
+        "programmableLogicGlobal.TransferAct.ManyTokens10"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferManyTokens10Ctx)
+        globalTransferManyTokens10Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.ManyTokens25"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferManyTokens25Ctx)
+        globalTransferManyTokens25Ctx
+    , mkAikenCase
         "programmableLogicGlobal.TransferAct.ManyTokens50"
         (EvalGlobalReward globalCred)
         (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
         (aikenRewardArgs globalTransferManyTokens50Ctx)
         globalTransferManyTokens50Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.ManyTokens100"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferManyTokens100Ctx)
+        globalTransferManyTokens100Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.ManyTokens200"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferManyTokens200Ctx)
+        globalTransferManyTokens200Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.ManyOutputs5"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferManyOutputs5Ctx)
+        globalTransferManyOutputs5Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.ManyOutputs10"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferManyOutputs10Ctx)
+        globalTransferManyOutputs10Ctx
     , mkAikenCase
         "programmableLogicGlobal.TransferAct.ManyOutputs20"
         (EvalGlobalReward globalCred)
@@ -1616,11 +1673,41 @@ benchCases =
         (aikenRewardArgs globalTransferManyOutputs20Ctx)
         globalTransferManyOutputs20Ctx
     , mkAikenCase
+        "programmableLogicGlobal.TransferAct.ManyOutputs40"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferManyOutputs40Ctx)
+        globalTransferManyOutputs40Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.ManyOutputs80"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferManyOutputs80Ctx)
+        globalTransferManyOutputs80Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.ManyPolicies5"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferManyPolicies5Ctx)
+        globalTransferManyPolicies5Ctx
+    , mkAikenCase
         "programmableLogicGlobal.TransferAct.ManyPolicies10"
         (EvalGlobalReward globalCred)
         (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
         (aikenRewardArgs globalTransferManyPolicies10Ctx)
         globalTransferManyPolicies10Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.ManyPolicies20"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferManyPolicies20Ctx)
+        globalTransferManyPolicies20Ctx
+    , mkAikenCase
+        "programmableLogicGlobal.TransferAct.ManyPolicies40"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalTransferManyPolicies40Ctx)
+        globalTransferManyPolicies40Ctx
     , mkAikenCase
         "programmableLogicGlobal.TransferAct.Spend5Utxos"
         (EvalGlobalReward globalCred)

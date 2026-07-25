@@ -4,8 +4,10 @@ module BenchmarkOnchain.ScriptRunner (
     BenchCase,
     EvalKind (..),
     EvalSpec (..),
+    ScalingAxis (..),
     mkBenchCase,
     runScriptBenchmark,
+    runScriptBenchmarkWithAxes,
 ) where
 
 import BenchmarkOnchain.Formatting (abbrev, budgetCpuPct, budgetCpuText, budgetMemPct, budgetMemText, formatPercent, formatUnits, indentLines, renderTable, scenarioSeparator, uniquePreservingOrder)
@@ -81,7 +83,11 @@ mkBenchCase name kind script args ctx =
     BenchCase name (EvalSpec kind script args) ctx
 
 runScriptBenchmark :: String -> [BenchCase] -> (ScriptContext -> [EvalSpec]) -> IO ()
-runScriptBenchmark title benchCases scenarioEvalSpecsFromCtx = do
+runScriptBenchmark title benchCases scenarioEvalSpecsFromCtx =
+    runScriptBenchmarkWithAxes title benchCases scenarioEvalSpecsFromCtx []
+
+runScriptBenchmarkWithAxes :: String -> [BenchCase] -> (ScriptContext -> [EvalSpec]) -> [ScalingAxis] -> IO ()
+runScriptBenchmarkWithAxes title benchCases scenarioEvalSpecsFromCtx axes = do
     let ExBudget (ExCPU maxCpu) (ExMemory maxMem) = productionMaxTxExBudget
     putStrLn title
     rows <- traverse (runCase scenarioEvalSpecsFromCtx) benchCases
@@ -99,8 +105,108 @@ runScriptBenchmark title benchCases scenarioEvalSpecsFromCtx = do
     putStrLn ""
     putStrLn "Per-script breakdown"
     mapM_ putStrLn (renderBreakdownTable sorted)
+    case axes of
+        [] -> pure ()
+        _ -> do
+            putStrLn ""
+            mapM_ putStrLn (renderExtrapolationTables sorted axes)
   where
     caseName BenchRow{brName} = brName
+
+-- | One scaling dimension: a display name plus the (size, scenario-name) series
+-- to fit. The named scenarios must all be present in the benchmark catalogue.
+data ScalingAxis = ScalingAxis
+    { saName :: String
+    , saPoints :: [(Integer, String)]
+    }
+
+-- | Least-squares fit @y = intercept + slope*n@ over the series.
+fitLine :: [(Double, Double)] -> (Double, Double)
+fitLine pts =
+    let n = fromIntegral (length pts)
+        sx = sum (fmap fst pts)
+        sy = sum (fmap snd pts)
+        sxx = sum (fmap (\(x, _) -> x * x) pts)
+        sxy = sum (fmap (uncurry (*)) pts)
+        slope = (n * sxy - sx * sy) / (n * sxx - sx * sx)
+        intercept = (sy - slope * sx) / n
+     in (intercept, slope)
+
+rSquared :: (Double, Double) -> [(Double, Double)] -> Double
+rSquared (intercept, slope) pts =
+    let meanY = sum (fmap snd pts) / fromIntegral (length pts)
+        ssTot = sum (fmap (\(_, y) -> (y - meanY) ^ (2 :: Int)) pts)
+        ssRes = sum (fmap (\(x, y) -> (y - (intercept + slope * x)) ^ (2 :: Int)) pts)
+     in if ssTot == 0 then 1 else 1 - ssRes / ssTot
+
+-- | Largest @n@ with @intercept + slope*n <= limit@ (Nothing = unbounded within
+-- the fit, i.e. non-positive slope).
+solveMaxDim :: (Double, Double) -> Double -> Maybe Integer
+solveMaxDim (intercept, slope) limit
+    | slope <= 0 = Nothing
+    | otherwise = Just (max 0 (floor ((limit - intercept) / slope)))
+
+-- | The mainnet per-transaction memory budget (matches 'productionMaxTxExBudget')
+-- and the 16.5M figure the Aiken README uses for its published projections —
+-- shown side by side so the tables are comparable in both directions.
+aikenReadmeMemLimit :: Double
+aikenReadmeMemLimit = 16_500_000
+
+renderExtrapolationTables :: [BenchRow] -> [ScalingAxis] -> [String]
+renderExtrapolationTables rows axes =
+    [ "Scaling extrapolation (least-squares linear fit per dimension)"
+    , "Projected max = largest n with fitted cost within budget; binding resource in parentheses."
+    ]
+        <> renderBasis "validator only (primary script)" brPrimaryBudget
+        <> [""]
+        <> renderBasis "full scenario (all scripts in the transaction)" brBudget
+  where
+    ExBudget (ExCPU maxCpuI) (ExMemory maxMemI) = productionMaxTxExBudget
+    -- ExCPU/ExMemory wrap CostingInteger (SatInt), which has Show but not
+    -- Integral; read . show is the conversion idiom used by Formatting too.
+    costingToDouble :: (Show a) => a -> Double
+    costingToDouble = read . show
+    maxCpu = costingToDouble maxCpuI
+    maxMem = costingToDouble maxMemI
+
+    renderBasis basisLabel budgetOf =
+        ("Basis: " <> basisLabel)
+            : renderTable
+                (["Dimension", "Points", "CPU slope/unit", "Mem slope/unit", "R² cpu", "R² mem", "Max n @Mem14M", "Max n @Mem16.5M"])
+                (fmap (axisRow budgetOf) axes)
+
+    axisRow budgetOf ScalingAxis{saName, saPoints} =
+        let series =
+                [ (fromIntegral n, budget)
+                | (n, nm) <- saPoints
+                , Just budget <- [lookupBudget nm]
+                ]
+            lookupBudget nm = budgetOf <$> lookup nm rowsByName
+            cpuPts = fmap (\(n, ExBudget (ExCPU c) _) -> (n, costingToDouble c)) series
+            memPts = fmap (\(n, ExBudget _ (ExMemory m)) -> (n, costingToDouble m)) series
+            cpuFit = fitLine cpuPts
+            memFit = fitLine memPts
+            maxAt memLimit =
+                let cpuMax = solveMaxDim cpuFit maxCpu
+                    memMax = solveMaxDim memFit memLimit
+                 in case (cpuMax, memMax) of
+                        (Nothing, Nothing) -> "unbounded"
+                        (Just c, Nothing) -> show c <> " (cpu)"
+                        (Nothing, Just m) -> show m <> " (mem)"
+                        (Just c, Just m) -> if c <= m then show c <> " (cpu)" else show m <> " (mem)"
+         in [ saName
+            , show (length series)
+            , formatUnits (round (snd cpuFit) :: Integer)
+            , formatUnits (round (snd memFit) :: Integer)
+            , formatR2 (rSquared cpuFit cpuPts)
+            , formatR2 (rSquared memFit memPts)
+            , maxAt maxMem
+            , maxAt aikenReadmeMemLimit
+            ]
+
+    formatR2 v = let scaled = fromIntegral (round (v * 10000) :: Integer) / 10000 :: Double in show scaled
+
+    rowsByName = [(brName r, r) | r <- rows]
 
 runCase :: (ScriptContext -> [EvalSpec]) -> BenchCase -> IO BenchRow
 runCase scenarioEvalSpecsFromCtx bench = do
