@@ -33,7 +33,6 @@ import Generics.SOP qualified as SOP
 import Plutarch.Builtin.Integer (pconstantInteger)
 import Plutarch.Core.Context (
     paddressCredential,
-    pscriptContextTxInfo,
     ptxInInfoResolved,
     ptxOutDatum,
     ptxOutValue,
@@ -41,12 +40,10 @@ import Plutarch.Core.Context (
 import Plutarch.Core.Integrity (pisRewardingScript)
 import Plutarch.Core.Internal.Builtins (pmapData, ppairDataBuiltinRaw)
 import Plutarch.Builtin.List (pdropList)
-import Plutarch.Builtin.Value (PBuiltinValue, pinsertCoin, pscaleValue, punValueData, punionValue, pvalueData)
+import Plutarch.Builtin.Value (pinsertCoin, pscaleValue, punValueData, punionValue, pvalueData)
 import Plutarch.Builtin.Value qualified as BuiltinValue
-import Plutarch.Core.List
 import Plutarch.Core.Utils
 import Plutarch.Core.ValidationLogic hiding (pemptyLedgerValue, pvalueFromCred, pvalueToCred)
-import Plutarch.Core.Value
 import Plutarch.Internal.Lift
 import Plutarch.LedgerApi.V3
 import Plutarch.Monadic qualified as P
