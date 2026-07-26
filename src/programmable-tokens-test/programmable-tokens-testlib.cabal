@@ -121,6 +121,7 @@ executable benchmark-onchain-scripts
     BenchmarkOnchain.Compile
     BenchmarkOnchain.Formatting
     BenchmarkOnchain.MainnetDexFixture
+    BenchmarkOnchain.PlutarchFixtureIds
     BenchmarkOnchain.ScriptFixtureIds
     BenchmarkOnchain.ScriptHelpers
     BenchmarkOnchain.ScriptRunner
@@ -131,6 +132,7 @@ executable benchmark-onchain-scripts
     , base
     , bytestring
     , cardano-api
+    , convex-base
     , plutarch
     , plutus-ledger-api
     , plutus-tx
@@ -143,6 +145,7 @@ executable benchmark-onchain-aiken-scripts
   hs-source-dirs: exe
   main-is:        BenchmarkOnchainAikenScripts.hs
   other-modules:
+    BenchmarkOnchain.AikenFixtureIds
     BenchmarkOnchain.CardanoScriptHelpers
     BenchmarkOnchain.Formatting
     BenchmarkOnchain.MainnetDexFixture
@@ -156,6 +159,7 @@ executable benchmark-onchain-aiken-scripts
     , base
     , bytestring
     , cardano-api
+    , convex-base
     , plutarch
     , plutus-ledger-api
     , plutus-tx

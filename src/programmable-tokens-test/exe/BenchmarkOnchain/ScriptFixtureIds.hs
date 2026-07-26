@@ -1,9 +1,30 @@
+-- | Fixture identities that are the SAME on both harnesses.
+--
+-- Two kinds of thing live here:
+--
+--   1. Transaction coordinates — 'TxOutRef's, 'TxId's, pubkey hashes, scenario
+--      sizes. These are seed data, not hashes of anything, so both harnesses
+--      share them verbatim; that is what makes the two sides build the same
+--      transaction.
+--
+--   2. SYNTHETIC-BUT-VALID hashes ('syntheticScriptHash' /
+--      'syntheticCurrencySymbol'). Some fixtures need an identity for something
+--      this repository does not compile: a token issuer's transfer/minting
+--      logic script, an unrelated third-party asset used as noise, a DEX pool's
+--      stake script. There is no script to hash, so these are blake2b-224 of a
+--      fixed descriptive seed: deterministic across runs, exactly 28 bytes, and
+--      shaped like a real hash rather than a repeated byte. They are NOT claimed
+--      to be the hash of any script and every one of them is named
+--      @synthetic…@ at its definition site.
+--
+-- Everything that IS the hash of a real, parameter-applied script lives in the
+-- per-implementation modules 'BenchmarkOnchain.PlutarchFixtureIds' and
+-- 'BenchmarkOnchain.AikenFixtureIds', because the two implementations deploy
+-- different bytes and therefore have different ids.
 module BenchmarkOnchain.ScriptFixtureIds (
     burnRedeemInputTxId,
     directoryInsertFundingRef,
     directoryMintingNodeRef,
-    directoryNodeCS,
-    directoryPolicyCS,
     directoryProgrammableNode2Ref,
     directoryProgrammableNode3Ref,
     directoryProgrammableNodeRef,
@@ -11,12 +32,9 @@ module BenchmarkOnchain.ScriptFixtureIds (
     externalAlwaysSucceedsHash,
     externalAlwaysSucceedsHash2,
     externalScriptInputRef,
-    globalCred,
-    globalScriptHash,
     initRef,
     insertNodeInRef,
     issuanceInitRef,
-    issuancePolicyCS,
     issuanceRef,
     issuerCred,
     issuerLogicHash,
@@ -37,33 +55,58 @@ module BenchmarkOnchain.ScriptFixtureIds (
     manyTokensTokenName,
     mintingLogicHash,
     mixedOwnersInputTxId,
-    mintingPolicyCS,
     nonProgrammableCS,
     nonProgrammableCS2,
     paramRef,
     progInputRef,
-    progLogicBaseCred,
-    progLogicBaseHash,
     programmableBurnInputRef,
     programmableMintFundingRef,
-    programmableTransferCS,
-    programmableTransferCS2,
-    programmableTransferCS3,
-    protocolParamsCS,
+    programmableTransferMintingLogicHash,
+    programmableTransferMintingLogicHash2,
+    programmableTransferMintingLogicHash3,
     protocolParamsInitRef,
     recipientPkh,
+    registeredTokenMintingLogicHash,
     seizeFeeFundingRef,
     seizeInputTxId,
     seizeNoiseInputTxId,
     signerPkh,
+    syntheticCurrencySymbol,
+    syntheticHash28,
+    syntheticScriptHash,
     thirdSignerPkh,
     topUpInputRef,
     transferLogicHash,
     transferManyInputTxId,
 ) where
 
+import BenchmarkOnchain.CardanoScriptHelpers (assertHash28)
 import BenchmarkOnchain.ScriptHelpers (bs2, bs28, txId32, txOutRef32)
+import Data.ByteString.Char8 qualified as BS8
+import Data.List (sort)
+import PlutusLedgerApi.V1 qualified as PV1
 import PlutusLedgerApi.V3
+import PlutusTx.Builtins qualified as BI
+
+-- Synthetic-but-valid identities -----------------------------------------
+--
+-- Ledger-valid stand-ins for identities whose script this repository does not
+-- build. blake2b-224 of a namespaced seed: stable across runs and machines,
+-- exactly 28 bytes, and (unlike @bs28 0x1a@) indistinguishable in shape from a
+-- real hash, so it can never be mistaken for one that was derived.
+
+-- | blake2b-224 of @"wsc-bench-synthetic:" <> seed@.
+syntheticHash28 :: String -> BuiltinByteString
+syntheticHash28 seed =
+    assertHash28
+        ("synthetic hash " <> show seed)
+        (BI.blake2b_224 (PV1.toBuiltin (BS8.pack ("wsc-bench-synthetic:" <> seed))))
+
+syntheticScriptHash :: String -> ScriptHash
+syntheticScriptHash = ScriptHash . syntheticHash28
+
+syntheticCurrencySymbol :: String -> CurrencySymbol
+syntheticCurrencySymbol = CurrencySymbol . syntheticHash28
 
 signerPkh :: PubKeyHash
 signerPkh = PubKeyHash (bs28 0x01)
@@ -71,65 +114,60 @@ signerPkh = PubKeyHash (bs28 0x01)
 recipientPkh :: PubKeyHash
 recipientPkh = PubKeyHash (bs28 0x02)
 
-protocolParamsCS :: CurrencySymbol
-protocolParamsCS = CurrencySymbol (bs28 0x10)
-
-directoryNodeCS :: CurrencySymbol
-directoryNodeCS = CurrencySymbol (bs28 0x11)
-
-progLogicBaseHash :: ScriptHash
-progLogicBaseHash = ScriptHash (bs28 0x12)
-
-progLogicBaseCred :: Credential
-progLogicBaseCred = ScriptCredential progLogicBaseHash
-
-globalScriptHash :: ScriptHash
-globalScriptHash = ScriptHash (bs28 0x13)
-
-globalCred :: Credential
-globalCred = ScriptCredential globalScriptHash
-
+-- | Third-party seize ("issuer logic") script of the benchmarked token. Issuer
+-- supplied, not built here — synthetic.
 issuerLogicHash :: ScriptHash
-issuerLogicHash = ScriptHash (bs28 0x14)
+issuerLogicHash = syntheticScriptHash "issuer-third-party-logic-script"
 
 issuerCred :: Credential
 issuerCred = ScriptCredential issuerLogicHash
 
+-- | Transfer-logic script of the benchmarked token. Issuer supplied — synthetic.
 transferLogicHash :: ScriptHash
-transferLogicHash = ScriptHash (bs28 0x15)
+transferLogicHash = syntheticScriptHash "token-transfer-logic-script"
 
+-- | Minting-logic script of the benchmarked token. Issuer supplied — synthetic.
+-- It is a genuine PARAMETER of the programmable minting policy on both
+-- implementations, so the policy ids derived from it are real hashes of real
+-- parameter-applied scripts.
 mintingLogicHash :: ScriptHash
-mintingLogicHash = ScriptHash (bs28 0x16)
+mintingLogicHash = syntheticScriptHash "token-minting-logic-script"
 
-issuancePolicyCS :: CurrencySymbol
-issuancePolicyCS = CurrencySymbol (bs28 0x17)
+-- | Minting-logic scripts of the three additional programmable tokens the
+-- transfer fixtures move. Issuer supplied — synthetic; the policy ids derived
+-- from them are real.
+programmableTransferMintingLogicHash :: ScriptHash
+programmableTransferMintingLogicHash = syntheticScriptHash "transfer-token-1-minting-logic-script"
 
-directoryPolicyCS :: CurrencySymbol
-directoryPolicyCS = CurrencySymbol (bs28 0x18)
+programmableTransferMintingLogicHash2 :: ScriptHash
+programmableTransferMintingLogicHash2 = syntheticScriptHash "transfer-token-2-minting-logic-script"
 
-mintingPolicyCS :: CurrencySymbol
-mintingPolicyCS = CurrencySymbol (bs28 0x19)
+programmableTransferMintingLogicHash3 :: ScriptHash
+programmableTransferMintingLogicHash3 = syntheticScriptHash "transfer-token-3-minting-logic-script"
 
+-- | Minting-logic script of the token registered by the directory-insert
+-- fixture. Issuer supplied — synthetic.
+registeredTokenMintingLogicHash :: ScriptHash
+registeredTokenMintingLogicHash = syntheticScriptHash "directory-insert-registered-token-minting-logic-script"
+
+-- | Unrelated (non-programmable) assets carried alongside the programmable
+-- ones. No script exists for them by construction — synthetic.
 nonProgrammableCS :: CurrencySymbol
-nonProgrammableCS = CurrencySymbol (bs28 0x1a)
-
-programmableTransferCS :: CurrencySymbol
-programmableTransferCS = CurrencySymbol (bs28 0x1b)
-
-programmableTransferCS2 :: CurrencySymbol
-programmableTransferCS2 = CurrencySymbol (bs28 0x1c)
-
-programmableTransferCS3 :: CurrencySymbol
-programmableTransferCS3 = CurrencySymbol (bs28 0x1d)
+nonProgrammableCS = syntheticCurrencySymbol "unrelated-non-programmable-asset-1"
 
 nonProgrammableCS2 :: CurrencySymbol
-nonProgrammableCS2 = CurrencySymbol (bs28 0x1e)
+nonProgrammableCS2 = syntheticCurrencySymbol "unrelated-non-programmable-asset-2"
 
+-- | Two third-party scripts that own mini-ledger UTxOs (the DEX swap and pool
+-- stake credentials, and the two script owners of the mixed-ownership batch).
+-- They are not part of this deployment — synthetic. The harness evaluates an
+-- always-succeeds stand-in for them, which is why they must be DISTINCT from
+-- each other and cannot both be the always-succeeds script's own hash.
 externalAlwaysSucceedsHash :: ScriptHash
-externalAlwaysSucceedsHash = ScriptHash (bs28 0x21)
+externalAlwaysSucceedsHash = syntheticScriptHash "external-third-party-stake-script-1"
 
 externalAlwaysSucceedsHash2 :: ScriptHash
-externalAlwaysSucceedsHash2 = ScriptHash (bs28 0x22)
+externalAlwaysSucceedsHash2 = syntheticScriptHash "external-third-party-stake-script-2"
 
 manyPubKeyInputCount :: Integer
 manyPubKeyInputCount = 50
@@ -229,11 +267,28 @@ topUpInputRef = txOutRef32 0xcc 0x05 0
 thirdSignerPkh :: PubKeyHash
 thirdSignerPkh = PubKeyHash (bs28 0x03)
 
--- | Distinct programmable policies for the many-policies axis; ascending byte
--- patterns keep the generated currency symbols in canonical (lexicographic)
--- order, clear of every other fixture policy (0x10..0x1e).
+-- | Largest @policyCount@ any many-policies scenario asks for.
+manyPolicyPoolSize :: Int
+manyPolicyPoolSize = 40
+
+-- | Distinct policies for the many-policies axis. There is no script behind
+-- them (each would need its own minting-logic script), so they are
+-- synthetic-but-valid hashes — but they are SORTED before being indexed, so
+-- @manyPolicyCS i@ is still strictly ascending in @i@. That is load-bearing:
+-- the positional transfer proofs address directory-node reference inputs at
+-- index @1 + i@, and the validators walk the input value in canonical
+-- (lexicographic) currency-symbol order. Taking the first @n@ of a sorted pool
+-- keeps every prefix ascending too, so the 5/10/20/40 scenarios all line up.
+manyPolicyPool :: [CurrencySymbol]
+manyPolicyPool =
+    fmap CurrencySymbol . sort $
+        [syntheticHash28 ("many-policies-axis-policy-" <> show i) | i <- [0 .. manyPolicyPoolSize - 1]]
+
 manyPolicyCS :: Integer -> CurrencySymbol
-manyPolicyCS i = CurrencySymbol (bs28 (0x60 + fromIntegral i))
+manyPolicyCS i
+    | i < 0 || fromIntegral i >= manyPolicyPoolSize =
+        error ("manyPolicyCS: index out of range: " <> show i)
+    | otherwise = manyPolicyPool !! fromIntegral i
 
 -- | One directory-node reference input per many-policies policy.
 manyPolicyNodeRef :: Integer -> TxOutRef

@@ -37,6 +37,7 @@ module Main (main) where
 
 import BenchmarkOnchain.CardanoScriptHelpers (scriptHashFromCardanoScript)
 import BenchmarkOnchain.MainnetDexFixture
+import BenchmarkOnchain.AikenFixtureIds
 import BenchmarkOnchain.ScriptFixtureIds
 import BenchmarkOnchain.ScriptHelpers (bs28, mkValue, pubKeyAddress, scriptAddress, scriptAddressWithSignerStake, scriptAddressWithStakeCredential, stripZeroChangeOutput, withAuxiliaryRewardingScript, withPubKeyInputValue, withRefInputDatumValue)
 import BenchmarkOnchain.ScriptRunner (BenchCase, EvalKind (..), EvalSpec (..), mkBenchCase, runScriptBenchmarkWithAxes)

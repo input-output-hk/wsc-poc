@@ -6,6 +6,7 @@ module Main (main) where
 import BenchmarkOnchain.CardanoScriptHelpers (scriptHashFromCardanoScript)
 import BenchmarkOnchain.Compile (compileNoTracing)
 import BenchmarkOnchain.MainnetDexFixture
+import BenchmarkOnchain.PlutarchFixtureIds
 import BenchmarkOnchain.ScriptFixtureIds
 import BenchmarkOnchain.ScriptHelpers (bs28, mkValue, pubKeyAddress, scriptAddress, scriptAddressWithSignerStake, scriptAddressWithStakeCredential, stripZeroChangeOutput, withAuxiliaryRewardingScript, withPubKeyInputValue, withRefInputDatumValue)
 import BenchmarkOnchain.ScriptRunner (BenchCase, EvalKind (..), EvalSpec (..), mkBenchCase, runScriptBenchmarkWithAxes)
@@ -18,7 +19,8 @@ import PlutusLedgerApi.V3
 import PlutusTx qualified
 import PlutusTx.Builtins qualified as BI
 import ProgrammableTokens.OffChain.Scripts qualified as OffchainScripts
-import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buildLedgerShapedScriptContext, buildScriptContext, mkAdaValue, withAddress, withFee, withInlineDatum, withInput, withMint, withMintingScript, withOutRef, withOutput, withRedeemer, withRewardingScript, withScriptInput, withSigner, withTxOutAddress, withTxOutInlineDatum, withTxOutValue, withValue, withWithdrawal)
+import Data.List (elemIndex, sort, sortBy)
+import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buildLedgerShapedScriptContext, compareCredentialLedger, buildScriptContext, mkAdaValue, withAddress, withFee, withInlineDatum, withInput, withMint, withMintingScript, withOutRef, withOutput, withRedeemer, withRewardingScript, withScriptInput, withSigner, withTxOutAddress, withTxOutInlineDatum, withTxOutValue, withValue, withWithdrawal)
 import SmartTokens.Contracts.AlwaysYields (palwaysSucceed)
 import SmartTokens.Contracts.Issuance (MintRedeemer (..), RegistrationWitness (..), mkProgrammableLogicMinting)
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (IssuanceCborHex), mkIssuanceCborHexMinting)
@@ -131,7 +133,7 @@ scenarioEnv :: Scenario.ScriptScenarioEnv
 scenarioEnv =
     Scenario.ScriptScenarioEnv
         { Scenario.sseDirectoryPolicyCS = directoryPolicyCS
-        , Scenario.sseDirectorySpendHash = ScriptHash (bs28 0x44)
+        , Scenario.sseDirectorySpendHash = directorySpendHash
         , Scenario.sseExternalAlwaysSucceedsHash = externalAlwaysSucceedsHash
         , Scenario.sseExternalAlwaysSucceedsHash2 = externalAlwaysSucceedsHash2
         , Scenario.sseGlobalCred = globalCred
@@ -160,8 +162,49 @@ maxBs28 :: BuiltinByteString
 -- credential suffices there. Seize scenarios that omit it from withdrawals will
 -- (correctly) be rejected by the global's delegation check until the seize
 -- validator is wired into those scenarios.
+-- | The seize validator's stake credential. Derived (see
+-- 'BenchmarkOnchain.PlutarchFixtureIds'), so the protocol-params datum, the
+-- base validator's parameter and the fixtures' withdrawals all name the same
+-- script.
 seizeCredBench :: Credential
-seizeCredBench = ScriptCredential (ScriptHash (bs28 0x40))
+seizeCredBench = seizeCred
+
+-- | Index of a credential in a fixture's ledger-sorted withdrawal map.
+--
+-- Withdrawals are sorted by credential, so a redeemer's witness index is a
+-- function of the credential VALUES: changing any script hash permutes the map.
+-- Computing it here is what an offchain builder does, and keeps the fixtures
+-- correct under re-derivation instead of silently pointing at the wrong entry.
+-- | Every seize fixture withdraws at exactly the seize validator and the
+-- seized policy's issuer-logic script.
+seizeIssuerWdrlIdx :: Integer
+seizeIssuerWdrlIdx = wdrlIdxOf [seizeCredBench, issuerCred] issuerCred
+
+-- | The transfer-logic script's credential (the substandard that authorises
+-- moves of the benchmarked programmable tokens).
+transferLogicCred :: Credential
+transferLogicCred = ScriptCredential transferLogicHash
+
+-- | Directory-node reference index proving a policy's membership, or the
+-- covering node (index 1) for a policy that is not registered.
+--
+-- The global validator consumes one proof per non-Ada policy in the value, in
+-- CURRENCY-SYMBOL SORTED order, so this list is a function of the policies'
+-- hashes and cannot be written out by hand.
+transferProofsFor :: [CurrencySymbol] -> [Integer]
+transferProofsFor policies = map proofFor (sort policies)
+  where
+    proofFor cs
+        | cs == programmableTransferCS = 2
+        | cs == programmableTransferCS2 = 3
+        | cs == programmableTransferCS3 = 4
+        | otherwise = 1 -- covering node: key "" < cs < tailCS
+
+wdrlIdxOf :: [Credential] -> Credential -> Integer
+wdrlIdxOf creds target =
+    case elemIndex target (sortBy compareCredentialLedger creds) of
+        Just i -> fromIntegral i
+        Nothing -> error "wdrlIdxOf: credential is not among the fixture's withdrawals"
 
 maxBs28 = bs28 0xff
 
@@ -180,13 +223,8 @@ computeRegisteredCs prefix postfix hashedParam =
 tailCS :: CurrencySymbol
 tailCS = CurrencySymbol maxBs28
 
-protocolParamsAlwaysFailHash :: ScriptHash
-protocolParamsAlwaysFailHash =
-    scriptHashFromCardanoScript (OffchainScripts.protocolParamsSpendingScript Production)
-
-issuanceAlwaysFailHash :: ScriptHash
-issuanceAlwaysFailHash =
-    scriptHashFromCardanoScript (OffchainScripts.issuanceCborHexSpendingScript Production)
+-- ('protocolParamsAlwaysFailHash' and 'issuanceAlwaysFailHash' are derived in
+-- BenchmarkOnchain.PlutarchFixtureIds alongside the rest of the deployment.)
 
 protocolParamsDatum :: ProgrammableLogicGlobalParams
 protocolParamsDatum =
@@ -427,11 +465,28 @@ globalTransferDoesNotExistCtx =
                 (PlutusTx.toBuiltinData directoryCoveringNode)
         )
 
+-- | The five policies the mixed-many input carries; their sorted order fixes
+-- the proof list.
+mixedManyPolicies :: [CurrencySymbol]
+mixedManyPolicies =
+    [ nonProgrammableCS
+    , programmableTransferCS
+    , programmableTransferCS2
+    , programmableTransferCS3
+    , nonProgrammableCS2
+    ]
+
 globalTransferMixedManyCtx :: ScriptContext
 globalTransferMixedManyCtx =
     buildLedgerShapedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData $ TransferAct [1, 2, 3, 4, 1] [1, 1, 1, 1, 1] [] 0)
+            ( PlutusTx.toBuiltinData $
+                TransferAct
+                    (transferProofsFor mixedManyPolicies)
+                    (replicate (length mixedManyPolicies) (wdrlIdxOf [globalCred, transferLogicCred] transferLogicCred))
+                    []
+                    0
+            )
             globalCred
             0
             <> withSigner signerPkh
@@ -763,7 +818,7 @@ mkGlobalSeizeCtx seizeInputCount =
         -- issuerWdrlIdx is 0, not 1: the withdrawal map is now emitted in the
         -- ledger's own Credential order (ScriptHashObj first, then ascending by
         -- hash), which puts issuerCred (0x14..) before seizeCredBench (0x40..).
-        seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 seizeInputIdxs 0 0 0
+        seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 seizeInputIdxs 0 0 seizeIssuerWdrlIdx
         seizeInputsBuilder = mconcat (map seizeInputBuilder seizeInputRefs)
         correspondingOutputsBuilder = mconcat (replicate (fromIntegral seizeInputCount) seizeCorrespondingOutputBuilder)
      in stripZeroChangeOutput $
@@ -824,7 +879,7 @@ globalSeize150Ctx =
 -- only partially seized. Clawback needs no owner authorization, so no signer.
 globalSeizeNoiseCtx :: ScriptContext
 globalSeizeNoiseCtx =
-    let seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 [0, 1] 0 0 0 -- issuerWdrlIdx 0: see mkGlobalSeizeCtx
+    let seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 [0, 1] 0 0 seizeIssuerWdrlIdx
      in stripZeroChangeOutput $
             buildLedgerShapedScriptContext
                 ( withRewardingScript
@@ -901,7 +956,7 @@ mkGlobalSeizeExternalScriptAndManyPubKeyCtx pubKeyInputCount =
                 [pubKeyInputCount, pubKeyInputCount + 1]
                 0
                 0 -- paramsRefIdx
-                0 -- issuerWdrlIdx (0 under the canonical withdrawal order)
+                seizeIssuerWdrlIdx
         pubKeyInputsBuilder = mconcat (map leadingPubKeyInputBuilder pubKeyInputIdxs)
      in buildLedgerShapedScriptContext
             ( withRewardingScript
@@ -981,7 +1036,7 @@ mkGlobalSeizeMintFamilyCtx mintValue residualValue =
         -- reference index 1 (params at 0), outputs paired from index 0, issuer
         -- withdrawal at index 0 under the canonical withdrawal order
         -- (issuerCred 0x14 sorts before seizeCredBench 0x40).
-        seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 [0] 0 0 0
+        seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 [0] 0 0 seizeIssuerWdrlIdx
         mintBuilder = maybe mempty (\v -> withMint v (PlutusTx.toBuiltinData ())) mintValue
      in buildLedgerShapedScriptContext
             ( withRewardingScript
@@ -1070,7 +1125,7 @@ directoryInitCtx =
                         <> withValue (mkAdaValue 10_000_000)
                     )
                 <> withOutput
-                    ( withTxOutAddress (scriptAddress (ScriptHash (bs28 0x44)))
+                    ( withTxOutAddress (scriptAddress (directorySpendHash))
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
                         <> withTxOutInlineDatum emptyNodeDatum
                     )
@@ -1125,18 +1180,18 @@ directoryInsertCtx =
                 <> withScriptInput
                     (PlutusTx.toBuiltinData ())
                     ( withOutRef insertNodeInRef
-                        <> withAddress (scriptAddress (ScriptHash (bs28 0x44)))
+                        <> withAddress (scriptAddress (directorySpendHash))
                         <> withValue (mkAdaValue 2_000_000 <> mkValue [(directoryPolicyCS, TokenName "", 1)])
                         <> withInlineDatum (PlutusTx.toBuiltinData coveringNode)
                     )
                 <> withPubKeyInputValue signerPkh directoryInsertFundingRef 6_000_000
                 <> withOutput
-                    ( withTxOutAddress (scriptAddress (ScriptHash (bs28 0x44)))
+                    ( withTxOutAddress (scriptAddress (directorySpendHash))
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mkValue [(directoryPolicyCS, TokenName "", 1)])
                         <> withTxOutInlineDatum (PlutusTx.toBuiltinData coveringOutput)
                     )
                 <> withOutput
-                    ( withTxOutAddress (scriptAddress (ScriptHash (bs28 0x44)))
+                    ( withTxOutAddress (scriptAddress (directorySpendHash))
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mkValue [(directoryPolicyCS, insertedToken, 1)])
                         <> withTxOutInlineDatum (PlutusTx.toBuiltinData insertedNode)
                     )
@@ -1313,6 +1368,17 @@ programmableMintTopUpCtx =
 -- (both invoked via withdrawals). Exercises both per-input authorization walks
 -- of the input aggregation, which same-owner Spend-N fixtures never do.
 -- Realistic for custodial/exchange sweep transactions.
+-- | Mixed-owner transfers register a withdrawal per script-stake owner, so the
+-- transfer-logic script sits further down the sorted withdrawal map than in the
+-- single-owner fixtures.
+mixedOwners5Wdrls :: [Credential]
+mixedOwners5Wdrls =
+    [ globalCred
+    , transferLogicCred
+    , ScriptCredential externalAlwaysSucceedsHash
+    , ScriptCredential externalAlwaysSucceedsHash2
+    ]
+
 globalTransferMixedOwners5Ctx :: ScriptContext
 globalTransferMixedOwners5Ctx =
     let ownerStakes =
@@ -1332,7 +1398,9 @@ globalTransferMixedOwners5Ctx =
         inputsBuilder = mconcat (map inputBuilder (zip [0 ..] ownerStakes))
      in buildLedgerShapedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1] [1] [] 0)
+                ( PlutusTx.toBuiltinData $
+                    TransferAct [1] [wdrlIdxOf mixedOwners5Wdrls transferLogicCred] [] 0
+                )
                 globalCred
                 0
                 <> withSigner signerPkh
