@@ -8,7 +8,7 @@ import BenchmarkOnchain.Compile (compileNoTracing)
 import BenchmarkOnchain.MainnetDexFixture
 import BenchmarkOnchain.PlutarchFixtureIds
 import BenchmarkOnchain.ScriptFixtureIds
-import BenchmarkOnchain.ScriptHelpers (bs28, mkValue, pubKeyAddress, scriptAddress, scriptAddressWithSignerStake, scriptAddressWithStakeCredential, stripZeroChangeOutput, withAuxiliaryRewardingScript, withPubKeyInputValue, withRefInputDatumValue)
+import BenchmarkOnchain.ScriptHelpers (bs28, inCurrencySymbolOrder, mkValue, pubKeyAddress, withdrawalIndexOf, scriptAddress, scriptAddressWithSignerStake, scriptAddressWithStakeCredential, stripZeroChangeOutput, withAuxiliaryRewardingScript, withPubKeyInputValue, withRefInputDatumValue)
 import BenchmarkOnchain.ScriptRunner (BenchCase, EvalKind (..), EvalSpec (..), mkBenchCase, runScriptBenchmarkWithAxes)
 import BenchmarkOnchain.ScriptScenario qualified as Scenario
 import BenchmarkOnchain.TxD29Fixture
@@ -180,6 +180,17 @@ seizeCredBench = seizeCred
 seizeIssuerWdrlIdx :: Integer
 seizeIssuerWdrlIdx = wdrlIdxOf [seizeCredBench, issuerCred] issuerCred
 
+-- | Withdrawals registered by every mint/burn fixture: the global validator,
+-- the token's transfer logic, and its minting logic.
+mintFixtureWdrls :: [Credential]
+mintFixtureWdrls = [globalCred, transferLogicCred, ScriptCredential mintingLogicHash]
+
+mintingLogicWdrlIdx :: Integer
+mintingLogicWdrlIdx = withdrawalIndexOf mintFixtureWdrls (ScriptCredential mintingLogicHash)
+
+mintGlobalWdrlIdx :: Integer
+mintGlobalWdrlIdx = withdrawalIndexOf mintFixtureWdrls globalCred
+
 -- | The transfer-logic script's credential (the substandard that authorises
 -- moves of the benchmarked programmable tokens).
 transferLogicCred :: Credential
@@ -201,10 +212,7 @@ transferProofsFor policies = map proofFor (sort policies)
         | otherwise = 1 -- covering node: key "" < cs < tailCS
 
 wdrlIdxOf :: [Credential] -> Credential -> Integer
-wdrlIdxOf creds target =
-    case elemIndex target (sortBy compareCredentialLedger creds) of
-        Just i -> fromIntegral i
-        Nothing -> error "wdrlIdxOf: credential is not among the fixture's withdrawals"
+wdrlIdxOf = withdrawalIndexOf
 
 maxBs28 = bs28 0xff
 
@@ -1235,7 +1243,7 @@ programmableMintCtx =
 
 programmableBurnCtx :: ScriptContext
 programmableBurnCtx =
-    let scriptRedeemer = PlutusTx.toBuiltinData (BurnOnly 2)
+    let scriptRedeemer = PlutusTx.toBuiltinData (BurnOnly mintingLogicWdrlIdx)
         burnValue = mkValue [(mintingPolicyCS, TokenName "0c", -1)]
         remainingValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
         burnInputValue = mkAdaValue 12_000_000 <> mkValue [(mintingPolicyCS, TokenName "0c", 2)]
@@ -1285,7 +1293,7 @@ burnRedeemInputBuilder idx =
 -- is the 1-input degenerate case.
 programmableBurnRedeem10Ctx :: ScriptContext
 programmableBurnRedeem10Ctx =
-    let scriptRedeemer = PlutusTx.toBuiltinData (BurnOnly 2)
+    let scriptRedeemer = PlutusTx.toBuiltinData (BurnOnly mintingLogicWdrlIdx)
         burnValue = mkValue [(mintingPolicyCS, TokenName "0c", -10)]
         remainingValue = mkValue [(mintingPolicyCS, TokenName "0c", 10)]
         globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [1] [Member] 0
@@ -1322,7 +1330,7 @@ programmableBurnRedeem10Ctx =
 -- mint delta).
 programmableMintTopUpCtx :: ScriptContext
 programmableMintTopUpCtx =
-    let scriptRedeemer = PlutusTx.toBuiltinData (DelegateTransfer 2 0 1 0)
+    let scriptRedeemer = PlutusTx.toBuiltinData (DelegateTransfer mintingLogicWdrlIdx 0 1 mintGlobalWdrlIdx)
         mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 5)]
         existingValue = mkValue [(mintingPolicyCS, TokenName "0c", 5)]
         globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [1] [Member] 0
@@ -1539,6 +1547,26 @@ issuanceMintCtx =
 -- - 1 pubkey input that is consumed entirely as fees
 -- - 16 request outputs at programmableLogicBase with pubkey stake credentials
 -- - 1 pool continuation output carrying the pool state NFT
+-- | The mainnet-DEX transactions register a withdrawal per DEX stake script in
+-- addition to the global validator and the token's transfer logic.
+mainnetDexWdrls :: [Credential]
+mainnetDexWdrls =
+    [ globalCred
+    , transferLogicCred
+    , ScriptCredential externalAlwaysSucceedsHash
+    , ScriptCredential externalAlwaysSucceedsHash2
+    ]
+
+mainnetDexTransferWdrlIdx :: Integer
+mainnetDexTransferWdrlIdx = withdrawalIndexOf mainnetDexWdrls transferLogicCred
+
+-- | The pool leg carries the registered NIGHT policy (its directory node is
+-- reference input 2) and the unregistered pool-state policy (covered by the
+-- origin node at reference input 1); the swap leg carries NIGHT only.
+mainnetDexPoolProofs :: [Integer]
+mainnetDexPoolProofs =
+    inCurrencySymbolOrder [(nonProgrammableCS, 1), (programmableTransferCS, 2)]
+
 mainnetDexSwapStakeCred :: Credential
 mainnetDexSwapStakeCred = ScriptCredential externalAlwaysSucceedsHash
 
@@ -1633,7 +1661,13 @@ mainnetDexGlobalTransferCtx =
                         -- nonProgrammableCS (0x1a) then programmableTransferCS (0x1b).
                         -- So proof[0]=1 (covering/does-not-exist for 0x1a) and
                         -- proof[1]=2 (exists for the registered 0x1b node).
-                        (PlutusTx.toBuiltinData $ TransferAct [1, 2] [1, 1] [] 0)
+                        ( PlutusTx.toBuiltinData $
+                            TransferAct
+                                mainnetDexPoolProofs
+                                (replicate (length mainnetDexPoolProofs) mainnetDexTransferWdrlIdx)
+                                []
+                                0
+                        )
                         globalCred
                         0
                     <> withSigner signerPkh
@@ -1676,7 +1710,14 @@ mainnetDexBaseSpendingCtx =
 -- Tx d29c... replay fixture retained to benchmark a realistic spending path.
 txD29GlobalStakeRedeemer :: BuiltinData
 txD29GlobalStakeRedeemer =
-    PlutusTx.toBuiltinData $ TransferAct [2] [1] [] 0
+    PlutusTx.toBuiltinData $
+        TransferAct
+            [2]
+            -- This replays a real mainnet transaction, so its withdrawal
+            -- credentials are fixed observed hashes rather than derived ones.
+            [withdrawalIndexOf [txD29GlobalStakeCred, txD29TransferLogicStakeCred] txD29TransferLogicStakeCred]
+            []
+            0
 
 txD29ProtocolParamsDatumData :: BuiltinData
 txD29ProtocolParamsDatumData =

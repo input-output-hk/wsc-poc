@@ -39,7 +39,7 @@ import BenchmarkOnchain.CardanoScriptHelpers (scriptHashFromCardanoScript)
 import BenchmarkOnchain.MainnetDexFixture
 import BenchmarkOnchain.AikenFixtureIds
 import BenchmarkOnchain.ScriptFixtureIds
-import BenchmarkOnchain.ScriptHelpers (bs28, mkValue, pubKeyAddress, scriptAddress, scriptAddressWithSignerStake, scriptAddressWithStakeCredential, stripZeroChangeOutput, withAuxiliaryRewardingScript, withPubKeyInputValue, withRefInputDatumValue)
+import BenchmarkOnchain.ScriptHelpers (inCurrencySymbolOrder, bs28, mkValue, pubKeyAddress, scriptAddress, scriptAddressWithSignerStake, scriptAddressWithStakeCredential, stripZeroChangeOutput, withAuxiliaryRewardingScript, withPubKeyInputValue, withRefInputDatumValue)
 import BenchmarkOnchain.ScriptRunner (BenchCase, EvalKind (..), EvalSpec (..), mkBenchCase, runScriptBenchmarkWithAxes)
 import BenchmarkOnchain.ScriptScenario qualified as Scenario
 import BenchmarkOnchain.TxD29Fixture
@@ -545,7 +545,18 @@ globalTransferMixedManyCtx :: ScriptContext
 globalTransferMixedManyCtx =
     buildLedgerShapedScriptContext
         ( withRewardingScript
-            (aikenTransferActRedeemerData [TokenDoesNotExist 1, TokenExists 2, TokenExists 3, TokenExists 4, TokenDoesNotExist 1])
+            ( aikenTransferActRedeemerData $
+                -- One proof per non-Ada policy, consumed in canonical
+                -- currency-symbol order; with derived ids that order is
+                -- whatever blake2b says, so it is computed rather than listed.
+                inCurrencySymbolOrder
+                    [ (nonProgrammableCS, TokenDoesNotExist 1)
+                    , (programmableTransferCS, TokenExists 2)
+                    , (programmableTransferCS2, TokenExists 3)
+                    , (programmableTransferCS3, TokenExists 4)
+                    , (nonProgrammableCS2, TokenDoesNotExist 1)
+                    ]
+            )
             globalCred
             0
             <> withSigner signerPkh
