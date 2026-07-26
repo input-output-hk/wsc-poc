@@ -18,7 +18,7 @@ module BenchmarkOnchain.TxD29Fixture (
     txD29TransferLogicStakeCred,
 ) where
 
-import BenchmarkOnchain.ScriptHelpers (assetUnitHex, currencySymbolHex, hexToBuiltin, mkValue, pubKeyHashHex, scriptHashHex, txIdHex)
+import BenchmarkOnchain.ScriptHelpers (assetUnitHex, currencySymbolHex, hexToBuiltin, mkValue, pubKeyHashHex, scriptHashHex, txIdHex, withdrawalIndexOf)
 import PlutusLedgerApi.V3
 import PlutusLedgerApi.V3.MintValue (MintValue (UnsafeMintValue))
 import PlutusTx qualified
@@ -89,8 +89,18 @@ txD29RefInput1Ref = TxOutRef "bb16e777bfc4977f922a163ab90bf8415c21e4cd3800ef68a9
 txD29RefInput2Ref :: TxOutRef
 txD29RefInput2Ref = TxOutRef "d0975d3bbb024c3f0df82614ac800435f56f13a14a2480c63938a6ac385ea556" 2
 
+-- | @SpendViaGlobal@ witnessing the global validator's position in this
+-- transaction's withdrawal map. These are the observed mainnet credentials, so
+-- the index is computed from them rather than assumed.
 txD29SpendingRedeemer :: BuiltinData
-txD29SpendingRedeemer = PlutusTx.dataToBuiltinData (PlutusTx.Constr 0 [])
+txD29SpendingRedeemer =
+    PlutusTx.dataToBuiltinData
+        ( PlutusTx.Constr
+            0
+            [ PlutusTx.I
+                (withdrawalIndexOf [txD29GlobalStakeCred, txD29TransferLogicStakeCred] txD29GlobalStakeCred)
+            ]
+        )
 
 txD29TransferLogicStakeRedeemer :: BuiltinData
 txD29TransferLogicStakeRedeemer =

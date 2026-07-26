@@ -17,6 +17,7 @@ module SmartTokens.Contracts.ProgrammableLogicBase (
     absoluteToRelativeInputIdxs,
     mkSeizeActRedeemerFromAbsoluteInputIdxs,
     mkSeizeActRedeemerFromRelativeInputIdxs,
+    BaseSpendRedeemer (..),
     mkProgrammableLogicBase,
     mkProgrammableLogicGlobal,
     mkProgrammableSeize,
@@ -713,26 +714,41 @@ Security invariants:
   full invariants over the whole transaction, so authorizing either is sound.
 - The check must be credential-exact, so unrelated withdrawals cannot satisfy it.
 
-Deployment note (why this scan needs no redeemer index): the withdrawal map is
-sorted by reward-account bytes, and the global/seize validator hashes are mined
-to be lexically minimal at deployment, so their withdrawals sit at the front of
-the map and this linear scan terminates within the first entries regardless of
-how many other withdrawals a transaction carries.
+The spend witnesses WHICH of the two validators it delegates to and at WHICH
+withdrawal index, so this runs a single credential comparison at a known
+position instead of scanning. Both halves of the witness are self-validating: a
+wrong index resolves to some other credential and a wrong arm names the other
+validator, and either way the equality fails, so a dishonest witness can only
+invalidate its own transaction.
+
+The index is load-bearing rather than a micro-optimisation. The withdrawal map
+is sorted by credential, and the other withdrawal a seize transaction always
+carries is the seized token's issuer-logic script — a hash the ISSUER chooses,
+not the protocol. Whether it sorts before or after this validator's credential
+therefore decided how far the old scan walked, and that is worth roughly 4.2M
+CPU per spend, multiplied by every programmable input in the transaction.
 -}
+
+-- | Which of the two stake validators a base spend delegates to, and the index
+-- of that validator's entry in the (credential-sorted) withdrawal map.
+data BaseSpendRedeemer
+    = SpendViaGlobal Integer
+    | SpendViaSeize Integer
+    deriving (Show, Eq, Generic)
+
+PlutusTx.makeIsDataIndexed ''BaseSpendRedeemer [('SpendViaGlobal, 0), ('SpendViaSeize, 1)]
+
 mkProgrammableLogicBase :: Term s (PAsData PCredential :--> PAsData PCredential :--> PScriptContext :--> PUnit)
-mkProgrammableLogicBase = plam $ \globalCred seizeCred ctx ->
-    pmatch (pscriptContextTxInfo ctx) $ \txInfo ->
-        let wdrls :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace)))
-            wdrls = pto $ pfromData $ ptxInfo'wdrl txInfo
-            go = pfix #$ plam $ \self withdrawals' ->
-                pelimList
-                    ( \withdrawal rest ->
-                        let c = pfstBuiltin # withdrawal
-                         in (c #== globalCred) #|| (c #== seizeCred) #|| (self # rest)
-                    )
-                    (pconstant False)
-                    withdrawals'
-         in pvalidateConditions [ptraceInfoIfFalse "programmable global/seize not invoked" (go # wdrls)]
+mkProgrammableLogicBase = plam $ \globalCred seizeCred ctx -> P.do
+    PScriptContext{pscriptContext'txInfo, pscriptContext'redeemer} <- pmatch ctx
+    PTxInfo{ptxInfo'wdrl} <- pmatch pscriptContext'txInfo
+    witness <- plet $ pasConstr # pto pscriptContext'redeemer
+    let wdrls :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace)))
+        wdrls = pto $ pfromData ptxInfo'wdrl
+        claimed = pif (pfstBuiltin # witness #== pconstantInteger 0) globalCred seizeCred
+        witnessed = pfstBuiltin # (phead # (pdropList # (pasInt # (phead # (psndBuiltin # witness))) # wdrls))
+     in pvalidateConditions
+            [ptraceInfoIfFalse "programmable global/seize not invoked at the witnessed index" (witnessed #== claimed)]
 
 {- | Check that the first non-Ada policy in a ledger value matches a state-token
 currency symbol.

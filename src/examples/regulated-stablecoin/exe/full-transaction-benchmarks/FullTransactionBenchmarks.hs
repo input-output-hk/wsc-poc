@@ -59,6 +59,7 @@ import ProgrammableTokens.Test (
     productionMaxTxExBudget,
  )
 import SmartTokens.Contracts.ExampleTransferLogic (BlacklistProof (NonmembershipProof))
+import SmartTokens.Contracts.ProgrammableLogicBase (BaseSpendRedeemer (..))
 import SmartTokens.Contracts.ProgrammableLogicBase (
     ProgrammableLogicGlobalRedeemer (TransferAct, plgrMintProofs, plgrParamsRefIdx, plgrTransferProofs, plgrTransferWdrlIdxs),
  )
@@ -1181,7 +1182,20 @@ oneOutputPerInputTransferTx assetId utxoCount destCred refScripts = do
                             (WstQuery.uIn (case directoryProofNode of DirectoryProofExists node -> node; DirectoryProofDoesNotExist node -> node))
                         BuildTx.addReference (brsBase refScripts)
                         BuildTx.addReference (brsGlobal refScripts)
-                        traverse_ (\txIn -> RefScripts.spendPlutusRefWithInlineDatum txIn (brsBase refScripts) C.PlutusScriptV3 ()) txIns
+                        traverse_
+                            ( \txIn ->
+                                RefScripts.spendPlutusRefWithInlineDatumWithRedeemerFn
+                                    txIn
+                                    (brsBase refScripts)
+                                    C.PlutusScriptV3
+                                    ( \txBody ->
+                                        SpendViaGlobal
+                                            ( fromIntegral @Int @Integer
+                                                (BuildTx.findIndexWithdrawal (C.makeStakeAddress networkId globalStakeCred) txBody)
+                                            )
+                                    )
+                            )
+                            txIns
                         BuildTx.addWithdrawalWithTxBody
                             (C.makeStakeAddress networkId globalStakeCred)
                             (C.Quantity 0)

@@ -15,7 +15,7 @@ import Cardano.Api qualified as C
 import Control.Lens (over, view, (^.), _1, _2)
 import Control.Monad (unless)
 import Control.Monad.Reader (MonadReader, asks)
-import Convex.BuildTx (MonadBuildTx, TxBuilder (..), addMintWithTxBody, buildScriptWitness, mintPlutus, payToAddress, spendPlutusRefWithInlineDatum)
+import Convex.BuildTx (MonadBuildTx, TxBuilder (..), addMintWithTxBody, buildScriptWitness, mintPlutus, payToAddress, spendPlutusInlineDatumWithRedeemerFn, spendPlutusRefBaseWithRedeemerFn)
 import Convex.BuildTx qualified as BuildTx
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain, queryNetworkId)
@@ -37,6 +37,7 @@ import ProgrammableTokens.OffChain.UTxODat (UTxODat (..))
 import SmartTokens.Contracts.Issuance (MintRedeemer (..), RegistrationWitness (..))
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex)
 import SmartTokens.Contracts.ProgrammableLogicBase (
+    BaseSpendRedeemer (..),
     MintProof (..),
     ProgrammableLogicGlobalRedeemer (..),
  )
@@ -291,6 +292,13 @@ transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol director
 
         transferProofReferences _ = map (uIn . proofNodeForSymbol sortedDirectoryNodes) [programmableTokenSymbol]
 
+        -- The base validator no longer scans the withdrawal map: the spend
+        -- names the validator authorising it and where that validator's
+        -- withdrawal sits, resolved against the balanced transaction.
+        baseSpendRedeemer txBody =
+            SpendViaGlobal
+                (fromIntegral (BuildTx.findIndexWithdrawal (C.makeStakeAddress nid globalStakeCred) txBody))
+
         programmableLogicGlobalRedeemer txBody =
             TransferAct
                 { plgrTransferProofs = transferProofs txBody
@@ -311,10 +319,10 @@ transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol director
     addReferencesWithTxBody mintProofReferences
     case baseRefTxIn of
         Just baseRef -> do
-            traverse_ (\tin -> spendPlutusRefWithInlineDatum tin baseRef C.PlutusScriptV3 ()) tokenTxIns
+            traverse_ (\tin -> spendPlutusRefBaseWithRedeemerFn tin baseRef C.PlutusScriptV3 C.InlineScriptDatum baseSpendRedeemer) tokenTxIns
             BuildTx.addTxBuilder (TxBuilder $ \_ -> over (L.txInsReference . L._TxInsReferenceIso . _1) nub)
         Nothing ->
-            traverse_ (\tin -> BuildTx.spendPlutusInlineDatum tin baseSpendingScript ()) tokenTxIns
+            traverse_ (\tin -> spendPlutusInlineDatumWithRedeemerFn tin baseSpendingScript baseSpendRedeemer) tokenTxIns
     traverse_ BuildTx.addReference globalRefTxIn
     BuildTx.addWithdrawalWithTxBody -- Add the global script witness to the transaction
         (C.makeStakeAddress nid globalStakeCred)

@@ -26,8 +26,8 @@ import Convex.BuildTx (
     findIndexReference,
     findIndexSpending,
     findIndexWithdrawal,
-    spendPlutusInlineDatum,
-    spendPlutusRefWithInlineDatum,
+    spendPlutusInlineDatumWithRedeemerFn,
+    spendPlutusRefBaseWithRedeemerFn,
  )
 import Convex.CardanoApi.Lenses as L
 import Convex.Class (MonadBlockchain (queryNetworkId))
@@ -40,6 +40,7 @@ import GHC.Exts (IsList (..))
 import PlutusLedgerApi.V3 (CurrencySymbol (..))
 import ProgrammableTokens.OffChain.Env qualified as Env
 import SmartTokens.Contracts.ProgrammableLogicBase (
+    BaseSpendRedeemer (..),
     mkSeizeActRedeemerFromAbsoluteInputIdxs,
  )
 import SmartTokens.Types.PTokenDirectory (DirectorySetNode (..))
@@ -104,10 +105,17 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicy
 
     -- destStakeCred <- either (error . ("Could not unTrans credential: " <>) . show) pure $ unTransStakeCredential $ transCredential seizeDestinationCred
 
+    -- A seizure's base spends are authorised by the seize validator, so they
+    -- witness its constructor and its withdrawal position rather than leaving
+    -- the base validator to scan for either credential.
+    let baseSpendRedeemer txBody =
+            SpendViaSeize
+                (fromIntegral @Int @Integer (findIndexWithdrawal (C.makeStakeAddress nid seizeStakeCred) txBody))
+
     forM_ seizingUTxOs $ \UTxODat{uIn = seizingTxIn, uOut = seizingTxOut} -> do
         case baseRefTxIn of
-            Just baseRef -> spendPlutusRefWithInlineDatum seizingTxIn baseRef C.PlutusScriptV3 ()
-            Nothing -> spendPlutusInlineDatum seizingTxIn baseSpendingScript ()
+            Just baseRef -> spendPlutusRefBaseWithRedeemerFn seizingTxIn baseRef C.PlutusScriptV3 C.InlineScriptDatum baseSpendRedeemer
+            Nothing -> spendPlutusInlineDatumWithRedeemerFn seizingTxIn baseSpendingScript baseSpendRedeemer
         let (seizedAddr, remainingValue, seizedDatum, referenceScript) = case seizingTxOut of
                 (C.TxOut a v dat refScript) ->
                     let (_seized, other) =

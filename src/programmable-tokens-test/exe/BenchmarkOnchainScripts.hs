@@ -24,7 +24,7 @@ import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buil
 import SmartTokens.Contracts.AlwaysYields (palwaysSucceed)
 import SmartTokens.Contracts.Issuance (MintRedeemer (..), RegistrationWitness (..), mkProgrammableLogicMinting)
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (IssuanceCborHex), mkIssuanceCborHexMinting)
-import SmartTokens.Contracts.ProgrammableLogicBase (MintProof (..), ProgrammableLogicGlobalRedeemer (TransferAct), mkProgrammableLogicBase, mkProgrammableLogicGlobal, mkProgrammableSeize, mkSeizeActRedeemerFromAbsoluteInputIdxs)
+import SmartTokens.Contracts.ProgrammableLogicBase (BaseSpendRedeemer (..), MintProof (..), ProgrammableLogicGlobalRedeemer (TransferAct), mkProgrammableLogicBase, mkProgrammableLogicGlobal, mkProgrammableSeize, mkSeizeActRedeemerFromAbsoluteInputIdxs)
 import SmartTokens.Contracts.ProtocolParams (mkProtocolParametersMinting)
 import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import SmartTokens.LinkedList.MintDirectory (DirectoryNodeAction (InitDirectory, InsertDirectoryNode), mkDirectoryNodeMP)
@@ -180,6 +180,25 @@ seizeCredBench = seizeCred
 seizeIssuerWdrlIdx :: Integer
 seizeIssuerWdrlIdx = wdrlIdxOf [seizeCredBench, issuerCred] issuerCred
 
+-- | A base spend witnesses which stake validator authorises it and where that
+-- validator's withdrawal sits in the credential-sorted map. Both are derived
+-- from the fixture's own withdrawal set, so a re-derived script hash reorders
+-- the map without invalidating the witness.
+baseViaGlobalIn :: [Credential] -> BuiltinData
+baseViaGlobalIn creds = PlutusTx.toBuiltinData (SpendViaGlobal (withdrawalIndexOf creds globalCred))
+
+baseViaSeizeIn :: [Credential] -> BuiltinData
+baseViaSeizeIn creds = PlutusTx.toBuiltinData (SpendViaSeize (withdrawalIndexOf creds seizeCredBench))
+
+-- | Seize transactions withdraw at the seize validator and the seized policy's
+-- issuer-logic script; ordinary transfers at the global validator and the
+-- token's transfer logic.
+seizeFixtureWdrls :: [Credential]
+seizeFixtureWdrls = [seizeCredBench, issuerCred]
+
+transferFixtureWdrls :: [Credential]
+transferFixtureWdrls = [globalCred, transferLogicCred]
+
 -- | Withdrawals registered by every mint/burn fixture: the global validator,
 -- the token's transfer logic, and its minting logic.
 mintFixtureWdrls :: [Credential]
@@ -334,7 +353,7 @@ seizeResidualOutputValueFor n =
 seizeInputBuilder :: Integer -> ScriptContextBuilder
 seizeInputBuilder idx =
     withScriptInput
-        (PlutusTx.toBuiltinData ())
+        (baseViaSeizeIn seizeFixtureWdrls)
         ( withOutRef (TxOutRef seizeInputTxId idx)
             <> withAddress seizeInputAddr
             <> withValue seizeInputValue
@@ -390,7 +409,7 @@ baseSpendingCtx =
     let ScriptContext txInfo _ _ = globalTransferCtx
      in ScriptContext
             txInfo
-            (Redeemer (PlutusTx.toBuiltinData ()))
+            (Redeemer (baseViaGlobalIn transferFixtureWdrls))
             (SpendingScript progInputRef Nothing)
 
 globalTransferCtx :: ScriptContext
@@ -403,7 +422,7 @@ globalTransferCtx =
             <> withSigner signerPkh
             <> withAuxiliaryRewardingScript (ScriptCredential transferLogicHash) (PlutusTx.toBuiltinData ())
             <> withScriptInput
-                (PlutusTx.toBuiltinData ())
+                (baseViaGlobalIn transferFixtureWdrls)
                 ( withOutRef progInputRef
                     <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                     <> withValue
@@ -444,7 +463,7 @@ globalTransferDoesNotExistCtx =
             0
             <> withSigner signerPkh
             <> withScriptInput
-                (PlutusTx.toBuiltinData ())
+                (baseViaGlobalIn [globalCred])
                 ( withOutRef progInputRef
                     <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                     <> withValue
@@ -500,7 +519,7 @@ globalTransferMixedManyCtx =
             <> withSigner signerPkh
             <> withAuxiliaryRewardingScript (ScriptCredential transferLogicHash) (PlutusTx.toBuiltinData ())
             <> withScriptInput
-                (PlutusTx.toBuiltinData ())
+                (baseViaGlobalIn transferFixtureWdrls)
                 ( withOutRef progInputRef
                     <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                     <> withValue
@@ -576,7 +595,7 @@ transferManyInputValue =
 transferManyInputBuilder :: Integer -> ScriptContextBuilder
 transferManyInputBuilder idx =
     withScriptInput
-        (PlutusTx.toBuiltinData ())
+        (baseViaGlobalIn transferFixtureWdrls)
         ( withOutRef (TxOutRef transferManyInputTxId idx)
             <> withAddress transferManyInputAddr
             <> withValue transferManyInputValue
@@ -660,7 +679,7 @@ mkGlobalTransferManyTokensCtx tokenCount =
                 <> withSigner signerPkh
                 <> withAuxiliaryRewardingScript (ScriptCredential transferLogicHash) (PlutusTx.toBuiltinData ())
                 <> withScriptInput
-                    (PlutusTx.toBuiltinData ())
+                    (baseViaGlobalIn transferFixtureWdrls)
                     ( withOutRef manyTokensInputRef
                         <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         <> withValue (mkAdaValue 10_000_000 <> manyTokensValue)
@@ -713,7 +732,7 @@ mkGlobalTransferManyOutputsCtx outputCount =
                 <> withSigner signerPkh
                 <> withAuxiliaryRewardingScript (ScriptCredential transferLogicHash) (PlutusTx.toBuiltinData ())
                 <> withScriptInput
-                    (PlutusTx.toBuiltinData ())
+                    (baseViaGlobalIn transferFixtureWdrls)
                     ( withOutRef manyOutputsInputRef
                         <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         -- Enough ada to fund every fan-out output (outputCount x 3 ada
@@ -789,7 +808,7 @@ mkGlobalTransferManyPoliciesCtx policyCount =
                 <> withSigner signerPkh
                 <> withAuxiliaryRewardingScript (ScriptCredential transferLogicHash) (PlutusTx.toBuiltinData ())
                 <> withScriptInput
-                    (PlutusTx.toBuiltinData ())
+                    (baseViaGlobalIn transferFixtureWdrls)
                     ( withOutRef manyPoliciesInputRef
                         <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         <> withValue (mkAdaValue 10_000_000 <> manyPoliciesValue)
@@ -897,7 +916,7 @@ globalSeizeNoiseCtx =
                     <> withAuxiliaryRewardingScript issuerCred (PlutusTx.toBuiltinData ())
                     <> seizeFeeFundingBuilder
                     <> withScriptInput
-                        (PlutusTx.toBuiltinData ())
+                        (baseViaSeizeIn seizeFixtureWdrls)
                         ( withOutRef (TxOutRef seizeNoiseInputTxId 0)
                             <> withAddress seizeInputAddr
                             <> withValue
@@ -909,7 +928,7 @@ globalSeizeNoiseCtx =
                                 )
                         )
                     <> withScriptInput
-                        (PlutusTx.toBuiltinData ())
+                        (baseViaSeizeIn seizeFixtureWdrls)
                         ( withOutRef (TxOutRef seizeNoiseInputTxId 1)
                             <> withAddress seizeInputAddr
                             <> withValue
@@ -1029,7 +1048,7 @@ seizeMintFamilyInputValue =
 seizeMintFamilyInputBuilder :: ScriptContextBuilder
 seizeMintFamilyInputBuilder =
     withScriptInput
-        (PlutusTx.toBuiltinData ())
+        (baseViaSeizeIn seizeFixtureWdrls)
         ( withOutRef (TxOutRef seizeInputTxId 0)
             <> withAddress seizeInputAddr
             <> withValue seizeMintFamilyInputValue
@@ -1257,7 +1276,7 @@ programmableBurnCtx =
                     <> withAuxiliaryRewardingScript (ScriptCredential transferLogicHash) (PlutusTx.toBuiltinData ())
                     <> withAuxiliaryRewardingScript (ScriptCredential mintingLogicHash) scriptRedeemer
                     <> withScriptInput
-                        (PlutusTx.toBuiltinData ())
+                        (baseViaGlobalIn mintFixtureWdrls)
                         ( withOutRef programmableBurnInputRef
                             <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                             <> withValue burnInputValue
@@ -1281,7 +1300,7 @@ programmableBurnCtx =
 burnRedeemInputBuilder :: Integer -> ScriptContextBuilder
 burnRedeemInputBuilder idx =
     withScriptInput
-        (PlutusTx.toBuiltinData ())
+        (baseViaGlobalIn mintFixtureWdrls)
         ( withOutRef (TxOutRef burnRedeemInputTxId idx)
             <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
             <> withValue (mkAdaValue 3_000_000 <> mkValue [(mintingPolicyCS, TokenName "0c", 2)])
@@ -1343,7 +1362,7 @@ programmableMintTopUpCtx =
                     <> withAuxiliaryRewardingScript (ScriptCredential transferLogicHash) (PlutusTx.toBuiltinData ())
                     <> withAuxiliaryRewardingScript (ScriptCredential mintingLogicHash) scriptRedeemer
                     <> withScriptInput
-                        (PlutusTx.toBuiltinData ())
+                        (baseViaGlobalIn mintFixtureWdrls)
                         ( withOutRef topUpInputRef
                             <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                             <> withValue (mkAdaValue 8_000_000 <> existingValue)
@@ -1398,7 +1417,7 @@ globalTransferMixedOwners5Ctx =
             ]
         inputBuilder (idx, stakeCred) =
             withScriptInput
-                (PlutusTx.toBuiltinData ())
+                (baseViaGlobalIn mixedOwners5Wdrls)
                 ( withOutRef (TxOutRef mixedOwnersInputTxId idx)
                     <> withAddress (scriptAddressWithStakeCredential progLogicBaseHash stakeCred)
                     <> withValue (mkAdaValue 3_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 1)])
@@ -1584,7 +1603,7 @@ mainnetDexPoolAddr =
 mainnetDexSwapInputBuilder :: Integer -> Integer -> ScriptContextBuilder
 mainnetDexSwapInputBuilder idx nightQty =
     withScriptInput
-        (PlutusTx.toBuiltinData ())
+        (baseViaGlobalIn mainnetDexWdrls)
         ( withOutRef (TxOutRef mainnetDexSwapInputTxId idx)
             <> withAddress mainnetDexSwapInputAddr
             <> withValue
@@ -1596,7 +1615,7 @@ mainnetDexSwapInputBuilder idx nightQty =
 mainnetDexPoolInputBuilder :: ScriptContextBuilder
 mainnetDexPoolInputBuilder =
     withScriptInput
-        (PlutusTx.toBuiltinData ())
+        (baseViaGlobalIn mainnetDexWdrls)
         ( withOutRef mainnetDexPoolInputRef
             <> withAddress mainnetDexPoolAddr
             <> withValue
@@ -1701,7 +1720,7 @@ mainnetDexBaseSpendingCtx =
     let ScriptContext txInfo _ _ = mainnetDexGlobalTransferCtx
      in ScriptContext
             txInfo
-            (Redeemer (PlutusTx.toBuiltinData ()))
+            (Redeemer (baseViaGlobalIn mainnetDexWdrls))
             (SpendingScript mainnetDexBaseInputRef Nothing)
 
 -- Exact transaction benchmark fixture from:
