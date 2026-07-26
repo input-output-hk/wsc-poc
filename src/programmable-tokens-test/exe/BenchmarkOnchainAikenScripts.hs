@@ -120,7 +120,11 @@ scenarioBackend =
             \env cs purposeCtx ->
                 EvalSpec
                     (EvalProgrammableMint cs)
-                    (cardanoApiScriptToScript (Aiken.aikenProgrammableLogicMintingScript (Scenario.sseProgLogicBaseCred env) (Scenario.sseDirectoryPolicyCS env) (ScriptCredential (Scenario.sseMintingLogicHash env)) (Scenario.sseGlobalCred env)))
+                    -- registry_node_cs is the policy the programmable-token
+                    -- fixtures mint their registry nodes under (directoryNodeCS);
+                    -- sseDirectoryPolicyCS is the dispatch key for the separate
+                    -- directory-mint fixture family and is a different symbol.
+                    (cardanoApiScriptToScript (Aiken.aikenProgrammableLogicMintingScript (Scenario.sseProgLogicBaseCred env) directoryNodeCS (ScriptCredential (Scenario.sseMintingLogicHash env)) (Scenario.sseGlobalCred env)))
                     (aikenMintArgs purposeCtx)
         , Scenario.ssbProtocolParamsMintSpec =
             \env cs purposeCtx ->

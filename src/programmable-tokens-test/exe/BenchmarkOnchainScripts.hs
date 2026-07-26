@@ -114,7 +114,10 @@ scenarioBackend =
                 EvalSpec
                     (EvalProgrammableMint cs)
                     (compileNoTracing mkProgrammableLogicMinting)
-                    [toData (Scenario.sseProgLogicBaseCred env), toData (Scenario.sseMintingLogicHash env), toData purposeCtx]
+                    -- First parameter is the protocol-params currency symbol: the
+                    -- base/global/seize/directory credentials are read from that
+                    -- NFT-authenticated datum, not applied individually.
+                    [toData (Scenario.sseProtocolParamsCS env), toData (Scenario.sseMintingLogicHash env), toData purposeCtx]
         , Scenario.ssbProtocolParamsMintSpec =
             \env cs purposeCtx ->
                 EvalSpec
