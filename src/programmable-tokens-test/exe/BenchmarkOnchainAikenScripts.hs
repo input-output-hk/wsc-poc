@@ -20,7 +20,7 @@ import PlutusTx qualified
 import PlutusTx.Builtins qualified as BI
 import ProgrammableTokens.OffChain.AikenProgrammableTokenScripts qualified as Aiken
 import ProgrammableTokens.OffChain.Scripts qualified as OffchainScripts
-import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buildBalancedScriptContext, mkAdaValue, withAddress, withFee, withInlineDatum, withInput, withMint, withMintingScript, withOutRef, withOutput, withRedeemer, withRewardingScript, withScriptInput, withSigner, withTxOutAddress, withTxOutInlineDatum, withTxOutValue, withValue, withWithdrawal)
+import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buildBalancedScriptContext, buildLedgerShapedScriptContext, mkAdaValue, withAddress, withFee, withInlineDatum, withInput, withMint, withMintingScript, withOutRef, withOutput, withRedeemer, withRewardingScript, withScriptInput, withSigner, withTxOutAddress, withTxOutInlineDatum, withTxOutValue, withValue, withWithdrawal)
 import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import SmartTokens.Types.Constants (issuanceCborHexToken, protocolParamsToken)
 
@@ -981,6 +981,108 @@ globalSeize1ExternalScript50PubKeyCtx :: ScriptContext
 globalSeize1ExternalScript50PubKeyCtx =
     mkGlobalSeizeExternalScriptAndManyPubKeyCtx manyPubKeyInputCount
 
+-- Seize x mint/burn family -----------------------------------------------
+--
+-- Twin of the Plutarch-side fixture family (see the long note in
+-- BenchmarkOnchainScripts.hs). Same seized policy, same seized quantities, same
+-- input set (one programmable-logic-base seize input holding 2x "0c" plus one
+-- pubkey fee-funding input), same three outputs (paired continuation, residual
+-- at the base credential, pubkey change), same reference inputs at the same
+-- indices, same mint field and same residual token map per row — and the same
+-- 'buildLedgerShapedScriptContext' entry point, so both harnesses measure the
+-- identical ledger-valid transaction and only the validator differs.
+seizeMintFamilyInputValue :: Value
+seizeMintFamilyInputValue =
+    mkAdaValue 3_000_000
+        <> mkValue [(programmableTransferCS, TokenName "0c", 2)]
+
+seizeMintFamilyInputBuilder :: ScriptContextBuilder
+seizeMintFamilyInputBuilder =
+    withScriptInput
+        (PlutusTx.toBuiltinData ())
+        ( withOutRef (TxOutRef seizeInputTxId 0)
+            <> withAddress seizeInputAddr
+            <> withValue seizeMintFamilyInputValue
+        )
+
+-- | Ada that funds the fee and the residual output's min-UTxO ada. It cannot
+-- come out of the seized input: the third-party act requires every non-seized
+-- policy — ada included — to be preserved across each input/output pair.
+seizeMintFamilyFeeFundingBuilder :: ScriptContextBuilder
+seizeMintFamilyFeeFundingBuilder =
+    withPubKeyInputValue signerPkh seizeFeeFundingRef 10_000_000
+
+-- | @Nothing@ = no mint field at all (the SeizeOnly row); @Just v@ = mint @v@,
+-- always under the seized policy.
+mkGlobalSeizeMintFamilyCtx :: Maybe Value -> Value -> ScriptContext
+mkGlobalSeizeMintFamilyCtx mintValue residualValue =
+    let seizeRedeemer = aikenThirdPartyActRedeemerData 1 0
+        mintBuilder = maybe mempty (\v -> withMint v (PlutusTx.toBuiltinData ())) mintValue
+     in buildLedgerShapedScriptContext
+            ( withRewardingScript
+                (PlutusTx.toBuiltinData seizeRedeemer)
+                globalCred
+                0
+                <> withAuxiliaryRewardingScript issuerCred (PlutusTx.toBuiltinData ())
+                <> mintBuilder
+                <> seizeMintFamilyFeeFundingBuilder
+                <> seizeMintFamilyInputBuilder
+                -- withOutput prepends: composing the residual first lands the
+                -- final tx-output order at [paired-with-input, residual, change].
+                <> withOutput
+                    ( withTxOutAddress seizeInputAddr
+                        <> withTxOutValue residualValue
+                    )
+                <> withOutput
+                    ( withTxOutAddress seizeInputAddr
+                        <> withTxOutValue seizeCorrespondingOutputValue
+                    )
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    protocolParamsDatum
+                <> withRefInputDatumValue
+                    dirNodeRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    directoryProgrammableNode
+            )
+
+globalSeizeOnlyCtx :: ScriptContext
+globalSeizeOnlyCtx =
+    mkGlobalSeizeMintFamilyCtx
+        Nothing
+        (mkValue [(programmableTransferCS, TokenName "0c", 2)])
+
+globalSeizeAndBurnCtx :: ScriptContext
+globalSeizeAndBurnCtx =
+    mkGlobalSeizeMintFamilyCtx
+        (Just (mkValue [(programmableTransferCS, TokenName "0c", -1)]))
+        (mkValue [(programmableTransferCS, TokenName "0c", 1)])
+
+globalSeizeAndMintCtx :: ScriptContext
+globalSeizeAndMintCtx =
+    mkGlobalSeizeMintFamilyCtx
+        (Just (mkValue [(programmableTransferCS, TokenName "0c", 2)]))
+        (mkValue [(programmableTransferCS, TokenName "0c", 4)])
+
+globalSeizeMintAndBurnCtx :: ScriptContext
+globalSeizeMintAndBurnCtx =
+    mkGlobalSeizeMintFamilyCtx
+        ( Just
+            ( mkValue
+                [ (programmableTransferCS, TokenName "0c", -1)
+                , (programmableTransferCS, TokenName "0d", 2)
+                ]
+            )
+        )
+        ( mkValue
+            [ (programmableTransferCS, TokenName "0c", 1)
+            , (programmableTransferCS, TokenName "0d", 2)
+            ]
+        )
+
 directoryInitCtx :: ScriptContext
 directoryInitCtx =
     let mintValue = mkValue [(directoryPolicyCS, TokenName "", 1)]
@@ -1772,6 +1874,30 @@ benchCases =
         (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
         (aikenRewardArgs globalSeize1ExternalScript50PubKeyCtx)
         globalSeize1ExternalScript50PubKeyCtx
+    , mkAikenCase
+        "programmableLogicGlobal.SeizeAct1.SeizeOnly"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalSeizeOnlyCtx)
+        globalSeizeOnlyCtx
+    , mkAikenCase
+        "programmableLogicGlobal.SeizeAct1.SeizeAndBurn"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalSeizeAndBurnCtx)
+        globalSeizeAndBurnCtx
+    , mkAikenCase
+        "programmableLogicGlobal.SeizeAct1.SeizeAndMint"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalSeizeAndMintCtx)
+        globalSeizeAndMintCtx
+    , mkAikenCase
+        "programmableLogicGlobal.SeizeAct1.SeizeMintAndBurn"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalSeizeMintAndBurnCtx)
+        globalSeizeMintAndBurnCtx
     , mkAikenCase
         "programmableLogicGlobal.SeizeAct5"
         (EvalGlobalReward globalCred)

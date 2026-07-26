@@ -931,6 +931,123 @@ globalSeize1ExternalScript50PubKeyCtx :: ScriptContext
 globalSeize1ExternalScript50PubKeyCtx =
     mkGlobalSeizeExternalScriptAndManyPubKeyCtx manyPubKeyInputCount
 
+-- Seize x mint/burn family -----------------------------------------------
+--
+-- One parametric fixture, four rows: the ONLY things that vary across
+-- @SeizeOnly@ / @SeizeAndBurn@ / @SeizeAndMint@ / @SeizeMintAndBurn@ are the
+-- @txInfoMint@ field and the residual output's token map. Everything else —
+-- input set, output count, addresses, reference inputs, withdrawals, redeemer
+-- indices — is byte-identical, and the Aiken harness builds the same shape with
+-- the same builder, so a row-to-row ratio isolates exactly the cost of handling
+-- a mint/burn on the seize path.
+--
+-- Accounting the fixtures are pinned to (ProgrammableLogicBase.hs:1492
+-- 'processThirdPartyTransfer'): the seized-policy delta of each paired
+-- input/output is summed, the seized policy's MINT token map is added to it, and
+-- the residual programmable outputs must CONTAIN the result. With one seize
+-- input holding 2x "0c":
+--
+--   SeizeOnly        delta 2 + mint  0                  => residual "0c" 2
+--   SeizeAndBurn     delta 2 + mint -1 "0c"             => residual "0c" 1
+--   SeizeAndMint     delta 2 + mint +2 "0c"             => residual "0c" 4
+--   SeizeMintAndBurn delta 2 + mint -1 "0c" / +2 "0d"   => residual "0c" 1, "0d" 2
+--
+-- Mixed mint+burn deliberately uses TWO distinct token names: a single name
+-- cannot be both minted and burned in one ledger mint field, and every required
+-- quantity is strictly positive and actually present in the residual output —
+-- Aiken's tokens.contains errors on an absent required name where the Plutarch
+-- 'ptokenPairsContain' tolerates it, so an absent name would make the two sides
+-- do different work.
+seizeMintFamilyInputValue :: Value
+seizeMintFamilyInputValue =
+    mkAdaValue 3_000_000
+        <> mkValue [(programmableTransferCS, TokenName "0c", 2)]
+
+seizeMintFamilyInputBuilder :: ScriptContextBuilder
+seizeMintFamilyInputBuilder =
+    withScriptInput
+        (PlutusTx.toBuiltinData ())
+        ( withOutRef (TxOutRef seizeInputTxId 0)
+            <> withAddress seizeInputAddr
+            <> withValue seizeMintFamilyInputValue
+        )
+
+-- | @Nothing@ = no mint field at all (the SeizeOnly row); @Just v@ = mint @v@,
+-- always under the seized policy so the seize validator's mint accounting is
+-- what is being exercised.
+mkGlobalSeizeMintFamilyCtx :: Maybe Value -> Value -> ScriptContext
+mkGlobalSeizeMintFamilyCtx mintValue residualValue =
+    let -- Same witness layout as every other seize row: directory node at
+        -- reference index 1 (params at 0), outputs paired from index 0, issuer
+        -- withdrawal at index 0 under the canonical withdrawal order
+        -- (issuerCred 0x14 sorts before seizeCredBench 0x40).
+        seizeRedeemer = mkSeizeActRedeemerFromAbsoluteInputIdxs 1 [0] 0 0 0
+        mintBuilder = maybe mempty (\v -> withMint v (PlutusTx.toBuiltinData ())) mintValue
+     in buildLedgerShapedScriptContext
+            ( withRewardingScript
+                (PlutusTx.toBuiltinData seizeRedeemer)
+                seizeCredBench
+                0
+                <> withAuxiliaryRewardingScript issuerCred (PlutusTx.toBuiltinData ())
+                <> mintBuilder
+                <> seizeFeeFundingBuilder
+                <> seizeMintFamilyInputBuilder
+                -- withOutput prepends: composing the residual first lands the
+                -- final tx-output order at [paired-with-input, residual, change].
+                <> withOutput
+                    ( withTxOutAddress seizeInputAddr
+                        <> withTxOutValue residualValue
+                    )
+                <> withOutput
+                    ( withTxOutAddress seizeInputAddr
+                        <> withTxOutValue seizeCorrespondingOutputValue
+                    )
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    (PlutusTx.toBuiltinData protocolParamsDatum)
+                <> withRefInputDatumValue
+                    dirNodeRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    (PlutusTx.toBuiltinData directoryProgrammableNode)
+            )
+
+globalSeizeOnlyCtx :: ScriptContext
+globalSeizeOnlyCtx =
+    mkGlobalSeizeMintFamilyCtx
+        Nothing
+        (mkValue [(programmableTransferCS, TokenName "0c", 2)])
+
+globalSeizeAndBurnCtx :: ScriptContext
+globalSeizeAndBurnCtx =
+    mkGlobalSeizeMintFamilyCtx
+        (Just (mkValue [(programmableTransferCS, TokenName "0c", -1)]))
+        (mkValue [(programmableTransferCS, TokenName "0c", 1)])
+
+globalSeizeAndMintCtx :: ScriptContext
+globalSeizeAndMintCtx =
+    mkGlobalSeizeMintFamilyCtx
+        (Just (mkValue [(programmableTransferCS, TokenName "0c", 2)]))
+        (mkValue [(programmableTransferCS, TokenName "0c", 4)])
+
+globalSeizeMintAndBurnCtx :: ScriptContext
+globalSeizeMintAndBurnCtx =
+    mkGlobalSeizeMintFamilyCtx
+        ( Just
+            ( mkValue
+                [ (programmableTransferCS, TokenName "0c", -1)
+                , (programmableTransferCS, TokenName "0d", 2)
+                ]
+            )
+        )
+        ( mkValue
+            [ (programmableTransferCS, TokenName "0c", 1)
+            , (programmableTransferCS, TokenName "0d", 2)
+            ]
+        )
+
 directoryInitCtx :: ScriptContext
 directoryInitCtx =
     let mintValue = mkValue [(directoryPolicyCS, TokenName "", 1)]
@@ -1577,6 +1694,30 @@ benchCases =
         mkProgrammableSeize
         [toData protocolParamsCS, toData globalSeize1ExternalScript50PubKeyCtx]
         globalSeize1ExternalScript50PubKeyCtx
+    , mkCase
+        "programmableLogicGlobal.SeizeAct1.SeizeOnly"
+        (EvalAlwaysSucceedsReward "programmableSeize" seizeCredBench)
+        mkProgrammableSeize
+        [toData protocolParamsCS, toData globalSeizeOnlyCtx]
+        globalSeizeOnlyCtx
+    , mkCase
+        "programmableLogicGlobal.SeizeAct1.SeizeAndBurn"
+        (EvalAlwaysSucceedsReward "programmableSeize" seizeCredBench)
+        mkProgrammableSeize
+        [toData protocolParamsCS, toData globalSeizeAndBurnCtx]
+        globalSeizeAndBurnCtx
+    , mkCase
+        "programmableLogicGlobal.SeizeAct1.SeizeAndMint"
+        (EvalAlwaysSucceedsReward "programmableSeize" seizeCredBench)
+        mkProgrammableSeize
+        [toData protocolParamsCS, toData globalSeizeAndMintCtx]
+        globalSeizeAndMintCtx
+    , mkCase
+        "programmableLogicGlobal.SeizeAct1.SeizeMintAndBurn"
+        (EvalAlwaysSucceedsReward "programmableSeize" seizeCredBench)
+        mkProgrammableSeize
+        [toData protocolParamsCS, toData globalSeizeMintAndBurnCtx]
+        globalSeizeMintAndBurnCtx
     , mkCase "programmableLogicGlobal.SeizeAct5" (EvalAlwaysSucceedsReward "programmableSeize" seizeCredBench) mkProgrammableSeize [toData protocolParamsCS, toData globalSeize5Ctx] globalSeize5Ctx
     , mkCase "programmableLogicGlobal.SeizeAct10" (EvalAlwaysSucceedsReward "programmableSeize" seizeCredBench) mkProgrammableSeize [toData protocolParamsCS, toData globalSeize10Ctx] globalSeize10Ctx
     , mkCase "programmableLogicGlobal.SeizeAct20" (EvalAlwaysSucceedsReward "programmableSeize" seizeCredBench) mkProgrammableSeize [toData protocolParamsCS, toData globalSeize20Ctx] globalSeize20Ctx
