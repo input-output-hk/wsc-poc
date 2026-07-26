@@ -12,12 +12,16 @@ module BenchmarkOnchain.ScriptRunner (
 
 import BenchmarkOnchain.Formatting (abbrev, budgetCpuPct, budgetCpuText, budgetMemPct, budgetMemText, formatPercent, formatUnits, indentLines, renderTable, scenarioSeparator, uniquePreservingOrder)
 import Data.Either (isRight)
-import Data.List (foldl', intercalate, sortOn)
+import Data.List (foldl', intercalate, isInfixOf, sortOn)
 import Data.ByteString.Short qualified as SBS
 import Plutarch.Evaluate (applyArguments, evalScript')
 import Plutarch.Script (Script, serialiseScript)
-import PlutusLedgerApi.V3 (Credential, CurrencySymbol, Data, ExBudget (ExBudget), ExCPU (ExCPU), ExMemory (ExMemory), ScriptContext, TxOutRef)
+import PlutusLedgerApi.V1.Value (adaSymbol, adaToken, valueOf)
+import PlutusLedgerApi.V3 (Address (Address), Credential (PubKeyCredential, ScriptCredential), CurrencySymbol, Data, ExBudget (ExBudget), ExCPU (ExCPU), ExMemory (ExMemory), Lovelace (getLovelace), ScriptContext (scriptContextTxInfo), TxInInfo (txInInfoResolved), TxInfo (..), TxOut (txOutAddress, txOutValue), TxOutRef, Value (Value, getValue))
+import PlutusLedgerApi.V3.MintValue (mintValueToMap)
+import PlutusTx.AssocMap qualified as Map
 import ProgrammableTokens.Test (productionMaxTxExBudget)
+import System.Environment (lookupEnv)
 
 data BenchCase = BenchCase
     { bcName :: String
@@ -86,8 +90,85 @@ runScriptBenchmark :: String -> [BenchCase] -> (ScriptContext -> [EvalSpec]) -> 
 runScriptBenchmark title benchCases scenarioEvalSpecsFromCtx =
     runScriptBenchmarkWithAxes title benchCases scenarioEvalSpecsFromCtx []
 
+-- | Diagnostic mode: with @BENCH_DUMP_SHAPE@ set, print one machine-readable
+-- line per benchmark case describing the SHAPE of the transaction its
+-- 'ScriptContext' encodes (fee, input/reference-input/output/withdrawal/mint/
+-- signatory counts, zero-ada outputs) instead of running the benchmark. Setting
+-- @BENCH_DUMP_DETAIL@ to a case-name substring additionally prints that case's
+-- per-input and per-output values. This exists so the Plutarch and Aiken
+-- harnesses can be proven to build the SAME transaction for each scenario name —
+-- a ratio between two structurally different transactions is meaningless. It
+-- only READS the contexts; nothing here can change a benchmark number.
+dumpShapes :: [BenchCase] -> IO ()
+dumpShapes benchCases = do
+    detailFilter <- lookupEnv "BENCH_DUMP_DETAIL"
+    mapM_ (dumpCase detailFilter) benchCases
+  where
+    dumpCase detailFilter BenchCase{bcName, bcScenarioCtx} = do
+        let txInfo = scriptContextTxInfo bcScenarioCtx
+            outs = txInfoOutputs txInfo
+            mintMap = Value (mintValueToMap (txInfoMint txInfo))
+            zeroAdaOuts = length [o | o <- outs, ada (txOutValue o) == 0]
+        putStrLn $
+            intercalate
+                "\t"
+                [ "SHAPE"
+                , bcName
+                , "fee=" <> show (getLovelace (txInfoFee txInfo))
+                , "in=" <> show (length (txInfoInputs txInfo))
+                , "ref=" <> show (length (txInfoReferenceInputs txInfo))
+                , "out=" <> show (length outs)
+                , "wdrl=" <> show (length (Map.toList (txInfoWdrl txInfo)))
+                , "mint=" <> show (assetCount mintMap)
+                , "sig=" <> show (length (txInfoSignatories txInfo))
+                , "zeroAdaOut=" <> show zeroAdaOuts
+                , "rdmr=" <> show (length (Map.toList (txInfoRedeemers txInfo)))
+                , "inAda=" <> show (sum (fmap (ada . txOutValue . txInInfoResolved) (txInfoInputs txInfo)))
+                , "outAda=" <> show (sum (fmap (ada . txOutValue) outs))
+                , -- order-sensitive shape: per-input and per-output
+                  -- "<ada>:<distinct assets>:<script|pubkey>", in tx order
+                  "inSeq=" <> intercalate "," (fmap (slot . txInInfoResolved) (txInfoInputs txInfo))
+                , "outSeq=" <> intercalate "," (fmap slot outs)
+                , "wdrlSeq=" <> intercalate "," (fmap (take 10 . drop 1 . dropWhile (/= ' ') . show . fst) (Map.toList (txInfoWdrl txInfo)))
+                ]
+        case detailFilter of
+            Just needle | needle `isInfixOf` bcName -> do
+                mapM_
+                    (\(i, txIn) -> putStrLn ("  in[" <> show i <> "] " <> renderValue (txOutValue (txInInfoResolved txIn))))
+                    (zip [0 :: Int ..] (txInfoInputs txInfo))
+                mapM_
+                    (\(i, o) -> putStrLn ("  out[" <> show i <> "] " <> renderValue (txOutValue o)))
+                    (zip [0 :: Int ..] outs)
+                putStrLn ("  mint " <> renderValue mintMap)
+            _ -> pure ()
+
+    ada v = valueOf v adaSymbol adaToken
+
+    slot o =
+        show (ada (txOutValue o))
+            <> ":"
+            <> show (assetCount (txOutValue o))
+            <> ":"
+            <> credKind (txOutAddress o)
+
+    credKind (Address (ScriptCredential _) _) = "s"
+    credKind (Address (PubKeyCredential _) _) = "p"
+
+    assetCount v =
+        length [() | (cs, inner) <- Map.toList (getValue v), (tn, _) <- Map.toList inner, (cs, tn) /= (adaSymbol, adaToken)]
+
+    renderValue v =
+        "ada=" <> show (ada v) <> " assets=" <> show (assetCount v) <> " " <> show (fmap (fmap Map.toList) (Map.toList (getValue v)))
+
 runScriptBenchmarkWithAxes :: String -> [BenchCase] -> (ScriptContext -> [EvalSpec]) -> [ScalingAxis] -> IO ()
 runScriptBenchmarkWithAxes title benchCases scenarioEvalSpecsFromCtx axes = do
+    shapeDump <- lookupEnv "BENCH_DUMP_SHAPE"
+    case shapeDump of
+        Just _ -> dumpShapes benchCases
+        Nothing -> runScriptBenchmarkWithAxes' title benchCases scenarioEvalSpecsFromCtx axes
+
+runScriptBenchmarkWithAxes' :: String -> [BenchCase] -> (ScriptContext -> [EvalSpec]) -> [ScalingAxis] -> IO ()
+runScriptBenchmarkWithAxes' title benchCases scenarioEvalSpecsFromCtx axes = do
     let ExBudget (ExCPU maxCpu) (ExMemory maxMem) = productionMaxTxExBudget
     putStrLn title
     rows <- traverse (runCase scenarioEvalSpecsFromCtx) benchCases
