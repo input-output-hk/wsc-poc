@@ -40,7 +40,7 @@ import Plutarch.Core.Context (
 import Plutarch.Core.Integrity (pisRewardingScript)
 import Plutarch.Core.Internal.Builtins (pmapData, ppairDataBuiltinRaw)
 import Plutarch.Builtin.List (pdropList)
-import Plutarch.Builtin.Value (PBuiltinValue, pinsertCoin, punValueData, punionValue, pvalueData)
+import Plutarch.Builtin.Value (PBuiltinValue, pinsertCoin, pscaleValue, punValueData, punionValue, pvalueData)
 import Plutarch.Builtin.Value qualified as BuiltinValue
 import Plutarch.Core.List
 import Plutarch.Core.Utils
@@ -1427,7 +1427,7 @@ Security invariants:
 - The accumulated delta must contain only the seized policy.
 -}
 pcheckCorrespondingThirdPartyTransferInputsAndOutputs ::
-    Term s PCurrencySymbol ->
+    Term s (PAsData PCurrencySymbol) ->
     Term s PCredential ->
     Term _ (PBuiltinList (PAsData PTxInInfo) :--> PBuiltinList (PAsData PTxOut) :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)) :--> PBool) ->
     Term s (PBuiltinList (PAsData PTxInInfo)) ->
@@ -1451,17 +1451,23 @@ pcheckCorrespondingThirdPartyTransferInputsAndOutputs programmableCS progLogicCr
                         plet (ptail # inputTxOutFields) $ \inputTxOutFieldsRest ->
                             plet (ptail # outputTxOutFields) $ \outputTxOutFieldsRest ->
                                 let outputTxOutAddress = phead # outputTxOutFields
-                                    programmableInputValue = punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # inputTxOutFieldsRest)
-                                    programmableOutputValue = punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # outputTxOutFieldsRest)
+                                    programmableInputValue = phead # inputTxOutFieldsRest
+                                    programmableOutputValue = phead # outputTxOutFieldsRest
                                     programmableInputRest = ptail # inputTxOutFieldsRest
                                     programmableOutputRest = ptail # outputTxOutFieldsRest
                                  in pif
-                                        ( pand'List
-                                            [ ptraceInfoIfFalse "corresponding output: address mismatch" $
-                                                inputTxOutAddress #== outputTxOutAddress
-                                            , ptraceInfoIfFalse "corresponding output: datum/reference script mismatch" $
-                                                programmableInputRest #== programmableOutputRest
-                                            ]
+                                        -- Address, datum and reference script must all be preserved.
+                                        -- Re-consing the address in front of the (datum, refScript)
+                                        -- suffix and comparing the two `listData`s costs one
+                                        -- `equalsData` for all three fields instead of one for the
+                                        -- address plus another for the suffix: `PEq (PBuiltinList
+                                        -- PData)` is itself `listData` + `equalsData`, so the second
+                                        -- comparison was pure overhead. `equalsData` on lists is
+                                        -- length-checking and element-wise, so this is exactly the
+                                        -- conjunction it replaces.
+                                        ( ptraceInfoIfFalse "corresponding output: address/datum/reference script mismatch" $
+                                            pdata (pcons # inputTxOutAddress # programmableInputRest)
+                                                #== pdata (pcons # outputTxOutAddress # programmableOutputRest)
                                         )
                                         ( let delta = pvalueEqualsDeltaCurrencySymbol programmableCS programmableInputValue programmableOutputValue
                                            in self # remainingInputs # (ptail # programmableOutputs) # (ptokenPairsUnionFast # delta # deltaAccumulator)
@@ -1531,7 +1537,7 @@ processThirdPartyTransfer programmableCS progLogicCred inputs progOutputs minted
                 ( \txIn remainingInputsRest ->
                     plet (ptxInInfoResolved $ pfromData txIn) $ \programmableInputResolved ->
                         pcheckCorrespondingThirdPartyTransferInputsAndOutputs
-                            programmableCS'
+                            programmableCS
                             progLogicCred
                             self
                             remainingInputsRest
@@ -1622,25 +1628,29 @@ processThirdPartyTransfer programmableCS progLogicCred inputs progOutputs minted
 -- if (valueContains outputValueAccumulator accumulatedValue)
 --    constant True
 
-{- | Negate every signed quantity in a sorted token-name map.
+{- | Does the (already-decoded, CS-sorted) currency list contain the target policy?
+Early-exits once the sorted list passes the target.
 
-High-level purpose:
-- Reuse the same token-pair representation for both positive and negative deltas.
-
-Security invariants:
-- Token names and ordering must be preserved exactly.
-- Each quantity must be negated exactly once.
+NB: the fixpoint is deliberately built *inside* the `targetCS` lambda rather than
+threaded through the recursion. Now that the difference itself witnesses
+non-contamination in the common case (see `pvalueEqualsDeltaCurrencySymbol`), this
+scan is cold: keeping `pfix` under the lambda defers its construction to the calls
+that actually happen instead of paying it once at script start-up. Threading
+`targetCS` through a top-level fixpoint measured +0.27% CPU / +0.65% memory on
+`SeizeAct1` and +2 script bytes for exactly that reason.
 -}
-pnegateTokens :: Term _ (PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)) :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
-pnegateTokens = phoistAcyclic $ pfix #$ plam $ \self tokens ->
-    pelimList
-        ( \tokenPair tokensRest ->
-            let tokenName = pfstBuiltin # tokenPair
-                tokenAmount = psndBuiltin # tokenPair
-             in pcons # (ppairDataBuiltin # tokenName # pdata (pconstantInteger 0 - pfromData tokenAmount)) # (self # tokensRest)
-        )
-        pnil
-        tokens
+pcurrencyListHasCS ::
+    forall anyOrder s.
+    Term s (PCurrencySymbol :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap anyOrder PTokenName PInteger))) :--> PBool)
+pcurrencyListHasCS = phoistAcyclic $ plam $ \targetCS ->
+    pfix #$ plam $ \self entries ->
+        pelimList
+            ( \entry rest ->
+                plet (pfromData (pfstBuiltin # entry)) $ \cs ->
+                    pif (cs #== targetCS) (pconstant True) (pif (targetCS #< cs) (pconstant False) (self # rest))
+            )
+            (pconstant False)
+            entries
 
 {- | Compare two values, require equality everywhere except one policy, and return
 that policy's signed delta.
@@ -1656,175 +1666,95 @@ Security invariants:
   results when the output gained more than the input held.
 - Zero deltas must be omitted so downstream unions and containment checks operate
   on canonical sparse maps.
+- The paired input must actually hold `progCS` (non-contamination, Aiken
+  Finding 12): a seize may not drag along unrelated programmable UTxOs.
+
+Implementation:
+The signed difference @input - output@ is computed with the PV11 / CIP-153
+builtin `Value` operations rather than a hand-rolled sorted lockstep walk. The
+builtin representation is canonical — entries are strictly ascending, inner maps
+are non-empty and no quantity is zero — so every policy on which the two values
+agree cancels to zero and is *dropped*. "Only `progCS` may differ" therefore
+becomes the structural statement "the difference has at most one entry, and that
+entry's key is `progCS`", and the delta itself falls out of the same object. The
+previous walk paid a full `equalsData` per shared policy to prove it unchanged.
+
+Cost/overflow notes:
+- `punValueData` rejects non-canonical `Data`. Ledger-supplied `TxOut` values are
+  canonical by construction (strictly ascending symbols/names, no zero or empty
+  entries), and this module already decodes `TxOut` values with the same builtin
+  in the transfer path, so this is a strengthening rather than a new failure mode.
+- Builtin quantities are signed 128-bit. Ledger quantities are int64-bounded per
+  entry, so @in - out@ is bounded by 2^64 in magnitude: neither `pscaleValue`
+  (negation) nor `punionValue` (addition) can overflow on ledger-supplied values.
+- `pvalueContains` is deliberately NOT used anywhere near this delta: it *errors*
+  on negative operands, and the seize delta is signed by construction.
 -}
--- | Does the (already-decoded, CS-sorted) currency list contain the target policy?
--- Early-exits once the sorted list passes the target. Phoisted, so the per-pair
--- seize check pays no allocation and reuses the value decode already performed by
--- `pvalueEqualsDeltaCurrencySymbol`.
-pcurrencyListHasCS ::
-    forall anyOrder s.
-    Term s (PCurrencySymbol :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap anyOrder PTokenName PInteger))) :--> PBool)
-pcurrencyListHasCS = phoistAcyclic $ plam $ \targetCS ->
-    pfix #$ plam $ \self entries ->
-        pelimList
-            ( \entry rest ->
-                plet (pfromData (pfstBuiltin # entry)) $ \cs ->
-                    pif (cs #== targetCS) (pconstant True) (pif (targetCS #< cs) (pconstant False) (self # rest))
-            )
-            (pconstant False)
-            entries
-
 pvalueEqualsDeltaCurrencySymbol ::
-    forall anyOrder anyAmount s.
-    Term s PCurrencySymbol ->
-    Term s (PAsData (PValue anyOrder anyAmount)) ->
-    Term s (PAsData (PValue anyOrder anyAmount)) ->
+    forall s.
+    Term s (PAsData PCurrencySymbol) ->
+    Term s PData ->
+    Term s PData ->
     Term s (PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
-pvalueEqualsDeltaCurrencySymbol progCS inputUTxOValue outputUTxOValue =
-    let innerInputValue :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap anyOrder PTokenName PInteger))))
-        innerInputValue = pto (pto $ pfromData inputUTxOValue)
-        innerOutputValue :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap anyOrder PTokenName PInteger))))
-        innerOutputValue = pto (pto $ pfromData outputUTxOValue)
+pvalueEqualsDeltaCurrencySymbol progCSAsData inputUTxOValue outputUTxOValue =
+    let progCSData = pforgetData progCSAsData
 
-        psubtractTokens ::
-            Term
-                _
-                ( PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))
-                    :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))
-                    :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))
-                )
-        psubtractTokens =
-            pfix #$ plam $ \self inputTokens outputTokens ->
-                pelimList
-                    ( \inputPair inputRest ->
-                        plet (pfstBuiltin # inputPair) $ \inputTokenName ->
-                            let inputTokenAmount = psndBuiltin # inputPair
-                             in pelimList
-                                    ( \outputPair outputRest ->
-                                        let outputTokenName = pfstBuiltin # outputPair
-                                            outputTokenAmount = psndBuiltin # outputPair
-                                         in pif
-                                                (pfromData inputTokenName #<= pfromData outputTokenName)
-                                                ( -- inputTokenName <= outputTokenName
-                                                  pif
-                                                    (inputTokenName #== outputTokenName)
-                                                    ( -- names equal → diff = input − output; skip if zero
-                                                      let diff = pfromData inputTokenAmount - pfromData outputTokenAmount
-                                                       in pif
-                                                            (diff #== 0)
-                                                            (self # inputRest # outputRest)
-                                                            ( pcons
-                                                                # (ppairDataBuiltin # inputTokenName # pdata diff)
-                                                                # (self # inputRest # outputRest)
-                                                            )
-                                                    )
-                                                    ( -- outputTokenName > inputTokenName → token only in input (nonzero by invariant)
-                                                      let diff = pfromData inputTokenAmount
-                                                       in pcons
-                                                            # (ppairDataBuiltin # inputTokenName # pdata diff)
-                                                            # (self # inputRest # outputTokens)
-                                                    )
-                                                )
-                                                ( -- outputTokenName < inputTokenName → token only in output (nonzero by invariant)
-                                                  let diff = pconstantInteger 0 - pfromData outputTokenAmount
-                                                   in pcons
-                                                        # (ppairDataBuiltin # outputTokenName # pdata diff)
-                                                        # (self # inputTokens # outputRest)
-                                                )
-                                    )
-                                    -- output exhausted → emit the current input token and the
-                                    -- remaining input tokens as positive (nonzero by invariant).
-                                    -- NB: must re-emit `inputPair`; returning `inputRest` alone
-                                    -- silently dropped the current token, letting a seize move it
-                                    -- out of the base address undetected.
-                                    (pcons # inputPair # inputRest)
-                                    outputTokens
-                    )
-                    -- input exhausted → emit remaining output tokens as negative (nonzero by invariant)
-                    (pnegateTokens # outputTokens)
-                    inputTokens
+        -- input - output, canonicalised by the builtin: shared policies cancel and
+        -- are dropped, so only genuinely differing policies survive.
+        diffEntries :: Term _ (PBuiltinList (PBuiltinPair PData PData))
+        diffEntries =
+            pasMap
+                #$ pvalueData
+                #$ punionValue
+                # (punValueData # inputUTxOValue)
+                # (pscaleValue # pconstantInteger (-1) # (punValueData # outputUTxOValue))
 
-        -- | Remaining currency-symbol entries when one value list is exhausted while
-        -- the other still holds entries. Because a sorted value contains each policy
-        -- at most once, the leftover is either empty or a single entry that MUST be
-        -- the seized policy (a fully added/removed progCS holding). Anything else is
-        -- value moved outside the seized policy — illegal, so `perror`. Non-recursive
-        -- (no per-pair closure allocation); `emit` maps the progCS token map to the
-        -- signed delta.
-        remainingProgCSDelta ::
-            ( Term _ (PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))) ->
-              Term _ (PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
-            ) ->
-            Term _ (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap anyOrder PTokenName PInteger)))) ->
-            Term _ (PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
-        remainingProgCSDelta emit entries =
-            pelimList
-                ( \entry rest ->
-                    pif
-                        (pfromData (pfstBuiltin # entry) #== progCS)
-                        -- exactly one leftover entry allowed (the seized policy); any
-                        -- further leftover is illegal value movement.
-                        (pelimList (\_ _ -> perror) (emit (pto (pfromData @(PMap anyOrder PTokenName PInteger) (psndBuiltin # entry)))) rest)
-                        perror
-                )
-                pnil
-                entries
+        -- Non-contamination fallback: scan the input's own currency list. Only
+        -- reached when the difference cannot already witness the holding (see
+        -- below), so the extra `unMapData` + walk is off the common path.
+        inputHoldsProgCS =
+            pcurrencyListHasCS
+                # pfromData progCSAsData
+                # punsafeCoerce
+                    @(PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
+                    (pasMap # inputUTxOValue)
 
-        -- no need to check for progCs in "everything should be same" parts
-        -- input  : |- everything should be same -| |-progCs-| |-everything should be same-|
-        -- output : |- everything should be same -| |-progCs-| |-everything should be same-|
-        goOuter ::
-            Term
-                _
-                ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap anyOrder PTokenName PInteger)))
-                    :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap anyOrder PTokenName PInteger)))
-                    :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)) -- accumulator (delta for progCS)
-                    :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))
-                )
-        goOuter = pfix #$ plam $ \self inputValuePairs outputValuePairs diffAccumulator ->
-            pelimList
-                ( \inputValueEntry inputValueEntries ->
-                    plet (pfstBuiltin # inputValueEntry) $ \inputValueEntryCS ->
-                        pelimList
-                            ( \outputValueEntry outputValueEntries ->
-                                pif
-                                    (pfromData inputValueEntryCS #== pfromData (pfstBuiltin # outputValueEntry))
-                                    ( pif
-                                        (pfromData inputValueEntryCS #== progCS)
-                                        ( pif
-                                            (pmapData # punsafeCoerce outputValueEntries #== pmapData # punsafeCoerce inputValueEntries)
-                                            (psubtractTokens # pto (pfromData (psndBuiltin # inputValueEntry)) # pto (pfromData @(PMap anyOrder PTokenName PInteger) (psndBuiltin # outputValueEntry)))
-                                            perror
-                                        )
-                                        (pif (psndBuiltin # inputValueEntry #== psndBuiltin # outputValueEntry) (self # inputValueEntries # outputValueEntries # diffAccumulator) perror)
-                                    )
-                                    ( -- Currency symbols differ: the smaller-CS side holds a policy
-                                      -- the other side lacks. That policy MUST be the seized progCS
-                                      -- (a full add/remove); any other divergence is illegal value
-                                      -- movement outside the seized policy.
-                                      pif
-                                        (pfromData inputValueEntryCS #< pfromData (pfstBuiltin # outputValueEntry))
-                                        ( pif
-                                            (pfromData inputValueEntryCS #== progCS)
-                                            (ptokenPairsUnionFast # (psubtractTokens # pto (pfromData @(PMap anyOrder PTokenName PInteger) (psndBuiltin # inputValueEntry)) # pnil) # (self # inputValueEntries # outputValuePairs # diffAccumulator))
-                                            perror
-                                        )
-                                        ( pif
-                                            (pfromData (pfstBuiltin # outputValueEntry) #== progCS)
-                                            (ptokenPairsUnionFast # (pnegateTokens # pto (pfromData @(PMap anyOrder PTokenName PInteger) (psndBuiltin # outputValueEntry))) # (self # inputValuePairs # outputValueEntries # diffAccumulator))
-                                            perror
-                                        )
-                                    )
+        notHeld :: forall a. Term s a
+        notHeld = ptraceInfoError "seize: paired input does not hold the seized policy"
+
+        movedOtherPolicy :: forall a. Term s a
+        movedOtherPolicy = ptraceInfoError "corresponding output: value changed outside the seized policy"
+     in pelimList
+            ( \entry rest ->
+                pif
+                    (pfstBuiltin # entry #== progCSData)
+                    ( pelimList
+                        -- A second differing policy is value moved outside the seize.
+                        (\_ _ -> movedOtherPolicy)
+                        ( plet
+                            ( punsafeCoerce
+                                @(PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
+                                (pasMap # (psndBuiltin # entry))
                             )
-                            (ptokenPairsUnionFast # remainingProgCSDelta id inputValuePairs # diffAccumulator)
-                            outputValuePairs
-                )
-                (ptokenPairsUnionFast # remainingProgCSDelta (\toks -> pnegateTokens # toks) outputValuePairs # diffAccumulator)
-                inputValuePairs
-     in -- Non-contamination (Aiken Finding 12): the seized input must actually hold
-        -- the seized policy. Checked here (reusing the decoded input list) so no
-        -- extra decode or per-pair allocation is needed.
-        pif
-            (pcurrencyListHasCS # progCS # innerInputValue)
-            (goOuter # innerInputValue # innerOutputValue # pnil)
-            (ptraceInfoError "seize: paired input does not hold the seized policy")
+                            $ \delta ->
+                                -- A positive quantity anywhere in the delta is itself the
+                                -- non-contamination proof: `in = out + delta` and TxOut
+                                -- quantities are non-negative, so `in > 0` for that token
+                                -- and the input demonstrably holds progCS. Testing only
+                                -- the FIRST token keeps this O(1); a seize removes tokens,
+                                -- so the honest path always takes it. A leading
+                                -- non-positive quantity is sound but inconclusive, and
+                                -- falls back to the explicit scan.
+                                pif
+                                    (pconstantInteger 0 #< pfromData (psndBuiltin # (phead # delta)))
+                                    delta
+                                    (pif inputHoldsProgCS delta notHeld)
+                        )
+                        rest
+                    )
+                    movedOtherPolicy
+            )
+            -- No difference at all: the pair is a pure pass-through, which is legal
+            -- only if the input really holds the seized policy.
+            (pif inputHoldsProgCS pnil notHeld)
+            diffEntries
