@@ -87,6 +87,15 @@ tests =
         , testCase "unit_seizeAct_partial_name_seizure_to_pubkey_rejected" unit_seizeAct_partial_name_seizure_to_pubkey_rejected
         , testCase "unit_seizeAct_full_seizure_to_base_output_succeeds" unit_seizeAct_full_seizure_to_base_output_succeeds
         , testCase "unit_seizeAct_input_without_seized_policy_rejected" unit_seizeAct_input_without_seized_policy_rejected
+        , testCase "unit_seizeAct_paired_output_stake_rewrite_rejected" unit_seizeAct_paired_output_stake_rewrite_rejected
+        , testCase "unit_seizeAct_non_seized_policy_drained_rejected" unit_seizeAct_non_seized_policy_drained_rejected
+        , testCase "unit_seizeAct_non_seized_policy_injected_rejected" unit_seizeAct_non_seized_policy_injected_rejected
+        , testCase "unit_seizeAct_paired_output_ada_changed_rejected" unit_seizeAct_paired_output_ada_changed_rejected
+        , testCase "unit_seizeAct_forged_params_ref_input_rejected" unit_seizeAct_forged_params_ref_input_rejected
+        , testCase "unit_seizeAct_forged_directory_node_rejected" unit_seizeAct_forged_directory_node_rejected
+        , testCase "unit_seizeAct_issuer_logic_not_invoked_rejected" unit_seizeAct_issuer_logic_not_invoked_rejected
+        , testCase "unit_seizeAct_issuer_wdrl_index_wrong_credential_rejected" unit_seizeAct_issuer_wdrl_index_wrong_credential_rejected
+        , testCase "unit_seizeAct_structural_pair_control_succeeds" unit_seizeAct_structural_pair_control_succeeds
         , testCase "unit_registrySpend_minting_own_key_rejected" unit_registrySpend_minting_own_key_rejected
         , testCase "unit_registrySpend_without_own_key_mint_succeeds" unit_registrySpend_without_own_key_mint_succeeds
         , testCase "unit_outputsContain_single_asset_split_across_prog_outputs_succeeds" unit_outputsContain_single_asset_split_across_prog_outputs_succeeds
@@ -1148,3 +1157,192 @@ mkGlobalSeizeDirectEscapeCtx =
                     (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
                     (PlutusTx.toBuiltinData directoryProgrammableNode)
             )
+
+-- ---------------------------------------------------------------------------
+-- P0 seize red-tests.
+--
+-- Each invariant below is enforced by a single line of the seize path, and each
+-- is easy to lose when the per-pair loop is rewritten. Before these existed the
+-- suite could be passed in full by a validator that permits outright theft:
+-- nothing varied the staking credential across a pair, nothing altered a
+-- non-seized policy, nothing forged the params or directory-node reference
+-- input, and nothing omitted the issuer withdrawal.
+-- ---------------------------------------------------------------------------
+
+-- | A policy that is NOT the seized one; it must survive a seizure untouched.
+noiseCS :: CurrencySymbol
+noiseCS = CurrencySymbol (bs28 0x77)
+
+noiseValue :: Value
+noiseValue = mkValue [(noiseCS, TokenName "n1", 7)]
+
+seizeInputValueWithNoise :: Value
+seizeInputValueWithNoise = seizeInputValue <> noiseValue
+
+-- | Protocol params at reference index 0, seized policy's directory node at 1 —
+-- the layout every seize redeemer in this module addresses.
+seizeRefInputsBuilder :: ScriptContextBuilder
+seizeRefInputsBuilder =
+    withRefInputDatumValue
+        paramRef
+        (pubKeyAddress signerPkh)
+        (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+        (PlutusTx.toBuiltinData protocolParamsDatum)
+        <> withRefInputDatumValue
+            dirNodeRef
+            (pubKeyAddress signerPkh)
+            (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+            (PlutusTx.toBuiltinData directoryProgrammableNode)
+
+-- | One seized input paired with a caller-supplied continuing output, with the
+-- standard withdrawals and reference inputs. @extra@ funds any value the paired
+-- output holds beyond the input (used by the injection case).
+mkSeizePairCtxWith :: ScriptContextBuilder -> Value -> Address -> Value -> ScriptContext
+mkSeizePairCtxWith extra inputValue outAddr outValue =
+    let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0 0 1
+     in buildBalancedScriptContext
+            ( withRewardingScript (PlutusTx.toBuiltinData seizeRedeemer) globalCred 0
+                <> withWithdrawal issuerCred 0
+                <> withScriptInput
+                    (PlutusTx.toBuiltinData ())
+                    ( withOutRef (TxOutRef "5e12" 0)
+                        <> withAddress seizeInputAddr
+                        <> withValue inputValue
+                    )
+                <> extra
+                <> withOutput (withTxOutAddress outAddr <> withTxOutValue outValue)
+                <> seizeRefInputsBuilder
+            )
+
+mkSeizePairCtx :: Value -> Address -> Value -> ScriptContext
+mkSeizePairCtx = mkSeizePairCtxWith mempty
+
+-- | Positive control for the eight fixtures below: the same one-input pairing
+-- with nothing tampered with must succeed, so a red result in any sibling test
+-- is attributable to the tampering and not to the fixture shape.
+unit_seizeAct_structural_pair_control_succeeds :: Assertion
+unit_seizeAct_structural_pair_control_succeeds =
+    assertSeizeSucceeds (mkSeizePairCtx seizeInputValue seizeInputAddr seizeInputValue)
+
+-- | The continuing output must preserve the input's FULL address. Rewriting only
+-- the staking credential keeps the payment credential (so the tokens are still
+-- "in the mini-ledger") while re-assigning ownership of every non-seized token in
+-- that UTxO to a third party — theft that a payment-credential-only check misses.
+unit_seizeAct_paired_output_stake_rewrite_rejected :: Assertion
+unit_seizeAct_paired_output_stake_rewrite_rejected =
+    assertSeizeFails $
+        mkSeizePairCtx
+            seizeInputValue
+            (scriptAddressWithSignerStake progLogicBaseHash (PubKeyHash (bs28 0x02)))
+            seizeInputValue
+
+-- | A seizure may only move the seized policy. Dropping a non-seized policy from
+-- the continuing output drains it to the transaction's change output.
+unit_seizeAct_non_seized_policy_drained_rejected :: Assertion
+unit_seizeAct_non_seized_policy_drained_rejected =
+    assertSeizeFails $
+        mkSeizePairCtx seizeInputValueWithNoise seizeInputAddr seizeInputValue
+
+-- | The mirror image: a non-seized policy must not be injected into the
+-- continuing output either, or a seizure becomes a way to force arbitrary assets
+-- into someone else's mini-ledger UTxO.
+unit_seizeAct_non_seized_policy_injected_rejected :: Assertion
+unit_seizeAct_non_seized_policy_injected_rejected =
+    assertSeizeFails $
+        mkSeizePairCtxWith
+            ( withInput
+                ( withOutRef (TxOutRef "f00d" 0)
+                    <> withAddress (pubKeyAddress signerPkh)
+                    <> withValue (mkAdaValue 2_000_000 <> noiseValue)
+                )
+            )
+            seizeInputValue
+            seizeInputAddr
+            seizeInputValueWithNoise
+
+-- | Ada is not the seized policy; the continuing output must carry the input's
+-- Ada through unchanged, or a seizure could strip the UTxO's min-Ada.
+unit_seizeAct_paired_output_ada_changed_rejected :: Assertion
+unit_seizeAct_paired_output_ada_changed_rejected =
+    assertSeizeFails $
+        mkSeizePairCtx
+            seizeInputValue
+            seizeInputAddr
+            (mkAdaValue 2_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 1)])
+
+-- | The protocol-parameters reference input is trusted for the base credential
+-- and directory policy; it is only legitimate because it carries the params NFT.
+-- A datum-identical UTxO without that NFT must not be accepted.
+unit_seizeAct_forged_params_ref_input_rejected :: Assertion
+unit_seizeAct_forged_params_ref_input_rejected =
+    assertSeizeFails $
+        let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0 0 1
+         in buildBalancedScriptContext
+                ( withRewardingScript (PlutusTx.toBuiltinData seizeRedeemer) globalCred 0
+                    <> withWithdrawal issuerCred 0
+                    <> seizeInputBuilder 0
+                    <> seizeCorrespondingOutputBuilder
+                    <> withRefInputDatumValue
+                        paramRef
+                        (pubKeyAddress signerPkh)
+                        (mkAdaValue 3_000_000)
+                        (PlutusTx.toBuiltinData protocolParamsDatum)
+                    <> withRefInputDatumValue
+                        dirNodeRef
+                        (pubKeyAddress signerPkh)
+                        (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                        (PlutusTx.toBuiltinData directoryProgrammableNode)
+                )
+
+-- | The directory node authorises WHICH policy may be seized and by whose issuer
+-- logic. Without the directory NFT the datum is attacker-authored, so any policy
+-- could be seized under any issuer credential.
+unit_seizeAct_forged_directory_node_rejected :: Assertion
+unit_seizeAct_forged_directory_node_rejected =
+    assertSeizeFails $
+        let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0 0 1
+         in buildBalancedScriptContext
+                ( withRewardingScript (PlutusTx.toBuiltinData seizeRedeemer) globalCred 0
+                    <> withWithdrawal issuerCred 0
+                    <> seizeInputBuilder 0
+                    <> seizeCorrespondingOutputBuilder
+                    <> withRefInputDatumValue
+                        paramRef
+                        (pubKeyAddress signerPkh)
+                        (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                        (PlutusTx.toBuiltinData protocolParamsDatum)
+                    <> withRefInputDatumValue
+                        dirNodeRef
+                        (pubKeyAddress signerPkh)
+                        (mkAdaValue 3_000_000)
+                        (PlutusTx.toBuiltinData directoryProgrammableNode)
+                )
+
+-- | Seizure is authorised by the seized policy's issuer-logic script; with no
+-- such withdrawal in the transaction, anyone able to build a seize redeemer could
+-- confiscate tokens.
+unit_seizeAct_issuer_logic_not_invoked_rejected :: Assertion
+unit_seizeAct_issuer_logic_not_invoked_rejected =
+    assertSeizeFails $
+        let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0 0 0
+         in buildBalancedScriptContext
+                ( withRewardingScript (PlutusTx.toBuiltinData seizeRedeemer) globalCred 0
+                    <> seizeInputBuilder 0
+                    <> seizeCorrespondingOutputBuilder
+                    <> seizeRefInputsBuilder
+                )
+
+-- | The issuer withdrawal index is a redeemer-supplied hint, so it must be
+-- checked rather than trusted: pointing it at a withdrawal that is present but is
+-- NOT the issuer-logic credential must not authorise the seizure.
+unit_seizeAct_issuer_wdrl_index_wrong_credential_rejected :: Assertion
+unit_seizeAct_issuer_wdrl_index_wrong_credential_rejected =
+    assertSeizeFails $
+        let seizeRedeemer = mkSeizeActRedeemerFromRelativeInputIdxs 1 [0] 0 0 0
+         in buildBalancedScriptContext
+                ( withRewardingScript (PlutusTx.toBuiltinData seizeRedeemer) globalCred 0
+                    <> withWithdrawal issuerCred 0
+                    <> seizeInputBuilder 0
+                    <> seizeCorrespondingOutputBuilder
+                    <> seizeRefInputsBuilder
+                )
