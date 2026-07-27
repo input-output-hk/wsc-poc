@@ -15,7 +15,7 @@ import Cardano.Api qualified as C
 import Control.Lens (over, view, (^.), _1, _2)
 import Control.Monad (unless)
 import Control.Monad.Reader (MonadReader, asks)
-import Convex.BuildTx (MonadBuildTx, TxBuilder (..), addMintWithTxBody, buildScriptWitness, mintPlutus, payToAddress, spendPlutusInlineDatumWithRedeemerFn, spendPlutusRefBaseWithRedeemerFn)
+import Convex.BuildTx (MonadBuildTx, TxBuilder (..), addMintWithTxBody, buildScriptWitness, mintPlutus, payToAddress, spendPlutusInlineDatumWithRedeemerFn, spendPlutusRefWithInlineDatumWithRedeemerFn)
 import Convex.BuildTx qualified as BuildTx
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain, queryNetworkId)
@@ -319,7 +319,7 @@ transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol director
     addReferencesWithTxBody mintProofReferences
     case baseRefTxIn of
         Just baseRef -> do
-            traverse_ (\tin -> spendPlutusRefBaseWithRedeemerFn tin baseRef C.PlutusScriptV3 C.InlineScriptDatum baseSpendRedeemer) tokenTxIns
+            traverse_ (\tin -> spendPlutusRefWithInlineDatumWithRedeemerFn tin baseRef C.PlutusScriptV3 baseSpendRedeemer) tokenTxIns
             BuildTx.addTxBuilder (TxBuilder $ \_ -> over (L.txInsReference . L._TxInsReferenceIso . _1) nub)
         Nothing ->
             traverse_ (\tin -> spendPlutusInlineDatumWithRedeemerFn tin baseSpendingScript baseSpendRedeemer) tokenTxIns

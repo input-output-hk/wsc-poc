@@ -27,7 +27,7 @@ import Convex.BuildTx (
     findIndexSpending,
     findIndexWithdrawal,
     spendPlutusInlineDatumWithRedeemerFn,
-    spendPlutusRefBaseWithRedeemerFn,
+    spendPlutusRefWithInlineDatumWithRedeemerFn,
  )
 import Convex.CardanoApi.Lenses as L
 import Convex.Class (MonadBlockchain (queryNetworkId))
@@ -114,7 +114,7 @@ seizeProgrammableToken UTxODat{uIn = paramsTxIn} seizingUTxOs seizingTokenPolicy
 
     forM_ seizingUTxOs $ \UTxODat{uIn = seizingTxIn, uOut = seizingTxOut} -> do
         case baseRefTxIn of
-            Just baseRef -> spendPlutusRefBaseWithRedeemerFn seizingTxIn baseRef C.PlutusScriptV3 C.InlineScriptDatum baseSpendRedeemer
+            Just baseRef -> spendPlutusRefWithInlineDatumWithRedeemerFn seizingTxIn baseRef C.PlutusScriptV3 baseSpendRedeemer
             Nothing -> spendPlutusInlineDatumWithRedeemerFn seizingTxIn baseSpendingScript baseSpendRedeemer
         let (seizedAddr, remainingValue, seizedDatum, referenceScript) = case seizingTxOut of
                 (C.TxOut a v dat refScript) ->
