@@ -210,6 +210,16 @@ mintingLogicWdrlIdx = withdrawalIndexOf mintFixtureWdrls (ScriptCredential minti
 mintGlobalWdrlIdx :: Integer
 mintGlobalWdrlIdx = withdrawalIndexOf mintFixtureWdrls globalCred
 
+-- | Withdrawal index of the token's transfer-logic script inside each fixture's
+-- withdrawal map. The ledger sorts withdrawals by credential, so this position
+-- is a function of the participating script hashes and must never be written
+-- out by hand: any change to a validator reshuffles the map.
+transferFixtureTransferWdrlIdx :: Integer
+transferFixtureTransferWdrlIdx = withdrawalIndexOf transferFixtureWdrls transferLogicCred
+
+mintFixtureTransferWdrlIdx :: Integer
+mintFixtureTransferWdrlIdx = withdrawalIndexOf mintFixtureWdrls transferLogicCred
+
 -- | The transfer-logic script's credential (the substandard that authorises
 -- moves of the benchmarked programmable tokens).
 transferLogicCred :: Credential
@@ -416,7 +426,7 @@ globalTransferCtx :: ScriptContext
 globalTransferCtx =
     buildLedgerShapedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData $ TransferAct [1] [1] [] 0)
+            (PlutusTx.toBuiltinData $ TransferAct [1] [transferFixtureTransferWdrlIdx] [] 0)
             globalCred
             0
             <> withSigner signerPkh
@@ -458,7 +468,7 @@ globalTransferDoesNotExistCtx :: ScriptContext
 globalTransferDoesNotExistCtx =
     buildLedgerShapedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData $ TransferAct [1] [1] [] 0)
+            (PlutusTx.toBuiltinData $ TransferAct [1] [transferFixtureTransferWdrlIdx] [] 0)
             globalCred
             0
             <> withSigner signerPkh
@@ -609,7 +619,7 @@ mkGlobalTransferManyCtx inputCount =
         qtyInSecondOutput = inputCount - qtyInFirstOutput
      in buildLedgerShapedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1, 2] [1, 1] [] 0)
+                (PlutusTx.toBuiltinData $ TransferAct [1, 2] [transferFixtureTransferWdrlIdx, transferFixtureTransferWdrlIdx] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -673,7 +683,7 @@ mkGlobalTransferManyTokensCtx tokenCount =
     let manyTokensValue = mkValue [(programmableTransferCS, manyTokensTokenName i, 2) | i <- [0 .. (tokenCount - 1)]]
      in buildLedgerShapedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1] [1] [] 0)
+                (PlutusTx.toBuiltinData $ TransferAct [1] [transferFixtureTransferWdrlIdx] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -726,7 +736,7 @@ mkGlobalTransferManyOutputsCtx outputCount =
         recipientOutputsBuilder = mconcat (replicate (fromIntegral outputCount) recipientOutputBuilder)
      in buildLedgerShapedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1] [1] [] 0)
+                (PlutusTx.toBuiltinData $ TransferAct [1] [transferFixtureTransferWdrlIdx] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -802,7 +812,7 @@ mkGlobalTransferManyPoliciesCtx policyCount =
                 ]
      in buildLedgerShapedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1 + i | i <- idxs] [1 | i <- idxs] [] 0)
+                (PlutusTx.toBuiltinData $ TransferAct [1 + i | i <- idxs] [transferFixtureTransferWdrlIdx | _ <- idxs] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -1266,7 +1276,7 @@ programmableBurnCtx =
         burnValue = mkValue [(mintingPolicyCS, TokenName "0c", -1)]
         remainingValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
         burnInputValue = mkAdaValue 12_000_000 <> mkValue [(mintingPolicyCS, TokenName "0c", 2)]
-        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [1] [Member] 0
+        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [mintFixtureTransferWdrlIdx] [Member] 0
      in stripZeroChangeOutput $
             buildLedgerShapedScriptContext
                 ( withRedeemer scriptRedeemer
@@ -1315,7 +1325,7 @@ programmableBurnRedeem10Ctx =
     let scriptRedeemer = PlutusTx.toBuiltinData (BurnOnly mintingLogicWdrlIdx)
         burnValue = mkValue [(mintingPolicyCS, TokenName "0c", -10)]
         remainingValue = mkValue [(mintingPolicyCS, TokenName "0c", 10)]
-        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [1] [Member] 0
+        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [mintFixtureTransferWdrlIdx] [Member] 0
         inputsBuilder = mconcat (map burnRedeemInputBuilder [0 .. 9])
      in stripZeroChangeOutput $
             buildLedgerShapedScriptContext
@@ -1352,7 +1362,7 @@ programmableMintTopUpCtx =
     let scriptRedeemer = PlutusTx.toBuiltinData (DelegateTransfer mintingLogicWdrlIdx 0 1 mintGlobalWdrlIdx)
         mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 5)]
         existingValue = mkValue [(mintingPolicyCS, TokenName "0c", 5)]
-        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [1] [Member] 0
+        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [mintFixtureTransferWdrlIdx] [Member] 0
      in stripZeroChangeOutput $
             buildLedgerShapedScriptContext
                 ( withRedeemer scriptRedeemer
