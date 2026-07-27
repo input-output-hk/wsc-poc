@@ -327,13 +327,17 @@ pvalueFromCred cred sigs withdrawalEntries inputs =
             (Term _ PData -> Term _ r) ->
             Term _ r ->
             Term _ r
+        -- The address fields are 'plet'-bound because BOTH the payment credential
+        -- and the staking credential are read out of them; left unshared, the
+        -- address is 'unConstrData'-ed twice for every input the transaction
+        -- carries.
         withContributing txIn k skip =
             plet (pdata (ptxInInfoResolved $ pfromData txIn)) $ \resolvedOutData ->
                 plet (psndBuiltin # (pasConstr # pforgetData resolvedOutData)) $ \resolvedOutFields ->
-                    let resolvedOutAddressData = phead # resolvedOutFields
-                        resolvedOutValueData = phead # (ptail # resolvedOutFields)
-                        paymentCredData = phead # (psndBuiltin # (pasConstr # resolvedOutAddressData))
-                        stakingCredMaybe = punsafeCoerce @(PMaybeData PStakingCredential) (phead # (ptail # (psndBuiltin # (pasConstr # resolvedOutAddressData))))
+                  plet (psndBuiltin # (pasConstr # (phead # resolvedOutFields))) $ \resolvedOutAddressFields ->
+                    let resolvedOutValueData = phead # (ptail # resolvedOutFields)
+                        paymentCredData = phead # resolvedOutAddressFields
+                        stakingCredMaybe = punsafeCoerce @(PMaybeData PStakingCredential) (phead # (ptail # resolvedOutAddressFields))
                      in pif
                             (paymentCredData #== credData)
                             ( pmatch (pjustData stakingCredMaybe) $ \case
@@ -1198,12 +1202,12 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                         )
 
             pvalidateConditions
-                [ pisRewardingScript (pdata pscriptContext'scriptInfo)
-                , ptraceInfoIfFalse "prog tokens escape" $
+                [ ptraceInfoIfFalse "prog tokens escape" $
                     poutputsContainExpectedValueAtCred
                         progLogicCred
                         (pfromData ptxInfo'outputs)
                         expectedProgrammableOutputValue
+                , pisRewardingScript (pdata pscriptContext'scriptInfo)
                 ]
         -- `SeizeAct` invariants:
         -- - Only the seized policy may change across paired programmable
@@ -1375,23 +1379,23 @@ Security invariants:
 -}
 pcheckCorrespondingThirdPartyTransferInputsAndOutputs ::
     Term s (PAsData PCurrencySymbol) ->
-    Term s PCredential ->
+    Term s PData ->
     Term _ (PBuiltinList (PAsData PTxInInfo) :--> PBuiltinList (PAsData PTxOut) :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)) :--> PBool) ->
     Term s (PBuiltinList (PAsData PTxInInfo)) ->
     Term s (PBuiltinList (PAsData PTxOut)) ->
     Term s (PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))) ->
-    Term s PTxOut ->
+    Term s PData ->
     Term s PBool
-pcheckCorrespondingThirdPartyTransferInputsAndOutputs programmableCS progLogicCred self remainingInputs programmableOutputs deltaAccumulator programmableInputResolved =
+pcheckCorrespondingThirdPartyTransferInputsAndOutputs programmableCS progLogicCredData self remainingInputs programmableOutputs deltaAccumulator programmableInputResolvedData =
     -- Classify the input by payment credential using ONLY the input address; the
     -- (more expensive) output pairing and value extraction is deferred into the
     -- base-credential branch. This keeps the per-input skip cost minimal — critical
     -- now that every transaction input is walked (e.g. many fee/pubkey inputs).
-    plet (psndBuiltin # (pasConstr # pforgetData (pdata programmableInputResolved))) $ \inputTxOutFields ->
+    plet (psndBuiltin # (pasConstr # programmableInputResolvedData)) $ \inputTxOutFields ->
         plet (phead # inputTxOutFields) $ \inputTxOutAddress ->
             let inputCredentialData = phead # (psndBuiltin # (pasConstr # inputTxOutAddress))
              in pif
-                    (inputCredentialData #== pforgetData (pdata progLogicCred))
+                    (inputCredentialData #== progLogicCredData)
                     -- Programmable (base-credential) input: pair it with the next
                     -- remaining output and accumulate the seized-policy delta.
                     ( plet (psndBuiltin # (pasConstr # pforgetData (phead # programmableOutputs))) $ \outputTxOutFields ->
@@ -1450,6 +1454,7 @@ processThirdPartyTransfer ::
     Term s (PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))) ->
     Term s PBool
 processThirdPartyTransfer programmableCS progLogicCred inputs progOutputs mintedTokens =
+    plet (pforgetData (pdata progLogicCred)) $ \progLogicCredData ->
     let
         programmableCS' = pfromData programmableCS
         checkBalanceInvariant :: Term _ (PBuiltinList (PAsData PTxOut)) -> Term _ (PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))) -> Term _ PBool
@@ -1482,15 +1487,19 @@ processThirdPartyTransfer programmableCS progLogicCred inputs progOutputs minted
         go = pfix #$ plam $ \self remainingInputs programmableOutputs deltaAccumulator ->
             pelimList
                 ( \txIn remainingInputsRest ->
-                    plet (ptxInInfoResolved $ pfromData txIn) $ \programmableInputResolved ->
-                        pcheckCorrespondingThirdPartyTransferInputsAndOutputs
-                            programmableCS
-                            progLogicCred
-                            self
-                            remainingInputsRest
-                            programmableOutputs
-                            deltaAccumulator
-                            programmableInputResolved
+                    -- The base credential arrives as a decoded 'PCredential' but is
+                    -- only ever compared as Data. Encoding it inside the checker
+                    -- repeated that 'pdata' on EVERY transaction input, including
+                    -- the fee/pubkey inputs this walk merely skips; hoisting it
+                    -- above the walk pays for it once.
+                    pcheckCorrespondingThirdPartyTransferInputsAndOutputs
+                        programmableCS
+                        progLogicCredData
+                        self
+                        remainingInputsRest
+                        programmableOutputs
+                        deltaAccumulator
+                        (pforgetData (pdata (ptxInInfoResolved $ pfromData txIn)))
                 )
                 (checkBalanceInvariant programmableOutputs (ptokenPairsUnionFast # deltaAccumulator # mintedTokens))
                 remainingInputs
