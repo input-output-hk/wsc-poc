@@ -238,62 +238,6 @@ pcurrencyPairsUnionFast = phoistAcyclic $
             csPairsB
             csPairsA
 
-{- | Drop non-positive entries from a sorted currency-pair list (and any policy
-whose token map becomes empty).
-
-High-level purpose:
-- Normalize a mint/burn-adjusted expected value so downstream containment checks
-  can assume strictly positive quantities: a fully burned asset (quantity zero)
-  or an over-burned asset (negative) requires nothing to remain at the
-  mini-ledger outputs, exactly as a `>= non-positive` lookup would conclude.
-
-Security invariants:
-- Only entries with quantity <= 0 may be removed; positive entries must be
-  preserved verbatim and in order.
-- The result must remain canonically sorted.
--}
-pfilterPositiveCurrencyPairs ::
-    Term
-        s
-        ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
-            :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
-        )
-pfilterPositiveCurrencyPairs = phoistAcyclic $
-    let filterTokens ::
-            Term
-                _
-                ( PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))
-                    :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))
-                )
-        filterTokens = pfix #$ plam $ \self tokenPairs ->
-            pelimList
-                ( \tokenPair tokenPairsRest ->
-                    pif
-                        (pfromData (psndBuiltin # tokenPair) #<= 0)
-                        (self # tokenPairsRest)
-                        (pcons # tokenPair # (self # tokenPairsRest))
-                )
-                pnil
-                tokenPairs
-     in pfix #$ plam $ \self csPairs ->
-            pelimList
-                ( \csPair csPairsRest ->
-                    plet (filterTokens # pto (pfromData (psndBuiltin # csPair))) $ \positiveTokens ->
-                        pelimList
-                            ( \_ _ ->
-                                pcons
-                                    # punsafeCoerce
-                                        ( ppairDataBuiltinRaw
-                                            # pforgetData (pfstBuiltin # csPair)
-                                            # (pmapData # punsafeCoerce positiveTokens)
-                                        )
-                                    # (self # csPairsRest)
-                            )
-                            (self # csPairsRest)
-                            positiveTokens
-                )
-                pnil
-                csPairs
 
 {- | Reverse a currency-pair list (accumulator-based, linear).
 
@@ -1236,31 +1180,43 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                         (pnull # pto (pto mintValueNoGuarantees))
                         totalProgTokenValue_
                         -- Merge the validated programmable mint/burn delta into the
-                        -- transfer value using the raw sorted currency-pair union
-                        -- rather than the PValue Semigroup (@#<>@): identical
-                        -- asset-wise sum without the PValue normalization overhead.
-                        -- The union keeps zero/negative entries (fully or over
-                        -- burned assets), so filter them out — the containment
-                        -- check requires strictly positive quantities, and a
-                        -- non-positive entry requires nothing to remain at the
-                        -- mini-ledger outputs. The filter also makes the 'Positive
-                        -- coercion below genuinely true.
+                        -- transfer value with the CIP-153 builtin union rather than
+                        -- a hand-rolled sorted walk plus a positivity filter. The
+                        -- builtin sums asset-wise and, because its representation is
+                        -- canonical, drops anything that cancels to zero — which is
+                        -- exactly what the filter existed to do for fully burned
+                        -- assets, so the 'Positive coercion below stays honest.
+                        --
+                        -- A NEGATIVE entry would survive the union, and the
+                        -- containment check errors on non-positive operands rather
+                        -- than ignoring them. That is the safe direction and it is
+                        -- unreachable: burning a programmable asset requires spending
+                        -- it, programmable assets live only at the base credential,
+                        -- so every burned unit is already counted in the transfer
+                        -- value and the sum cannot go below zero.
                         ( pcon $
                             PValue $
                                 pcon $
                                     PMap $
-                                        pfilterPositiveCurrencyPairs
-                                            #$ pcurrencyPairsUnionFast
-                                            # pto (pto totalProgTokenValue_)
-                                            # pto
-                                                ( pto
-                                                    ( pcheckMintLogicAndGetProgrammableValue
-                                                        (pfromData pdirectoryNodeCS)
-                                                        referenceInputs
-                                                        (pfromData mintProofs)
-                                                        mintValueNoGuarantees
-                                                    )
-                                                )
+                                        punsafeCoerce
+                                            ( pasMap
+                                                #$ pvalueData
+                                                #$ punionValue
+                                                # (punValueData # (pmapData # punsafeCoerce (pto (pto totalProgTokenValue_))))
+                                                # ( punValueData
+                                                        #$ pmapData
+                                                        #$ punsafeCoerce
+                                                        $ pto
+                                                            ( pto
+                                                                ( pcheckMintLogicAndGetProgrammableValue
+                                                                    (pfromData pdirectoryNodeCS)
+                                                                    referenceInputs
+                                                                    (pfromData mintProofs)
+                                                                    mintValueNoGuarantees
+                                                                )
+                                                            )
+                                                  )
+                                            )
                         )
 
             pvalidateConditions
