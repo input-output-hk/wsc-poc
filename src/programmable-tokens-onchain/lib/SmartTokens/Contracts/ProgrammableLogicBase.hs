@@ -238,36 +238,6 @@ pcurrencyPairsUnionFast = phoistAcyclic $
             csPairsB
             csPairsA
 
-
-{- | Reverse a currency-pair list (accumulator-based, linear).
-
-High-level purpose:
-- The transfer/mint proof walks cons matched policies while traversing their
-  ascending inputs, so their accumulators come out DESCENDING; this restores
-  canonical ascending order before the lists reach order-sensitive consumers.
-
-Security invariants:
-- Every downstream consumer of an aggregated programmable value — the mint-delta
-  union ('pcurrencyPairsUnionFast') and the output-containment subtract walk —
-  REQUIRES canonically sorted input; feeding a reversed list would corrupt the
-  merge and could under-require outputs. Callers must apply this reverse to any
-  cons-built accumulator before exposing it.
-- The reverse must neither drop, duplicate, nor alter entries.
--}
-preverseCurrencyPairs ::
-    Term
-        s
-        ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
-            :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
-        )
-preverseCurrencyPairs = phoistAcyclic $
-    plam $ \csPairs ->
-        ( pfix #$ plam $ \self acc remaining ->
-            pelimList (\x xs -> self # (pcons # x # acc) # xs) acc remaining
-        )
-            # pnil
-            # csPairs
-
 {- | Add two non-Ada sorted `Value`s while preserving canonical ordering.
 
 High-level purpose:
@@ -829,7 +799,10 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
         -- on a cache miss, verify the redeemer-witnessed withdrawal index instead
         -- of scanning the withdrawal map (scan-proof: O(1) per policy regardless
         -- of how many withdrawals the transaction carries).
-        go = pfix #$ plam $ \self proofs wdrlIdxs inputInnerValue actualProgrammableTokenValue cachedTransferScript ->
+        -- Matches are consed onto the RESULT of the recursive call rather than
+        -- onto a forward accumulator, so the list comes back in canonical
+        -- ascending order without a reversing pass.
+        go = pfix #$ plam $ \self proofs wdrlIdxs inputInnerValue cachedTransferScript ->
             pelimList
                 ( \csPair csPairs ->
                     P.do
@@ -858,7 +831,6 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
                                         # (ptail # proofs)
                                         # (ptail # wdrlIdxs)
                                         # csPairs
-                                        # actualProgrammableTokenValue
                                         # cachedTransferScript
                                     )
                                     perror
@@ -875,28 +847,25 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
                                         ]
                                in pif
                                     checks
-                                    ( self
+                                    ( pcons
+                                        # csPair
+                                        #$ self
                                         # (ptail # proofs)
                                         # (ptail # wdrlIdxs)
                                         # csPairs
-                                        # (pcons # csPair # actualProgrammableTokenValue)
                                         # directoryNodeDatumFTransferLogicScript
                                     )
                                     perror
                             )
                 )
-                -- The walk conses matches while traversing the ascending input
-                -- list, leaving the accumulator DESCENDING; restore canonical
-                -- order (required by the mint-delta union and the containment
-                -- subtract walk).
-                (pcon $ PValue $ pcon $ PMap $ preverseCurrencyPairs # actualProgrammableTokenValue)
+                pnil
                 inputInnerValue
-     in go
-            # proofList
-            # wdrlIdxList
-            # mapInnerList
-            # pto (pto pemptyLedgerValue)
-            # initialCachedTransferScript
+     in pcon . PValue . pcon . PMap $
+            go
+                # proofList
+                # wdrlIdxList
+                # mapInnerList
+                # initialCachedTransferScript
 
 -- | Plutarch mirror of 'MintProof' (defined here, ahead of the mint walk that
 -- consumes it, because Template Haskell splices further down split the module
@@ -939,7 +908,9 @@ pcheckMintLogicAndGetProgrammableValue ::
 pcheckMintLogicAndGetProgrammableValue directoryNodeCS refInputs proofList totalMintValue =
     let mintedEntries :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
         mintedEntries = pto (pto totalMintValue)
-        go = pfix #$ plam $ \self proofs remainingMintEntries programmableMintValue ->
+        -- Same shape as the transfer walk: cons onto the recursive result so the
+        -- entries come back ascending without a reversing pass.
+        go = pfix #$ plam $ \self proofs remainingMintEntries ->
             pelimList
                 ( \mintCsPair mintCsPairs ->
                     pelimList
@@ -948,7 +919,7 @@ pcheckMintLogicAndGetProgrammableValue directoryNodeCS refInputs proofList total
                              in pmatch (pfromData mintProofData) $ \case
                                     -- Member: count the entry, touch no node.
                                     PMember ->
-                                        self # proofsRest # mintCsPairs # (pcons # mintCsPair # programmableMintValue)
+                                        pcons # mintCsPair #$ self # proofsRest # mintCsPairs
                                     -- NonMember: authenticate a covering directory node.
                                     PNonMember nodeIdx -> P.do
                                         PTxOut{ptxOut'value = directoryNodeUTxOFValue, ptxOut'datum = directoryNodeUTxOFDatum} <-
@@ -969,18 +940,15 @@ pcheckMintLogicAndGetProgrammableValue directoryNodeCS refInputs proofList total
                                                     ]
                                         pif
                                             checks
-                                            (self # proofsRest # mintCsPairs # programmableMintValue)
+                                            (self # proofsRest # mintCsPairs)
                                             perror
                         )
                         (ptraceInfoError "mint proof missing")
                         proofs
                 )
-                -- Same reversal note as the transfer walk: the accumulator is
-                -- cons-built over the ascending mint entries, so restore
-                -- canonical order before it reaches the mint-delta union.
-                (pelimList (\_ _ -> ptraceInfoError "extra mint proof") (pcon $ PValue $ pcon $ PMap $ preverseCurrencyPairs # programmableMintValue) proofs)
+                (pelimList (\_ _ -> ptraceInfoError "extra mint proof") pnil proofs)
                 remainingMintEntries
-     in go # proofList # mintedEntries # pnil
+     in pcon . PValue . pcon . PMap $ go # proofList # mintedEntries
 
 -- | Classification of a single minted currency symbol against the directory
 -- (spec §11.3). A @Member@ proof carries no node index: the mint entry is simply
