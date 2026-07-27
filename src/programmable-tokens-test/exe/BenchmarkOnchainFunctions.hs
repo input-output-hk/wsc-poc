@@ -689,6 +689,7 @@ decisionBenchCases =
     , mkLocalIndexedCase "decision.c.local.indexed.outs020.dests02.ins50tok" (localCustodyCtx 20 2 False 50 True) [0, 1] 200
     ]
         <> dropDecisionCases
+        <> refWalkCases
 
 -- Decision benchmarks for the Van Rossem dropList adoption: the
 -- plutarch-onchain-lib tail-walk ('pdropFast', ptails30/20/10 unrolling +
@@ -708,6 +709,83 @@ dropDecisionCases =
     dropInput :: [Integer]
     dropInput = [0 .. 299]
     dropArgs n = [PlutusTx.toData (n :: Integer), PlutusTx.toData dropInput]
+
+-- Decision benchmarks for reference-input index encoding in the transfer proof
+-- walk. The walk resolves one directory node per programmable policy. With
+-- ABSOLUTE indices every lookup restarts at the head of the reference-input
+-- list, so the drops sum to 1+2+...+p; with RELATIVE indices (the encoding
+-- 'absoluteToRelativeInputIdxs' already uses for seize input indices) each
+-- lookup continues from the previous position, so the drops sum to p. Both
+-- terms end at the same element and pay the same pasInt/pasList decodes, so the
+-- difference is exactly the quadratic term.
+refWalkCases :: [BenchCase]
+refWalkCases =
+    [ mkCase ("decision.e.refwalk.absolute.p" <> pad p) pRefWalkAbsolute (walkArgs p [1 .. toInteger p])
+    | p <- walkSizes
+    ]
+        <> [ mkCase ("decision.e.refwalk.relative.p" <> pad p) pRefWalkRelative (walkArgs p (replicate p (1 :: Integer)))
+           | p <- walkSizes
+           ]
+        -- Leanest possible pair: identical loop shape and identical arity, the
+        -- ONLY difference being whether the drop starts from the closed-over
+        -- full list (absolute) or from the threaded suffix (relative).
+        <> [ mkCase ("decision.e.refwalk2.absolute.p" <> pad p) pRefWalk2Absolute (walkArgs p [1 .. toInteger p])
+           | p <- walkSizes
+           ]
+        <> [ mkCase ("decision.e.refwalk2.relative.p" <> pad p) pRefWalk2Relative (walkArgs p (replicate p (1 :: Integer)))
+           | p <- walkSizes
+           ]
+  where
+    walkSizes = [5, 10, 20, 40, 80]
+    pad n = let str = show n in replicate (3 - length str) '0' <> str
+    walkArgs :: Int -> [Integer] -> [Data]
+    walkArgs p idxs =
+        [ PlutusTx.toData idxs
+        , PlutusTx.toData [0 .. toInteger p]
+        ]
+
+pRefWalk2Absolute :: Term s (PData :--> PData :--> PData)
+pRefWalk2Absolute = plam $ \idxsData xsData ->
+    plet (pasList # xsData) $ \xs ->
+        let go = pfix #$ plam $ \self is acc ->
+                pelimList
+                    (\i is' -> self # is' # (pdropList # (pasInt # i) # xs))
+                    acc
+                    is
+         in phead # (go # (pasList # idxsData) # xs)
+
+pRefWalk2Relative :: Term s (PData :--> PData :--> PData)
+pRefWalk2Relative = plam $ \idxsData xsData ->
+    plet (pasList # xsData) $ \xs ->
+        let go = pfix #$ plam $ \self is cur ->
+                pelimList
+                    (\i is' -> self # is' # (pdropList # (pasInt # i) # cur))
+                    cur
+                    is
+         in phead # (go # (pasList # idxsData) # xs)
+
+pRefWalkAbsolute :: Term s (PData :--> PData :--> PData)
+pRefWalkAbsolute = plam $ \idxsData xsData ->
+    plet (pasList # xsData) $ \xs ->
+        let go = pfix #$ plam $ \self is acc ->
+                pelimList
+                    (\i is' -> self # is' # (phead # (pdropList # (pasInt # i) # xs)))
+                    acc
+                    is
+         in go # (pasList # idxsData) # (phead # xs)
+
+pRefWalkRelative :: Term s (PData :--> PData :--> PData)
+pRefWalkRelative = plam $ \idxsData xsData ->
+    plet (pasList # xsData) $ \xs ->
+        let go = pfix #$ plam $ \self is cur acc ->
+                pelimList
+                    ( \i is' ->
+                        plet (pdropList # (pasInt # i) # cur) $ \cur' ->
+                            self # is' # cur' # (phead # cur')
+                    )
+                    acc
+                    is
+         in go # (pasList # idxsData) # xs # (phead # xs)
 
 -- Args arrive as Data constants from the harness; both candidates pay the
 -- identical pasInt/pasList decode so the comparison isolates the drop itself.
