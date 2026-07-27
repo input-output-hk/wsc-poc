@@ -651,12 +651,22 @@ PlutusTx.makeIsDataIndexed ''BaseSpendRedeemer [('SpendViaGlobal, 0), ('SpendVia
 
 mkProgrammableLogicBase :: Term s (PAsData PCredential :--> PAsData PCredential :--> PScriptContext :--> PUnit)
 mkProgrammableLogicBase = plam $ \globalCred seizeCred ctx -> P.do
-    PScriptContext{pscriptContext'txInfo, pscriptContext'redeemer} <- pmatch ctx
-    PTxInfo{ptxInfo'wdrl} <- pmatch pscriptContext'txInfo
-    witness <- plet $ pasConstr # pto pscriptContext'redeemer
-    let wdrls :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace)))
-        wdrls = pto $ pfromData ptxInfo'wdrl
-        claimed = pif (pfstBuiltin # witness #== pconstantInteger 0) globalCred seizeCred
+    -- This validator runs once per programmable input, so its cost is multiplied
+    -- by every input in the transaction and is worth reaching for the two fields
+    -- it needs by hand. 'pmatch' on 'PScriptContext'/'PTxInfo' walks the field
+    -- list one 'tailList' at a time; one 'dropList' covers the same distance in a
+    -- single builtin call. Both shared subterms are 'plet'-bound: without that
+    -- the context's 'unConstrData' is duplicated and the hand-rolled walk is
+    -- SLOWER than 'pmatch', not faster.
+    ctxFields <- plet $ psndBuiltin # (pasConstr # pforgetData (punsafeCoerce @(PAsData PScriptContext) ctx))
+    witness <- plet $ pasConstr # (phead # (ptail # ctxFields))
+    -- Field 6 of the Plutus V3 'TxInfo' constructor is 'wdrl' (inputs, refInputs,
+    -- outputs, fee, mint, txCerts, wdrl, ...). This index is part of the V3
+    -- ledger ABI and changes only with a new script language version, which would
+    -- require a new script anyway. A wrong index is not a silent weakening: it
+    -- resolves to a field of the wrong shape and 'pasMap' errors.
+    let wdrls = pasMap # (phead # (pdropList # pconstantInteger 6 # (psndBuiltin # (pasConstr # (phead # ctxFields)))))
+        claimed = pif (pfstBuiltin # witness #== pconstantInteger 0) (pforgetData globalCred) (pforgetData seizeCred)
         witnessed = pfstBuiltin # (phead # (pdropList # (pasInt # (phead # (psndBuiltin # witness))) # wdrls))
      in pvalidateConditions
             [ptraceInfoIfFalse "programmable global/seize not invoked at the witnessed index" (witnessed #== claimed)]
