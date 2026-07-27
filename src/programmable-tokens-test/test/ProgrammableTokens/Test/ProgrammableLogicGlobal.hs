@@ -6,6 +6,7 @@ module ProgrammableTokens.Test.ProgrammableLogicGlobal (
 
 import Data.ByteString qualified as BS
 import Data.Either (isLeft, isRight)
+import Data.List (elemIndex, nub, sortBy)
 import Data.Word (Word8)
 import Plutarch.Builtin.Integer (pconstantInteger)
 import Plutarch.Core.Context (pscriptContextTxInfo)
@@ -21,7 +22,9 @@ import PlutusTx qualified
 import ProgrammableTokens.Test.ScriptContext.Builder (
     ScriptContextBuilder,
     buildBalancedScriptContext,
+    buildLedgerShapedScriptContext,
     buildScriptContext,
+    compareCredentialLedger,
     mkAdaValue,
     withAddress,
     withInlineDatum,
@@ -103,6 +106,12 @@ tests =
         , testCase "unit_outputsContain_single_asset_pubkey_output_ignored" unit_outputsContain_single_asset_pubkey_output_ignored
         , testCase "unit_outputsContain_multi_asset_succeeds" unit_outputsContain_multi_asset_succeeds
         , testCase "unit_outputsContain_multi_asset_shortfall_rejected" unit_outputsContain_multi_asset_shortfall_rejected
+        , testCase "unit_transferAct_sweep_other_owner_unsigned_rejected" unit_transferAct_sweep_other_owner_unsigned_rejected
+        , testCase "unit_transferAct_sweep_other_owner_decoy_signature_rejected" unit_transferAct_sweep_other_owner_decoy_signature_rejected
+        , testCase "unit_transferAct_all_owners_signed_succeeds" unit_transferAct_all_owners_signed_succeeds
+        , testCase "unit_transferAct_script_owner_not_invoked_rejected" unit_transferAct_script_owner_not_invoked_rejected
+        , testCase "unit_transferAct_script_owner_invoked_succeeds" unit_transferAct_script_owner_invoked_succeeds
+        , testCase "unit_transferAct_pubkey_input_outside_mini_ledger_ignored" unit_transferAct_pubkey_input_outside_mini_ledger_ignored
         , testProperty "prop_seizeAct_complete_indices_succeeds" prop_seizeAct_complete_indices_succeeds
         , testProperty "prop_seizeAct_omitted_index_rejected" prop_seizeAct_omitted_index_rejected
         ]
@@ -172,6 +181,72 @@ unit_transferAct_wrong_transfer_wdrl_index_rejected =
             (TransferAct [1] [0] [Member] 0)
             1
             1
+
+
+-- ---------------------------------------------------------------------------
+-- Mini-ledger ownership.
+--
+-- Every programmable UTxO shares ONE payment credential -- the base script --
+-- and carries its owner in the STAKING credential. The containment check the
+-- transfer path ends with only groups outputs by payment credential, so as far
+-- as containment is concerned Alice's wallet and Bob's wallet are the same
+-- place: a transaction that consumes Bob's UTxO and puts the tokens in Alice's
+-- wallet satisfies it perfectly.
+--
+-- The ONLY thing standing between Bob and that transaction is the owner witness
+-- 'pvalueFromCred' demands of every contributing input: a signature if the owner
+-- is a pubkey, an invocation of the owner's script if it is a script. These
+-- tests are that check's coverage.
+-- ---------------------------------------------------------------------------
+
+{- | Alice consumes her own UTxO and Bob's, and consolidates both into her own
+wallet, signing only for herself. This is the plain theft case and it must be
+rejected -- containment cannot see it.
+-}
+unit_transferAct_sweep_other_owner_unsigned_rejected :: Assertion
+unit_transferAct_sweep_other_owner_unsigned_rejected =
+    assertScriptFails $ mkGlobalTransferTwoOwnersCtx [signerPkh]
+
+{- | The same sweep carrying an extra signature from a key that is not Bob's.
+Guards the direction where the witness check degenerates into "the transaction
+is signed by somebody" rather than "signed by the owner of THIS input".
+-}
+unit_transferAct_sweep_other_owner_decoy_signature_rejected :: Assertion
+unit_transferAct_sweep_other_owner_decoy_signature_rejected =
+    assertScriptFails $ mkGlobalTransferTwoOwnersCtx [signerPkh, decoyPkh]
+
+{- | Control: the identical consolidation is legitimate once Bob signs too, so
+the rejections above are about the missing witness and not about consolidating
+two owners' UTxOs at all.
+-}
+unit_transferAct_all_owners_signed_succeeds :: Assertion
+unit_transferAct_all_owners_signed_succeeds =
+    assertScriptSucceeds $ mkGlobalTransferTwoOwnersCtx [signerPkh, ownerBPkh]
+
+{- | Script-owned mini-ledger UTxO (a vault, a DEX pool) spent without invoking
+the owning script. A pubkey owner is protected by a signature; a script owner is
+protected only by its script actually running, so this is the same theft as
+above against a smart-contract holder.
+-}
+unit_transferAct_script_owner_not_invoked_rejected :: Assertion
+unit_transferAct_script_owner_not_invoked_rejected =
+    assertScriptFails $ mkGlobalTransferScriptOwnerCtx False
+
+-- | Control: invoking the owning script authorizes the same spend.
+unit_transferAct_script_owner_invoked_succeeds :: Assertion
+unit_transferAct_script_owner_invoked_succeeds =
+    assertScriptSucceeds $ mkGlobalTransferScriptOwnerCtx True
+
+{- | An ordinary pubkey input -- a fee input, here also carrying programmable
+tokens that already live OUTSIDE the mini-ledger -- must be ignored, not folded
+into the value the transfer is required to keep at the base credential. Every
+real transaction has a fee input, so treating non-base inputs as contributing
+would make the transfer path unusable; and tokens already outside the
+mini-ledger are not this validator's business.
+-}
+unit_transferAct_pubkey_input_outside_mini_ledger_ignored :: Assertion
+unit_transferAct_pubkey_input_outside_mini_ledger_ignored =
+    assertScriptSucceeds mkGlobalTransferWithPubKeyInputCtx
 
 unit_transferAct_escape_to_pubkey_rejected :: Assertion
 unit_transferAct_escape_to_pubkey_rejected =
@@ -739,6 +814,146 @@ mkGlobalTransferTwoPoliciesCtx globalRedeemer mintEntries progOutputVal =
                 (pubKeyAddress signerPkh)
                 (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
                 (PlutusTx.toBuiltinData directoryProgrammableNode2)
+        )
+
+
+-- | A key that owns nothing in these fixtures.
+decoyPkh :: PubKeyHash
+decoyPkh = PubKeyHash (bs28 0x09)
+
+-- | Owner of 'progWalletB'.
+ownerBPkh :: PubKeyHash
+ownerBPkh = PubKeyHash (bs28 0x02)
+
+transferInputRefB :: TxOutRef
+transferInputRefB = TxOutRef "7a01" 0
+
+-- | A script that owns a mini-ledger wallet, e.g. a vault or pool holding
+-- programmable tokens on behalf of its users.
+vaultOwnerCred :: Credential
+vaultOwnerCred = ScriptCredential (ScriptHash (bs28 0x21))
+
+progWalletVault :: Address
+progWalletVault =
+    Address (ScriptCredential progLogicBaseHash) (Just (StakingHash vaultOwnerCred))
+
+-- | Position of a credential in the withdrawal map as the LEDGER orders it.
+-- These fixtures use 'buildLedgerShapedScriptContext', which canonicalises the
+-- map, so the redeemer's withdrawal index has to be derived rather than
+-- guessed.
+wdrlIndexOf :: [Credential] -> Credential -> Integer
+wdrlIndexOf creds target =
+    case elemIndex target (sortBy compareCredentialLedger (nub creds)) of
+        Just idx -> fromIntegral idx
+        Nothing -> error ("wdrlIndexOf: credential not in the withdrawal set: " <> show target)
+
+mkGlobalTransferRefInputs :: ScriptContextBuilder
+mkGlobalTransferRefInputs =
+    withRefInputDatumValue
+        paramRef
+        (pubKeyAddress signerPkh)
+        (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+        (PlutusTx.toBuiltinData protocolParamsDatum)
+        <> withRefInputDatumValue
+            dirNodeRef
+            (pubKeyAddress signerPkh)
+            (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+            (PlutusTx.toBuiltinData directoryProgrammableNode)
+
+{- | Two mini-ledger inputs owned by DIFFERENT parties, consolidated into a
+single output at owner A's wallet. Which owners signed is the parameter.
+-}
+mkGlobalTransferTwoOwnersCtx :: [PubKeyHash] -> ScriptContext
+mkGlobalTransferTwoOwnersCtx signers =
+    buildLedgerShapedScriptContext
+        ( withRewardingScript
+            (PlutusTx.toBuiltinData (TransferAct [1] [wdrlIndexOf twoOwnerWdrls transferCred] [] 0))
+            globalCred
+            0
+            <> foldMap withSigner signers
+            <> withWithdrawal transferCred 0
+            <> withScriptInput
+                (PlutusTx.toBuiltinData ())
+                ( withOutRef transferInputRef
+                    <> withAddress progWalletA
+                    <> withValue (mkAdaValue 10_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 3)])
+                )
+            <> withScriptInput
+                (PlutusTx.toBuiltinData ())
+                ( withOutRef transferInputRefB
+                    <> withAddress progWalletB
+                    <> withValue (mkAdaValue 10_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 5)])
+                )
+            <> withOutput
+                ( withTxOutAddress progWalletA
+                    <> withTxOutValue (mkAdaValue 15_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 8)])
+                )
+            <> mkGlobalTransferRefInputs
+        )
+  where
+    twoOwnerWdrls = [globalCred, transferCred]
+
+{- | One mini-ledger input owned by a SCRIPT. The flag selects whether that
+script is actually invoked in the transaction.
+-}
+mkGlobalTransferScriptOwnerCtx :: Bool -> ScriptContext
+mkGlobalTransferScriptOwnerCtx ownerInvoked =
+    buildLedgerShapedScriptContext
+        ( withRewardingScript
+            (PlutusTx.toBuiltinData (TransferAct [1] [wdrlIndexOf wdrls transferCred] [] 0))
+            globalCred
+            0
+            <> withSigner signerPkh
+            <> withWithdrawal transferCred 0
+            <> (if ownerInvoked then withWithdrawal vaultOwnerCred 0 else mempty)
+            <> withScriptInput
+                (PlutusTx.toBuiltinData ())
+                ( withOutRef transferInputRef
+                    <> withAddress progWalletVault
+                    <> withValue (mkAdaValue 10_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 4)])
+                )
+            <> withOutput
+                ( withTxOutAddress progWalletVault
+                    <> withTxOutValue (mkAdaValue 8_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 4)])
+                )
+            <> mkGlobalTransferRefInputs
+        )
+  where
+    wdrls = [globalCred, transferCred] <> [vaultOwnerCred | ownerInvoked]
+
+{- | One mini-ledger input plus an ordinary pubkey input that also happens to
+hold the same policy outside the mini-ledger. Only the mini-ledger input's 3
+tokens may be required to remain at the base credential.
+-}
+mkGlobalTransferWithPubKeyInputCtx :: ScriptContext
+mkGlobalTransferWithPubKeyInputCtx =
+    buildLedgerShapedScriptContext
+        ( withRewardingScript
+            (PlutusTx.toBuiltinData (TransferAct [1] [wdrlIndexOf [globalCred, transferCred] transferCred] [] 0))
+            globalCred
+            0
+            <> withSigner signerPkh
+            <> withWithdrawal transferCred 0
+            <> withScriptInput
+                (PlutusTx.toBuiltinData ())
+                ( withOutRef transferInputRef
+                    <> withAddress progWalletA
+                    <> withValue (mkAdaValue 10_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 3)])
+                )
+            <> withInput
+                ( withOutRef transferInputRefB
+                    <> withAddress (pubKeyAddress signerPkh)
+                    <> withValue (mkAdaValue 10_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 4)])
+                )
+            <> withOutput
+                ( withTxOutAddress progWalletA
+                    <> withTxOutValue (mkAdaValue 8_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 3)])
+                )
+            <> withOutput
+                ( withTxOutAddress (pubKeyAddress signerPkh)
+                    <> withTxOutValue (mkAdaValue 8_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 4)])
+                )
+            <> mkGlobalTransferRefInputs
         )
 
 mkGlobalTransferEscapeCtx :: ScriptContext

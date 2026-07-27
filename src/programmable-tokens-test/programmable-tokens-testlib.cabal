@@ -87,6 +87,7 @@ test-suite programmable-tokens-test
     ProgrammableTokens.Test.DirectorySet
     ProgrammableTokens.Test.Error
     ProgrammableTokens.Test.GoldenEncoding
+    ProgrammableTokens.Test.ProgrammableLogicBase
     ProgrammableTokens.Test.ProgrammableLogicGlobal
     ProgrammableTokens.Test.ProgrammableLogicMinting
 
