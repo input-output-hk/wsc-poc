@@ -90,7 +90,8 @@ tests =
         , testCase "unit_seizeAct_paired_output_stake_rewrite_rejected" unit_seizeAct_paired_output_stake_rewrite_rejected
         , testCase "unit_seizeAct_non_seized_policy_drained_rejected" unit_seizeAct_non_seized_policy_drained_rejected
         , testCase "unit_seizeAct_non_seized_policy_injected_rejected" unit_seizeAct_non_seized_policy_injected_rejected
-        , testCase "unit_seizeAct_paired_output_ada_changed_rejected" unit_seizeAct_paired_output_ada_changed_rejected
+        , testCase "unit_seizeAct_paired_output_ada_reduced_rejected" unit_seizeAct_paired_output_ada_reduced_rejected
+        , testCase "unit_seizeAct_paired_output_ada_topped_up_succeeds" unit_seizeAct_paired_output_ada_topped_up_succeeds
         , testCase "unit_seizeAct_forged_params_ref_input_rejected" unit_seizeAct_forged_params_ref_input_rejected
         , testCase "unit_seizeAct_forged_directory_node_rejected" unit_seizeAct_forged_directory_node_rejected
         , testCase "unit_seizeAct_issuer_logic_not_invoked_rejected" unit_seizeAct_issuer_logic_not_invoked_rejected
@@ -1260,15 +1261,35 @@ unit_seizeAct_non_seized_policy_injected_rejected =
             seizeInputAddr
             seizeInputValueWithNoise
 
--- | Ada is not the seized policy; the continuing output must carry the input's
--- Ada through unchanged, or a seizure could strip the UTxO's min-Ada.
-unit_seizeAct_paired_output_ada_changed_rejected :: Assertion
-unit_seizeAct_paired_output_ada_changed_rejected =
+-- | Ada is not the seized policy, so a seizure may not strip it: the continuing
+-- output must carry at least the input's lovelace.
+unit_seizeAct_paired_output_ada_reduced_rejected :: Assertion
+unit_seizeAct_paired_output_ada_reduced_rejected =
     assertSeizeFails $
         mkSeizePairCtx
             seizeInputValue
             seizeInputAddr
             (mkAdaValue 2_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 1)])
+
+-- | ...but it may ADD lovelace. A protocol-parameter change can raise the
+-- min-UTxO requirement above what a UTxO already holds; if the continuing output
+-- had to carry exactly the input's lovelace, every such UTxO would become
+-- permanently unseizable, because the ledger would demand more ada than the
+-- validator allowed. The extra ada comes from a separate funding input, as it
+-- would on chain.
+unit_seizeAct_paired_output_ada_topped_up_succeeds :: Assertion
+unit_seizeAct_paired_output_ada_topped_up_succeeds =
+    assertSeizeSucceeds $
+        mkSeizePairCtxWith
+            ( withInput
+                ( withOutRef (TxOutRef "f00d" 1)
+                    <> withAddress (pubKeyAddress signerPkh)
+                    <> withValue (mkAdaValue 5_000_000)
+                )
+            )
+            seizeInputValue
+            seizeInputAddr
+            (mkAdaValue 4_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 1)])
 
 -- | The protocol-parameters reference input is trusted for the base credential
 -- and directory policy; it is only legitimate because it carries the params NFT.

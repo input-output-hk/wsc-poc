@@ -1713,7 +1713,9 @@ pvalueEqualsDeltaCurrencySymbol progCSAsData inputUTxOValue outputUTxOValue =
     let progCSData = pforgetData progCSAsData
 
         -- input - output, canonicalised by the builtin: shared policies cancel and
-        -- are dropped, so only genuinely differing policies survive.
+        -- are dropped, so only genuinely differing policies survive. Ada is left
+        -- in the operands deliberately: when it is unchanged -- the norm -- it
+        -- cancels here and costs nothing downstream.
         diffEntries :: Term _ (PBuiltinList (PBuiltinPair PData PData))
         diffEntries =
             pasMap
@@ -1737,37 +1739,73 @@ pvalueEqualsDeltaCurrencySymbol progCSAsData inputUTxOValue outputUTxOValue =
 
         movedOtherPolicy :: forall a. Term s a
         movedOtherPolicy = ptraceInfoError "corresponding output: value changed outside the seized policy"
-     in pelimList
-            ( \entry rest ->
-                pif
-                    (pfstBuiltin # entry #== progCSData)
-                    ( pelimList
-                        -- A second differing policy is value moved outside the seize.
-                        (\_ _ -> movedOtherPolicy)
-                        ( plet
-                            ( punsafeCoerce
-                                @(PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
-                                (pasMap # (psndBuiltin # entry))
-                            )
-                            $ \delta ->
-                                -- A positive quantity anywhere in the delta is itself the
-                                -- non-contamination proof: `in = out + delta` and TxOut
-                                -- quantities are non-negative, so `in > 0` for that token
-                                -- and the input demonstrably holds progCS. Testing only
-                                -- the FIRST token keeps this O(1); a seize removes tokens,
-                                -- so the honest path always takes it. A leading
-                                -- non-positive quantity is sound but inconclusive, and
-                                -- falls back to the explicit scan.
-                                pif
-                                    (pconstantInteger 0 #< pfromData (psndBuiltin # (phead # delta)))
-                                    delta
-                                    (pif inputHoldsProgCS delta notHeld)
-                        )
-                        rest
+
+        -- The one non-seized policy a pair may legitimately differ on is ada, and
+        -- only upward. A protocol-parameter change can raise the min-UTxO
+        -- requirement above what a UTxO already holds; demanding the continuing
+        -- output carry exactly the input's lovelace would make every such UTxO
+        -- permanently unseizable, since the ledger would require more ada than
+        -- this validator allowed. Ada's policy id is the empty bytestring, so it
+        -- sorts first and can only ever be the leading diff entry; the delta is
+        -- `input - output`, so "topped up" is a non-positive quantity.
+        adaToppedUp entry =
+            (pasByteStr # (pfstBuiltin # entry) #== pconstant "")
+                #&& ( pasInt # (psndBuiltin # (phead # (pasMap # (psndBuiltin # entry))))
+                        #<= pconstantInteger 0
                     )
-                    movedOtherPolicy
-            )
-            -- No difference at all: the pair is a pure pass-through, which is legal
-            -- only if the input really holds the seized policy.
-            (pif inputHoldsProgCS pnil notHeld)
-            diffEntries
+
+        -- The seized policy's delta, given its diff entry and everything after it.
+        -- Bound once so the two call sites below share one copy in the UPLC.
+        progCSDelta = plam $ \entry rest ->
+            pelimList
+                -- A further differing policy is value moved outside the seize.
+                (\_ _ -> movedOtherPolicy)
+                ( plet
+                    ( punsafeCoerce
+                        @(PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
+                        (pasMap # (psndBuiltin # entry))
+                    )
+                    $ \delta ->
+                        -- A positive quantity anywhere in the delta is itself the
+                        -- non-contamination proof: `in = out + delta` and TxOut
+                        -- quantities are non-negative, so `in > 0` for that token
+                        -- and the input demonstrably holds progCS. Testing only
+                        -- the FIRST token keeps this O(1); a seize removes tokens,
+                        -- so the honest path always takes it. A leading
+                        -- non-positive quantity is sound but inconclusive, and
+                        -- falls back to the explicit scan.
+                        pif
+                            (pconstantInteger 0 #< pfromData (psndBuiltin # (phead # delta)))
+                            delta
+                            (pif inputHoldsProgCS delta notHeld)
+                )
+                rest
+
+        -- No difference at all: the pair is a pure pass-through, which is legal
+        -- only if the input really holds the seized policy.
+        purePassThrough = pif inputHoldsProgCS pnil notHeld
+     in plet progCSDelta $ \onProgCS ->
+            pelimList
+                ( \entry rest ->
+                    pif
+                        (pfstBuiltin # entry #== progCSData)
+                        (onProgCS # entry # rest)
+                        -- Not the seized policy: tolerated only as an ada top-up,
+                        -- after which the seized policy may still follow.
+                        ( pif
+                            (adaToppedUp entry)
+                            ( pelimList
+                                ( \nextEntry nextRest ->
+                                    pif
+                                        (pfstBuiltin # nextEntry #== progCSData)
+                                        (onProgCS # nextEntry # nextRest)
+                                        movedOtherPolicy
+                                )
+                                purePassThrough
+                                rest
+                            )
+                            movedOtherPolicy
+                        )
+                )
+                purePassThrough
+                diffEntries
