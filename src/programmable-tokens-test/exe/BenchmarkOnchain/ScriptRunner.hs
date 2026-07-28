@@ -37,6 +37,12 @@ data BenchRow = BenchRow
     , brPrimaryBudget :: ExBudget
     , brRows :: [ScriptWitnessRow]
     , brBreakdown :: [ScriptBreakdown]
+    , brWdrlOrder :: [String]
+    -- ^ The withdrawal map in LEDGER order. Any validator lookup that scans
+    -- this map costs more the further along its target sits, and the
+    -- participating script hashes -- including the validators' own -- decide
+    -- that order. Printing it makes a cost change caused by a reordering
+    -- distinguishable from one caused by the implementation.
     }
 
 data ScriptWitnessRow = ScriptWitnessRow
@@ -302,7 +308,7 @@ runCase scenarioEvalSpecsFromCtx bench = do
         witnessRows = fmap scriptWitnessRowFromEvalResult results
         breakdown = aggregateBreakdown (bcName bench) results
     if ok
-        then pure (BenchRow (bcName bench) ok totalBudget (length results) (erBudget primaryResult) witnessRows breakdown)
+        then pure (BenchRow (bcName bench) ok totalBudget (length results) (erBudget primaryResult) witnessRows breakdown (wdrlOrder bench))
         else do
             putStrLn ("failure logs for " <> bcName bench <> ":")
             mapM_
@@ -312,7 +318,18 @@ runCase scenarioEvalSpecsFromCtx bench = do
                         else putStrLn ("  [" <> show idx <> "] " <> renderEvalKind (erKind result) <> ": " <> erLogText result)
                 )
                 (zip [0 :: Int ..] results)
-            pure (BenchRow (bcName bench) ok totalBudget (length results) (erBudget primaryResult) witnessRows breakdown)
+            pure (BenchRow (bcName bench) ok totalBudget (length results) (erBudget primaryResult) witnessRows breakdown (wdrlOrder bench))
+
+{- | The withdrawal map as the ledger orders it, abbreviated. Scans over this
+map are the one place where a script's OWN hash feeds back into its measured
+cost, so a diff of two benchmark reports should make a reordering obvious.
+-}
+wdrlOrder :: BenchCase -> [String]
+wdrlOrder BenchCase{bcScenarioCtx} =
+    fmap (renderCred . fst) (Map.toList (txInfoWdrl (scriptContextTxInfo bcScenarioCtx)))
+  where
+    renderCred (ScriptCredential sh) = "script " <> abbrev (show sh)
+    renderCred (PubKeyCredential pkh) = "pubkey " <> abbrev (show pkh)
 
 runEvalSpec :: EvalSpec -> IO EvalResult
 runEvalSpec EvalSpec{esKind, esScript, esArgs} = do
@@ -385,7 +402,7 @@ contractTotals witnessRows =
          in (contract, length matchingRows, sumBudgets (fmap swBudget matchingRows))
 
 renderScenarioResult :: BenchRow -> [String]
-renderScenarioResult BenchRow{brName, brSuccess, brBudget, brRows} =
+renderScenarioResult BenchRow{brName, brSuccess, brBudget, brRows, brWdrlOrder} =
     let contracts = uniquePreservingOrder (fmap swContract brRows)
         renderContractSummary =
             case contracts of
@@ -418,6 +435,10 @@ renderScenarioResult BenchRow{brName, brSuccess, brBudget, brRows} =
                 <> formatPercent (budgetMemPct swBudget)
             ]
      in [scenarioSeparator, "Scenario: " <> brName <> if brSuccess then " [PASS]" else " [FAIL]", "Scripts: " <> show (length brRows)]
+            <> ( case brWdrlOrder of
+                    [] -> []
+                    creds -> ["Withdrawal order: " <> intercalate ", " (zipWith (\i c -> show (i :: Int) <> ":" <> c) [0 ..] creds)]
+               )
             <> renderContractSummary
             <> ( case contractTotals brRows of
                     [] -> []
