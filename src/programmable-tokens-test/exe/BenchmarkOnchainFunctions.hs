@@ -9,6 +9,7 @@ import BenchmarkOnchain.SimpleRunner (BenchCase, mkTermCase, runSimpleBenchmark)
 import Data.ByteString qualified as BS
 import Data.Word (Word8)
 import Plutarch.Core.Context (
+    paddressCredential,
     pscriptContextTxInfo,
     ptxInInfoResolved,
  )
@@ -27,7 +28,7 @@ import PlutusLedgerApi.V3 (
     CurrencySymbol (CurrencySymbol),
     Data,
     Datum (Datum),
-    OutputDatum (OutputDatum),
+    OutputDatum (NoOutputDatum, OutputDatum),
     PubKeyHash (PubKeyHash),
     ScriptContext,
     ScriptHash (ScriptHash),
@@ -692,6 +693,7 @@ decisionBenchCases =
         <> dropDecisionCases
         <> refWalkCases
         <> credCompareCases
+        <> containScanCases
 
 -- Decision benchmarks for the Van Rossem dropList adoption: the
 -- plutarch-onchain-lib tail-walk ('pdropFast', ptails30/20/10 unrolling +
@@ -745,6 +747,157 @@ refWalkCases =
         [ PlutusTx.toData idxs
         , PlutusTx.toData [0 .. toInteger p]
         ]
+
+-- Isolated benchmark of the SINGLE-ASSET containment scan in
+-- 'poutputsContainExpectedValueAtCred' -- the loop that walks the transaction
+-- outputs, picks the ones at the programmable base credential, and sums one
+-- asset until the required quantity is reached.
+--
+-- Two variants, byte-identical except for the two lines under test: the
+-- deployed one decodes each output into a Plutarch 'PTxOut' and compares
+-- 'PCredential' structurally; the candidate indexes the constructor and
+-- compares the credential as Data. Both share one 'passetQtyInPairs', so the
+-- asset lookup is common to both and drops out of the difference.
+--
+-- Run over two shapes: ~17 matching outputs (the mainnet DEX transaction) and
+-- 80 (the ManyOutputs benchmark), because those two disagreed about which
+-- variant is faster when measured as whole transactions.
+containScanCases :: [BenchCase]
+containScanCases =
+    concat
+        [ [ mkCase ("decision.g.contain.typed." <> label) pContainScanTyped (scanArgs matching padding)
+          , mkCase ("decision.g.contain.rawdata." <> label) pContainScanRaw (scanArgs matching padding)
+          ]
+        | (label, matching, padding) <-
+            [ ("match017", 17, 1)
+            , ("match080", 80, 1)
+            , ("match017.skip064", 17, 64)
+            , ("match001.skip016", 1, 16)
+            ]
+        ]
+
+scanBaseCred :: Credential
+scanBaseCred = ScriptCredential (ScriptHash (bs28 0x12))
+
+scanNightCS :: CurrencySymbol
+scanNightCS = CurrencySymbol (bs28 0x1b)
+
+scanNightTN :: TokenName
+scanNightTN = TokenName "NIGHT"
+
+-- | One output holding ada plus the tracked asset. 'atBase' decides whether it
+-- sits at the programmable base credential or at an unrelated pubkey address.
+scanOutput :: Bool -> Integer -> TxOut
+scanOutput atBase qty =
+    (
+          TxOut
+            ( if atBase
+                then Address scanBaseCred (Just (StakingHash (PubKeyCredential (PubKeyHash (bs28 0x01)))))
+                else Address (PubKeyCredential (PubKeyHash (bs28 0x07))) Nothing
+            )
+            ( assetClassValue (assetClass (CurrencySymbol "") (TokenName "")) 2_000_000
+                <> assetClassValue (assetClass scanNightCS scanNightTN) qty
+            )
+            NoOutputDatum
+            Nothing
+        )
+
+-- | Required quantity equals the total held by the matching outputs, so the
+-- scan must visit every one of them -- no early exit skewing the comparison.
+scanArgs :: Integer -> Integer -> [Data]
+scanArgs matching padding =
+    [ PlutusTx.toData scanBaseCred
+    , PlutusTx.toData
+        ( [scanOutput False 5 | _ <- [1 .. padding]]
+            <> [scanOutput True 3 | _ <- [1 .. matching]]
+        )
+    , PlutusTx.toData scanNightCS
+    , PlutusTx.toData scanNightTN
+    , PlutusTx.toData (3 * matching)
+    ]
+
+-- | Shared asset lookup: identical in both variants.
+pScanAssetQty ::
+    Term
+        s
+        ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
+            :--> PCurrencySymbol
+            :--> PTokenName
+            :--> PInteger
+        )
+pScanAssetQty = phoistAcyclic $ plam $ \csPairs cs tn ->
+    let tokenQtyInTokenPairs = pfix #$ plam $ \self remainingTokenPairs ->
+            pelimList
+                ( \tokenPair tokenPairsRest ->
+                    let tokenName = pfromData (pfstBuiltin # tokenPair)
+                        tokenQty = pfromData (psndBuiltin # tokenPair)
+                     in pif (tokenName #== tn) tokenQty (pif (tn #< tokenName) 0 (self # tokenPairsRest))
+                )
+                0
+                remainingTokenPairs
+        tokenQtyInCurrencyPairs = pfix #$ plam $ \self remainingCurrencyPairs ->
+            pelimList
+                ( \currencyPair currencyPairsRest ->
+                    let currencySymbol = pfromData (pfstBuiltin # currencyPair)
+                        tokenPairs = pto (pfromData (psndBuiltin # currencyPair))
+                     in pif
+                            (currencySymbol #== cs)
+                            (tokenQtyInTokenPairs # tokenPairs)
+                            (pif (cs #< currencySymbol) 0 (self # currencyPairsRest))
+                )
+                0
+                remainingCurrencyPairs
+     in tokenQtyInCurrencyPairs # csPairs
+
+-- | Deployed variant: typed 'PTxOut' decode, structural 'PCredential' compare.
+pContainScanTyped :: forall s. Term s (PData :--> PData :--> PData :--> PData :--> PData :--> PUnit)
+pContainScanTyped = plam $ \credD outsD csD tnD reqD ->
+    plet (pfromData (punsafeCoerce credD :: Term s (PAsData PCredential))) $ \progLogicCred ->
+        plet (punsafeCoerce (pasList # outsD) :: Term s (PBuiltinList (PAsData PTxOut))) $ \outs ->
+            plet (punsafeCoerce (pasByteStr # csD) :: Term s PCurrencySymbol) $ \cs0 ->
+                plet (punsafeCoerce (pasByteStr # tnD) :: Term s PTokenName) $ \tn0 ->
+                    let go = pfix #$ plam $ \self requiredQty currentQty cs tn remainingOutputs ->
+                            pif
+                                (currentQty #>= requiredQty)
+                                (pconstant True)
+                                ( pelimList
+                                    ( \txOut outputsRest ->
+                                        pmatch (pfromData txOut) $ \(PTxOut{ptxOut'address, ptxOut'value}) ->
+                                            pif
+                                                (paddressCredential ptxOut'address #== progLogicCred)
+                                                (self # requiredQty # (currentQty + (pScanAssetQty # pto (pto (pfromData ptxOut'value)) # cs # tn)) # cs # tn # outputsRest)
+                                                (self # requiredQty # currentQty # cs # tn # outputsRest)
+                                    )
+                                    (currentQty #>= requiredQty)
+                                    remainingOutputs
+                                )
+                     in pif (go # (pasInt # reqD) # 0 # cs0 # tn0 # outs) (pconstant ()) perror
+
+-- | Candidate variant: index the constructor, compare the credential as Data.
+pContainScanRaw :: forall s. Term s (PData :--> PData :--> PData :--> PData :--> PData :--> PUnit)
+pContainScanRaw = plam $ \credD outsD csD tnD reqD ->
+    plet credD $ \progLogicCredData ->
+        plet (punsafeCoerce (pasList # outsD) :: Term s (PBuiltinList (PAsData PTxOut))) $ \outs ->
+            plet (punsafeCoerce (pasByteStr # csD) :: Term s PCurrencySymbol) $ \cs0 ->
+                plet (punsafeCoerce (pasByteStr # tnD) :: Term s PTokenName) $ \tn0 ->
+                    let go = pfix #$ plam $ \self requiredQty currentQty cs tn remainingOutputs ->
+                            pif
+                                (currentQty #>= requiredQty)
+                                (pconstant True)
+                                ( pelimList
+                                    ( \txOut outputsRest ->
+                                        plet (psndBuiltin # (pasConstr # pforgetData txOut)) $ \txOutFields ->
+                                            let paymentCredData = phead # (psndBuiltin # (pasConstr # (phead # txOutFields)))
+                                                txOutValueData = phead # (ptail # txOutFields)
+                                             in pif
+                                                    (paymentCredData #== progLogicCredData)
+                                                    (self # requiredQty # (currentQty + (pScanAssetQty # punsafeCoerce (pasMap # txOutValueData) # cs # tn)) # cs # tn # outputsRest)
+                                                    (self # requiredQty # currentQty # cs # tn # outputsRest)
+                                    )
+                                    (currentQty #>= requiredQty)
+                                    remainingOutputs
+                                )
+                     in pif (go # (pasInt # reqD) # 0 # cs0 # tn0 # outs) (pconstant ()) perror
 
 -- Decision benchmarks for how the output walks should compare a payment
 -- credential. Plutarch's typed PEq on PCredential compiles to unConstrData on

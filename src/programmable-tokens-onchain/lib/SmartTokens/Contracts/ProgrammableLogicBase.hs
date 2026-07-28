@@ -32,7 +32,6 @@ import GHC.Generics (Generic)
 import Generics.SOP qualified as SOP
 import Plutarch.Builtin.Integer (pconstantInteger)
 import Plutarch.Core.Context (
-    paddressCredential,
     ptxInInfoResolved,
     ptxOutDatum,
     ptxOutValue,
@@ -531,11 +530,19 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
                 (pconstant True)
                 ( pelimList
                     ( \txOut outputsRest ->
-                        pmatch (pfromData txOut) $ \(PTxOut{ptxOut'address, ptxOut'value}) ->
-                            pif
-                                (paddressCredential ptxOut'address #== progLogicCred)
-                                (self # requiredQty # (currentQty + (passetQtyInPairs # pto (pto (pfromData ptxOut'value)) # cs # tn)) # cs # tn # outputsRest)
-                                (self # requiredQty # currentQty # cs # tn # outputsRest)
+                        -- Index the constructor and compare the payment credential
+                        -- as Data, matching the other two output walks. Plutarch's
+                        -- typed PEq on PCredential expands to 'unConstrData' on both
+                        -- sides plus a tag comparison; one 'equalsData' is cheaper on
+                        -- every input shape (see decision.f.cred.* and
+                        -- decision.g.contain.* in the function benchmark).
+                        plet (psndBuiltin # (pasConstr # pforgetData txOut)) $ \txOutFields ->
+                            let paymentCredData = phead # (psndBuiltin # (pasConstr # (phead # txOutFields)))
+                                txOutValueData = phead # (ptail # txOutFields)
+                             in pif
+                                    (paymentCredData #== progLogicCredData)
+                                    (self # requiredQty # (currentQty + (passetQtyInPairs # punsafeCoerce (pasMap # txOutValueData) # cs # tn)) # cs # tn # outputsRest)
+                                    (self # requiredQty # currentQty # cs # tn # outputsRest)
                     )
                     (currentQty #>= requiredQty)
                     remainingOutputs
