@@ -14,11 +14,14 @@ repository cardano-haskell-packages
     c00aae8461a256275598500ea0e187588c35a5d5d7454fb57eac18d9edb86a56
     d4a35cd3121aa00d18544bb0ac01c3e1691d618f462c46129271bccf39f7e8ee
 
--- Van Rossem (PV11) stack: plutus 1.63 (final batch6 builtins) via
--- cardano-api 11 / cardano-node 11, mirroring sc-tools main's pin set.
+-- Van Rossem (PV11) stack on plutus 1.65 via cardano-api 11 / cardano-node 11.
+-- cardano-api 11.0.0.0 bounds plutus at ^>=1.63, but sc-tools itself declares NO
+-- plutus bounds, and cardano-api 11.0 compiles cleanly against 1.65 -- so the
+-- allow-newer below lifts that bound rather than forcing cardano-api 11.3, which
+-- drops PoolId and breaks convex-base.
 index-state:
-  , hackage.haskell.org 2026-05-04T12:54:40Z
-  , cardano-haskell-packages 2026-05-03T22:28:43Z
+  , hackage.haskell.org 2026-05-31T00:00:00Z
+  , cardano-haskell-packages 2026-05-31T00:00:00Z
 
 with-compiler: ghc-9.6.6
 
@@ -31,10 +34,10 @@ packages:
 
 constraints:
   cardano-node == 11.0.0
-  , plutus-core == 1.63.0.0
-  , plutus-ledger-api == 1.63.0.0
-  , plutus-tx == 1.63.0.0
-  , plutarch == 1.12.0
+  , plutus-core == 1.65.0.0
+  , plutus-ledger-api == 1.65.0.0
+  , plutus-tx == 1.65.0.0
+  , plutarch == 1.14.0
   , aeson == 2.2.4.1
   , io-classes == 1.8.0.1
   , blockfrost-client == 0.13.0.0
@@ -53,16 +56,18 @@ allow-newer:
   , *:plutus-ledger-api
   , servant-multipart-client:random
 
--- Plutarch 1.12-API (GHC 9.6.6) line with the Van Rossem backport:
--- plutus-1.63 compatibility + Plutarch.Builtin.Value (CIP-153) +
--- Plutarch.Builtin.List (CIP-132 dropList). choener 99315dad + f91c649d.
-source-repository-package
-  type: git
-  location: https://github.com/colll78/plutarch-plutus
-  tag: f91c649d0a57ed820952a43513b6007884c44b7e
-  subdir:
-    .
-    plutarch-ledger-api
+-- Upstream Plutarch 1.14.0 (c3b47719), consumed from a LOCAL checkout while two
+-- one-line upstream fixes are pending:
+--   * Plutarch/Internal/Parse.hs carries a stray {-# LANGUAGE TypeAbstractions #-}
+--     (GHC 9.8+) though upstream declares tested-with GHC ==9.6.4 and every @a in
+--     that file is a type APPLICATION, not an abstraction.
+--   * plutarch-orphanage defines `instance Arbitrary1 NonEmptyList`, which newer
+--     QuickCheck now provides itself, making it a duplicate.
+-- 1.14 is what brings UPLC casing: pif is punsafeCase-based, ~6.9x cheaper CPU
+-- and ~4.5x cheaper memory per conditional than the pif'/ifThenElse idiom.
+packages:
+  /home/gumbo/iohk/plutarch-1.14-patched
+  /home/gumbo/iohk/plutarch-1.14-patched/plutarch-ledger-api
 
 source-repository-package
   type: git
@@ -79,10 +84,8 @@ source-repository-package
     src/blockfrost
     src/tx-mod
 
-source-repository-package
-    type: git
-    location: https://github.com/input-output-hk/catalyst-onchain-libs
-    tag: 6c7156c441c18b2c76066eae1cce1578190c9cfd
-    --sha256: sha256-bGf20nAEeMJ3iajMqRBN88BQSMVTXecXl6CztHiZUtA=
-    subdir:
-      src/plutarch-onchain-lib
+-- plutarch-onchain-lib ported to Plutarch 1.14 on branch wsc/plutarch-1.14.
+-- Consumed locally until that branch is pushed; no catalyst branch upstream
+-- targets anything newer than Plutarch 1.10.1.
+packages:
+  /home/gumbo/iohk/catalyst-onchain-libs/src/plutarch-onchain-lib
