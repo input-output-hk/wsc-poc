@@ -112,6 +112,7 @@ tests =
         , testCase "unit_transferAct_script_owner_not_invoked_rejected" unit_transferAct_script_owner_not_invoked_rejected
         , testCase "unit_transferAct_script_owner_invoked_succeeds" unit_transferAct_script_owner_invoked_succeeds
         , testCase "unit_transferAct_pubkey_input_outside_mini_ledger_ignored" unit_transferAct_pubkey_input_outside_mini_ledger_ignored
+        , testCase "unit_transferAct_unstaked_mini_ledger_input_rejected" unit_transferAct_unstaked_mini_ledger_input_rejected
         , testProperty "prop_seizeAct_complete_indices_succeeds" prop_seizeAct_complete_indices_succeeds
         , testProperty "prop_seizeAct_omitted_index_rejected" prop_seizeAct_omitted_index_rejected
         ]
@@ -247,6 +248,16 @@ mini-ledger are not this validator's business.
 unit_transferAct_pubkey_input_outside_mini_ledger_ignored :: Assertion
 unit_transferAct_pubkey_input_outside_mini_ledger_ignored =
     assertScriptSucceeds mkGlobalTransferWithPubKeyInputCtx
+
+{- | A UTxO sitting at the base credential with NO staking credential has no
+owner, so there is no witness anyone could supply for it. It must be rejected
+rather than treated as ownerless-and-therefore-free: the whole mini-ledger
+shares one payment credential, so an unstaked UTxO that validated would be
+spendable by anybody.
+-}
+unit_transferAct_unstaked_mini_ledger_input_rejected :: Assertion
+unit_transferAct_unstaked_mini_ledger_input_rejected =
+    assertScriptFails mkGlobalTransferUnstakedInputCtx
 
 unit_transferAct_escape_to_pubkey_rejected :: Assertion
 unit_transferAct_escape_to_pubkey_rejected =
@@ -951,6 +962,29 @@ mkGlobalTransferWithPubKeyInputCtx =
                 )
             <> withOutput
                 ( withTxOutAddress (pubKeyAddress signerPkh)
+                    <> withTxOutValue (mkAdaValue 8_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 4)])
+                )
+            <> mkGlobalTransferRefInputs
+        )
+
+-- | Mini-ledger input whose address carries no staking credential at all.
+mkGlobalTransferUnstakedInputCtx :: ScriptContext
+mkGlobalTransferUnstakedInputCtx =
+    buildLedgerShapedScriptContext
+        ( withRewardingScript
+            (PlutusTx.toBuiltinData (TransferAct [1] [wdrlIndexOf [globalCred, transferCred] transferCred] [] 0))
+            globalCred
+            0
+            <> withSigner signerPkh
+            <> withWithdrawal transferCred 0
+            <> withScriptInput
+                (PlutusTx.toBuiltinData ())
+                ( withOutRef transferInputRef
+                    <> withAddress (Address progLogicBaseCred Nothing)
+                    <> withValue (mkAdaValue 10_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 4)])
+                )
+            <> withOutput
+                ( withTxOutAddress (Address progLogicBaseCred Nothing)
                     <> withTxOutValue (mkAdaValue 8_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 4)])
                 )
             <> mkGlobalTransferRefInputs

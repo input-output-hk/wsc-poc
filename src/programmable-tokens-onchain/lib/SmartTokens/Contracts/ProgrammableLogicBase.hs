@@ -336,24 +336,37 @@ pvalueFromCred cred sigs withdrawalEntries inputs =
                   plet (psndBuiltin # (pasConstr # (phead # resolvedOutFields))) $ \resolvedOutAddressFields ->
                     let resolvedOutValueData = phead # (ptail # resolvedOutFields)
                         paymentCredData = phead # resolvedOutAddressFields
-                        stakingCredMaybe = punsafeCoerce @(PMaybeData PStakingCredential) (phead # (ptail # resolvedOutAddressFields))
                      in pif
                             (paymentCredData #== credData)
-                            ( pmatch (pjustData stakingCredMaybe) $ \case
-                                PStakingHash ownerCred ->
-                                    pmatch ownerCred $ \case
-                                        PPubKeyCredential pkh ->
-                                            pif
-                                                (ptxSignedByPkh # pkh # sigs)
+                            -- Reach the owner credential as Data instead of
+                            -- decoding it. The withdrawal map is keyed by
+                            -- credential Data, so a script owner can be looked up
+                            -- with the bytes already in hand; decoding to a
+                            -- 'PCredential' only to rebuild it with 'pdata . pcon'
+                            -- paid a constrData/listData/bData re-encode on every
+                            -- script-owned input.
+                            --
+                            -- Fail-closed on anything that is not
+                            -- @Just (StakingHash _)@: 'Nothing' has no fields so
+                            -- 'phead' errors, and a 'StakingPtr' holds integers so
+                            -- the following 'pasConstr' errors. An unstaked or
+                            -- pointer-staked mini-ledger UTxO has no owner to
+                            -- witness and must not be spendable.
+                            ( plet (phead # (psndBuiltin # (pasConstr # (phead # (ptail # resolvedOutAddressFields))))) $ \stakingHashData ->
+                                plet (phead # (psndBuiltin # (pasConstr # stakingHashData))) $ \ownerCredData ->
+                                    plet (pasConstr # ownerCredData) $ \ownerCred ->
+                                        pif
+                                            (pfstBuiltin # ownerCred #== pconstantInteger 0)
+                                            ( pif
+                                                (ptxSignedByPkh # punsafeCoerce (phead # (psndBuiltin # ownerCred)) # sigs)
                                                 (k resolvedOutValueData)
                                                 (ptraceInfoError "Missing required pk witness")
-                                        PScriptCredential scriptHash_ ->
-                                            let scriptCredData = pdata $ pcon (PScriptCredential scriptHash_)
-                                             in pif
-                                                    (pisScriptInvokedEntries # scriptCredData # withdrawalEntries)
-                                                    (k resolvedOutValueData)
-                                                    (ptraceInfoError "Missing required script witness")
-                                _ -> perror
+                                            )
+                                            ( pif
+                                                (pisScriptInvokedEntries # punsafeCoerce ownerCredData # withdrawalEntries)
+                                                (k resolvedOutValueData)
+                                                (ptraceInfoError "Missing required script witness")
+                                            )
                             )
                             skip
 
