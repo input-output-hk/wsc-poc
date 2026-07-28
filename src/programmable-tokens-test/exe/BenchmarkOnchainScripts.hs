@@ -19,7 +19,7 @@ import PlutusLedgerApi.V3
 import PlutusTx qualified
 import PlutusTx.Builtins qualified as BI
 import ProgrammableTokens.OffChain.Scripts qualified as OffchainScripts
-import Data.List (elemIndex, sort, sortBy)
+import Data.List (elemIndex, sort, sortBy, sortOn)
 import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buildLedgerShapedScriptContext, compareCredentialLedger, buildScriptContext, mkAdaValue, withAddress, withFee, withInlineDatum, withInput, withMint, withMintingScript, withOutRef, withOutput, withRedeemer, withRewardingScript, withScriptInput, withSigner, withTxOutAddress, withTxOutInlineDatum, withTxOutValue, withValue, withWithdrawal)
 import SmartTokens.Contracts.AlwaysYields (palwaysSucceed)
 import SmartTokens.Contracts.Issuance (MintRedeemer (..), RegistrationWitness (..), mkProgrammableLogicMinting)
@@ -426,7 +426,7 @@ globalTransferCtx :: ScriptContext
 globalTransferCtx =
     buildLedgerShapedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData $ TransferAct [1] [transferFixtureTransferWdrlIdx] [] 0)
+            (PlutusTx.toBuiltinData $ TransferAct [1] [transferFixtureTransferWdrlIdx] [] [] 0)
             globalCred
             0
             <> withSigner signerPkh
@@ -468,7 +468,7 @@ globalTransferDoesNotExistCtx :: ScriptContext
 globalTransferDoesNotExistCtx =
     buildLedgerShapedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData $ TransferAct [1] [transferFixtureTransferWdrlIdx] [] 0)
+            (PlutusTx.toBuiltinData $ TransferAct [1] [transferFixtureTransferWdrlIdx] [] [] 0)
             globalCred
             0
             <> withSigner signerPkh
@@ -521,6 +521,7 @@ globalTransferMixedManyCtx =
                 TransferAct
                     (transferProofsFor mixedManyPolicies)
                     (replicate (length mixedManyPolicies) (wdrlIdxOf [globalCred, transferLogicCred] transferLogicCred))
+                    []
                     []
                     0
             )
@@ -619,7 +620,7 @@ mkGlobalTransferManyCtx inputCount =
         qtyInSecondOutput = inputCount - qtyInFirstOutput
      in buildLedgerShapedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1, 2] [transferFixtureTransferWdrlIdx, transferFixtureTransferWdrlIdx] [] 0)
+                (PlutusTx.toBuiltinData $ TransferAct [1, 2] [transferFixtureTransferWdrlIdx, transferFixtureTransferWdrlIdx] [] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -683,7 +684,7 @@ mkGlobalTransferManyTokensCtx tokenCount =
     let manyTokensValue = mkValue [(programmableTransferCS, manyTokensTokenName i, 2) | i <- [0 .. (tokenCount - 1)]]
      in buildLedgerShapedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1] [transferFixtureTransferWdrlIdx] [] 0)
+                (PlutusTx.toBuiltinData $ TransferAct [1] [transferFixtureTransferWdrlIdx] [] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -736,7 +737,7 @@ mkGlobalTransferManyOutputsCtx outputCount =
         recipientOutputsBuilder = mconcat (replicate (fromIntegral outputCount) recipientOutputBuilder)
      in buildLedgerShapedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1] [transferFixtureTransferWdrlIdx] [] 0)
+                (PlutusTx.toBuiltinData $ TransferAct [1] [transferFixtureTransferWdrlIdx] [] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -812,7 +813,7 @@ mkGlobalTransferManyPoliciesCtx policyCount =
                 ]
      in buildLedgerShapedScriptContext
             ( withRewardingScript
-                (PlutusTx.toBuiltinData $ TransferAct [1 + i | i <- idxs] [transferFixtureTransferWdrlIdx | _ <- idxs] [] 0)
+                (PlutusTx.toBuiltinData $ TransferAct [1 + i | i <- idxs] [transferFixtureTransferWdrlIdx | _ <- idxs] [] [] 0)
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -1276,7 +1277,7 @@ programmableBurnCtx =
         burnValue = mkValue [(mintingPolicyCS, TokenName "0c", -1)]
         remainingValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
         burnInputValue = mkAdaValue 12_000_000 <> mkValue [(mintingPolicyCS, TokenName "0c", 2)]
-        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [mintFixtureTransferWdrlIdx] [Member] 0
+        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [mintFixtureTransferWdrlIdx] [] [Member] 0
      in stripZeroChangeOutput $
             buildLedgerShapedScriptContext
                 ( withRedeemer scriptRedeemer
@@ -1325,7 +1326,7 @@ programmableBurnRedeem10Ctx =
     let scriptRedeemer = PlutusTx.toBuiltinData (BurnOnly mintingLogicWdrlIdx)
         burnValue = mkValue [(mintingPolicyCS, TokenName "0c", -10)]
         remainingValue = mkValue [(mintingPolicyCS, TokenName "0c", 10)]
-        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [mintFixtureTransferWdrlIdx] [Member] 0
+        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [mintFixtureTransferWdrlIdx] [] [Member] 0
         inputsBuilder = mconcat (map burnRedeemInputBuilder [0 .. 9])
      in stripZeroChangeOutput $
             buildLedgerShapedScriptContext
@@ -1362,7 +1363,7 @@ programmableMintTopUpCtx =
     let scriptRedeemer = PlutusTx.toBuiltinData (DelegateTransfer mintingLogicWdrlIdx 0 1 mintGlobalWdrlIdx)
         mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 5)]
         existingValue = mkValue [(mintingPolicyCS, TokenName "0c", 5)]
-        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [mintFixtureTransferWdrlIdx] [Member] 0
+        globalRedeemer = PlutusTx.toBuiltinData $ TransferAct [1] [mintFixtureTransferWdrlIdx] [] [Member] 0
      in stripZeroChangeOutput $
             buildLedgerShapedScriptContext
                 ( withRedeemer scriptRedeemer
@@ -1436,7 +1437,15 @@ globalTransferMixedOwners5Ctx =
      in buildLedgerShapedScriptContext
             ( withRewardingScript
                 ( PlutusTx.toBuiltinData $
-                    TransferAct [1] [wdrlIdxOf mixedOwners5Wdrls transferLogicCred] [] 0
+                    TransferAct
+                        [1]
+                        [wdrlIdxOf mixedOwners5Wdrls transferLogicCred]
+                        -- Owner witness index per SCRIPT-owned input, in input
+                        -- order. Inputs are ordered by TxOutRef, which here follows
+                        -- the 'ownerStakes' order. Pubkey owners take no entry.
+                        [wdrlIdxOf mixedOwners5Wdrls c | c@(ScriptCredential _) <- ownerStakes]
+                        []
+                        0
                 )
                 globalCred
                 0
@@ -1610,6 +1619,22 @@ mainnetDexPoolAddr :: Address
 mainnetDexPoolAddr =
     scriptAddressWithStakeCredential progLogicBaseHash mainnetDexPoolStakeCred
 
+{- | Owner witness index per SCRIPT-owned mini-ledger input, in input order.
+Every input in this transaction except the pubkey fee input is script-owned:
+sixteen swap legs under one stake script and the pool under another. The list
+is derived by sorting on 'TxOutRef', which is the order the ledger presents
+inputs in, so it stays correct if the fixture's ids change.
+-}
+mainnetDexOwnerWdrlIdxs :: [Integer]
+mainnetDexOwnerWdrlIdxs =
+    [ withdrawalIndexOf mainnetDexWdrls cred
+    | (_, cred) <- sortOn fst scriptOwnedInputs
+    ]
+  where
+    scriptOwnedInputs =
+        [(TxOutRef mainnetDexSwapInputTxId i, mainnetDexSwapStakeCred) | i <- [0 .. 15]]
+            <> [(mainnetDexPoolInputRef, mainnetDexPoolStakeCred)]
+
 mainnetDexSwapInputBuilder :: Integer -> Integer -> ScriptContextBuilder
 mainnetDexSwapInputBuilder idx nightQty =
     withScriptInput
@@ -1694,6 +1719,7 @@ mainnetDexGlobalTransferCtx =
                             TransferAct
                                 mainnetDexPoolProofs
                                 (replicate (length mainnetDexPoolProofs) mainnetDexTransferWdrlIdx)
+                                mainnetDexOwnerWdrlIdxs
                                 []
                                 0
                         )
@@ -1745,6 +1771,8 @@ txD29GlobalStakeRedeemer =
             -- This replays a real mainnet transaction, so its withdrawal
             -- credentials are fixed observed hashes rather than derived ones.
             [withdrawalIndexOf [txD29GlobalStakeCred, txD29TransferLogicStakeCred] txD29TransferLogicStakeCred]
+            -- The replayed transaction's mini-ledger input is pubkey-owned.
+            []
             []
             0
 

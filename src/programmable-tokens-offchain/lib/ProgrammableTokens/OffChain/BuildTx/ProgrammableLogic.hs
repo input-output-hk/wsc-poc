@@ -303,6 +303,13 @@ transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol director
             TransferAct
                 { plgrTransferProofs = transferProofs txBody
                 , plgrTransferWdrlIdxs = transferWdrlIdxs txBody
+                , -- This builder transfers mini-ledger UTxOs owned by a PUBKEY (the
+                  -- caller's own wallet), which are witnessed by a signature and take
+                  -- no entry here. A script-owned input needs the withdrawal index of
+                  -- its owning script, which this builder cannot derive because it is
+                  -- handed bare 'TxIn's and never resolves their addresses. Supplying
+                  -- one fails closed onchain rather than validating unwitnessed.
+                  plgrOwnerWdrlIdxs = []
                 , plgrMintProofs = mintProofs txBody
                 , plgrParamsRefIdx = fromIntegral (BuildTx.findIndexReference (uIn paramsTxIn) txBody)
                 }

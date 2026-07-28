@@ -81,11 +81,13 @@ tests =
         toData (NonMember 7) @?= Constr 1 [I 7]
     , -- The global redeemer layout is frozen (§11.3/§11.4 + the scan-proofness
       -- witnesses): TransferAct = Constr 0 [transferProofs, transferWdrlIdxs,
-      -- mintProofs, paramsRefIdx]; SeizeAct = Constr 1 [dirNodeIdx, inputIdxs,
-      -- outputsStartIdx, lengthInputIdxs, paramsRefIdx, issuerWdrlIdx].
-      testCase "TransferAct layout is Constr 0 [transferProofs, transferWdrlIdxs, mintProofs, paramsRefIdx]" $
-        toData (TransferAct [1, 2] [1, 1] [Member, NonMember 3] 0)
-          @?= Constr 0 [List [I 1, I 2], List [I 1, I 1], List [Constr 0 [], Constr 1 [I 3]], I 0]
+      -- ownerWdrlIdxs, mintProofs, paramsRefIdx]; SeizeAct = Constr 1
+      -- [dirNodeIdx, inputIdxs, outputsStartIdx, lengthInputIdxs, paramsRefIdx,
+      -- issuerWdrlIdx]. The owner list is non-empty here so its POSITION is
+      -- pinned, not just its presence.
+      testCase "TransferAct layout is Constr 0 [transferProofs, transferWdrlIdxs, ownerWdrlIdxs, mintProofs, paramsRefIdx]" $
+        toData (TransferAct [1, 2] [1, 1] [4] [Member, NonMember 3] 0)
+          @?= Constr 0 [List [I 1, I 2], List [I 1, I 1], List [I 4], List [Constr 0 [], Constr 1 [I 3]], I 0]
     , testCase "SeizeAct layout appends paramsRefIdx and issuerWdrlIdx as its final fields" $
         toData (SeizeAct 1 [0] 2 3 4 5)
           @?= Constr 1 [I 1, List [I 0], I 2, I 3, I 4, I 5]

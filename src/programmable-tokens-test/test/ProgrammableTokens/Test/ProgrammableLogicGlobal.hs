@@ -111,6 +111,10 @@ tests =
         , testCase "unit_transferAct_all_owners_signed_succeeds" unit_transferAct_all_owners_signed_succeeds
         , testCase "unit_transferAct_script_owner_not_invoked_rejected" unit_transferAct_script_owner_not_invoked_rejected
         , testCase "unit_transferAct_script_owner_invoked_succeeds" unit_transferAct_script_owner_invoked_succeeds
+        , testCase "unit_transferAct_owner_witness_points_at_another_invoked_script_rejected" unit_transferAct_owner_witness_points_at_another_invoked_script_rejected
+        , testCase "unit_transferAct_owner_witness_points_at_wrong_entry_rejected" unit_transferAct_owner_witness_points_at_wrong_entry_rejected
+        , testCase "unit_transferAct_two_script_owners_witnesses_swapped_rejected" unit_transferAct_two_script_owners_witnesses_swapped_rejected
+        , testCase "unit_transferAct_two_script_owners_succeeds" unit_transferAct_two_script_owners_succeeds
         , testCase "unit_transferAct_pubkey_input_outside_mini_ledger_ignored" unit_transferAct_pubkey_input_outside_mini_ledger_ignored
         , testCase "unit_transferAct_unstaked_mini_ledger_input_rejected" unit_transferAct_unstaked_mini_ledger_input_rejected
         , testProperty "prop_seizeAct_complete_indices_succeeds" prop_seizeAct_complete_indices_succeeds
@@ -159,7 +163,7 @@ unit_transferAct_burn_with_mint_proof_succeeds :: Assertion
 unit_transferAct_burn_with_mint_proof_succeeds =
     assertScriptSucceeds $
         mkGlobalTransferMintCtx
-            (TransferAct [1] [1] [Member] 0)
+            (TransferAct [1] [1] [] [Member] 0)
             (-1)
             0
 
@@ -167,7 +171,7 @@ unit_transferAct_burn_without_mint_proof_rejected :: Assertion
 unit_transferAct_burn_without_mint_proof_rejected =
     assertScriptFails $
         mkGlobalTransferMintCtx
-            (TransferAct [1] [1] [] 0)
+            (TransferAct [1] [1] [] [] 0)
             (-1)
             0
 
@@ -179,7 +183,7 @@ unit_transferAct_wrong_transfer_wdrl_index_rejected :: Assertion
 unit_transferAct_wrong_transfer_wdrl_index_rejected =
     assertScriptFails $
         mkGlobalTransferMintCtx
-            (TransferAct [1] [0] [Member] 0)
+            (TransferAct [1] [0] [] [Member] 0)
             1
             1
 
@@ -238,6 +242,42 @@ unit_transferAct_script_owner_invoked_succeeds :: Assertion
 unit_transferAct_script_owner_invoked_succeeds =
     assertScriptSucceeds $ mkGlobalTransferScriptOwnerCtx True
 
+{- | The owner witness names WHERE the owner's withdrawal sits. Pointing it at a
+different script that the transaction does invoke -- here the token's transfer
+logic, which any transfer carries anyway -- must not satisfy the owner check.
+Without this the witness would degenerate into "some withdrawal exists at this
+index", and a vault-owned UTxO could be spent by anyone willing to include an
+unrelated withdrawal.
+-}
+unit_transferAct_owner_witness_points_at_another_invoked_script_rejected :: Assertion
+unit_transferAct_owner_witness_points_at_another_invoked_script_rejected =
+    assertScriptFails $
+        mkGlobalTransferScriptOwnerCtxWitnessed False [wdrlIndexOf [globalCred, transferCred] transferCred]
+
+{- | The owning script IS invoked, but the witness points at the global
+validator's entry instead of the owner's. A wrong index must fail rather than
+be tolerated because the right withdrawal happens to be present somewhere.
+-}
+unit_transferAct_owner_witness_points_at_wrong_entry_rejected :: Assertion
+unit_transferAct_owner_witness_points_at_wrong_entry_rejected =
+    assertScriptFails $
+        mkGlobalTransferScriptOwnerCtxWitnessed True [wdrlIndexOf scriptOwnerWdrls globalCred]
+
+{- | Two mini-ledger inputs owned by DIFFERENT scripts. The witness list is
+positional over the script-owned inputs in input order, so swapping the two
+entries points each input at the other's owner and must be rejected -- that is
+what stops one invoked owner from covering every script-owned input in the
+transaction.
+-}
+unit_transferAct_two_script_owners_witnesses_swapped_rejected :: Assertion
+unit_transferAct_two_script_owners_witnesses_swapped_rejected =
+    assertScriptFails $ mkGlobalTransferTwoScriptOwnersCtx True
+
+-- | Control: the same transaction with the witnesses in the correct order.
+unit_transferAct_two_script_owners_succeeds :: Assertion
+unit_transferAct_two_script_owners_succeeds =
+    assertScriptSucceeds $ mkGlobalTransferTwoScriptOwnersCtx False
+
 {- | An ordinary pubkey input -- a fee input, here also carrying programmable
 tokens that already live OUTSIDE the mini-ledger -- must be ignored, not folded
 into the value the transfer is required to keep at the base credential. Every
@@ -270,7 +310,7 @@ unit_transferAct_two_policies_wholesale_succeeds :: Assertion
 unit_transferAct_two_policies_wholesale_succeeds =
     assertScriptSucceeds $
         mkGlobalTransferTwoPoliciesCtx
-            (TransferAct [1, 2] [1, 1] [] 0)
+            (TransferAct [1, 2] [1, 1] [] [] 0)
             []
             ( mkValue
                 [ (programmableTransferCS, TokenName "0c", 3)
@@ -282,7 +322,7 @@ unit_transferAct_two_policies_partial_escape_rejected :: Assertion
 unit_transferAct_two_policies_partial_escape_rejected =
     assertScriptFails $
         mkGlobalTransferTwoPoliciesCtx
-            (TransferAct [1, 2] [1, 1] [] 0)
+            (TransferAct [1, 2] [1, 1] [] [] 0)
             []
             ( mkValue
                 [ (programmableTransferCS, TokenName "0c", 3)
@@ -297,7 +337,7 @@ unit_transferAct_two_policies_mint_containment_succeeds :: Assertion
 unit_transferAct_two_policies_mint_containment_succeeds =
     assertScriptSucceeds $
         mkGlobalTransferTwoPoliciesCtx
-            (TransferAct [1, 2] [1, 1] [Member] 0)
+            (TransferAct [1, 2] [1, 1] [] [Member] 0)
             [(programmableTransferCS2, TokenName "1c", 2)]
             ( mkValue
                 [ (programmableTransferCS, TokenName "0c", 3)
@@ -309,7 +349,7 @@ unit_transferAct_two_policies_mint_smuggle_rejected :: Assertion
 unit_transferAct_two_policies_mint_smuggle_rejected =
     assertScriptFails $
         mkGlobalTransferTwoPoliciesCtx
-            (TransferAct [1, 2] [1, 1] [Member] 0)
+            (TransferAct [1, 2] [1, 1] [] [Member] 0)
             [(programmableTransferCS2, TokenName "1c", 2)]
             ( mkValue
                 [ (programmableTransferCS, TokenName "0c", 3)
@@ -321,7 +361,7 @@ unit_transferAct_mint_smuggle_rejected :: Assertion
 unit_transferAct_mint_smuggle_rejected =
     assertScriptFails $
         mkGlobalTransferMintCtx
-            (TransferAct [1] [1] [Member] 0)
+            (TransferAct [1] [1] [] [Member] 0)
             1
             1
 
@@ -329,7 +369,7 @@ unit_transferAct_mint_with_proof_and_containment_succeeds :: Assertion
 unit_transferAct_mint_with_proof_and_containment_succeeds =
     assertScriptSucceeds $
         mkGlobalTransferMintCtx
-            (TransferAct [1] [1] [Member] 0)
+            (TransferAct [1] [1] [] [Member] 0)
             1
             2
 
@@ -337,7 +377,7 @@ unit_transferAct_mint_without_mint_proof_rejected :: Assertion
 unit_transferAct_mint_without_mint_proof_rejected =
     assertScriptFails $
         mkGlobalTransferMintCtx
-            (TransferAct [1] [1] [] 0)
+            (TransferAct [1] [1] [] [] 0)
             1
             2
 
@@ -878,7 +918,7 @@ mkGlobalTransferTwoOwnersCtx :: [PubKeyHash] -> ScriptContext
 mkGlobalTransferTwoOwnersCtx signers =
     buildLedgerShapedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData (TransferAct [1] [wdrlIndexOf twoOwnerWdrls transferCred] [] 0))
+            (PlutusTx.toBuiltinData (TransferAct [1] [wdrlIndexOf twoOwnerWdrls transferCred] [] [] 0))
             globalCred
             0
             <> foldMap withSigner signers
@@ -905,13 +945,24 @@ mkGlobalTransferTwoOwnersCtx signers =
     twoOwnerWdrls = [globalCred, transferCred]
 
 {- | One mini-ledger input owned by a SCRIPT. The flag selects whether that
-script is actually invoked in the transaction.
+script is actually invoked in the transaction; the witness list is derived.
 -}
 mkGlobalTransferScriptOwnerCtx :: Bool -> ScriptContext
 mkGlobalTransferScriptOwnerCtx ownerInvoked =
+    mkGlobalTransferScriptOwnerCtxWitnessed
+        ownerInvoked
+        [wdrlIndexOf scriptOwnerWdrls vaultOwnerCred | ownerInvoked]
+
+scriptOwnerWdrls :: [Credential]
+scriptOwnerWdrls = [globalCred, transferCred, vaultOwnerCred]
+
+-- | As above, but the owner witness list is supplied by the caller so a test
+-- can point it somewhere it does not belong.
+mkGlobalTransferScriptOwnerCtxWitnessed :: Bool -> [Integer] -> ScriptContext
+mkGlobalTransferScriptOwnerCtxWitnessed ownerInvoked ownerIdxs =
     buildLedgerShapedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData (TransferAct [1] [wdrlIndexOf wdrls transferCred] [] 0))
+            (PlutusTx.toBuiltinData (TransferAct [1] [wdrlIndexOf wdrls transferCred] ownerIdxs [] 0))
             globalCred
             0
             <> withSigner signerPkh
@@ -932,6 +983,53 @@ mkGlobalTransferScriptOwnerCtx ownerInvoked =
   where
     wdrls = [globalCred, transferCred] <> [vaultOwnerCred | ownerInvoked]
 
+-- | A second owning script, sorting after 'vaultOwnerCred'.
+vaultOwnerCred2 :: Credential
+vaultOwnerCred2 = ScriptCredential (ScriptHash (bs28 0x22))
+
+progWalletVault2 :: Address
+progWalletVault2 =
+    Address (ScriptCredential progLogicBaseHash) (Just (StakingHash vaultOwnerCred2))
+
+{- | Two mini-ledger inputs under DIFFERENT owning scripts, both invoked. The
+flag swaps the two witness entries so each input points at the other's owner.
+-}
+mkGlobalTransferTwoScriptOwnersCtx :: Bool -> ScriptContext
+mkGlobalTransferTwoScriptOwnersCtx swapWitnesses =
+    buildLedgerShapedScriptContext
+        ( withRewardingScript
+            (PlutusTx.toBuiltinData (TransferAct [1] [wdrlIndexOf wdrls transferCred] ownerIdxs [] 0))
+            globalCred
+            0
+            <> withSigner signerPkh
+            <> withWithdrawal transferCred 0
+            <> withWithdrawal vaultOwnerCred 0
+            <> withWithdrawal vaultOwnerCred2 0
+            <> withScriptInput
+                (PlutusTx.toBuiltinData ())
+                ( withOutRef transferInputRef
+                    <> withAddress progWalletVault
+                    <> withValue (mkAdaValue 10_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 4)])
+                )
+            <> withScriptInput
+                (PlutusTx.toBuiltinData ())
+                ( withOutRef transferInputRefB
+                    <> withAddress progWalletVault2
+                    <> withValue (mkAdaValue 10_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 6)])
+                )
+            <> withOutput
+                ( withTxOutAddress progWalletVault
+                    <> withTxOutValue (mkAdaValue 15_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 10)])
+                )
+            <> mkGlobalTransferRefInputs
+        )
+  where
+    wdrls = [globalCred, transferCred, vaultOwnerCred, vaultOwnerCred2]
+    -- Inputs are ordered by TxOutRef: transferInputRef ("7a00") then
+    -- transferInputRefB ("7a01"), so vault 1 then vault 2.
+    correct = [wdrlIndexOf wdrls vaultOwnerCred, wdrlIndexOf wdrls vaultOwnerCred2]
+    ownerIdxs = if swapWitnesses then reverse correct else correct
+
 {- | One mini-ledger input plus an ordinary pubkey input that also happens to
 hold the same policy outside the mini-ledger. Only the mini-ledger input's 3
 tokens may be required to remain at the base credential.
@@ -940,7 +1038,7 @@ mkGlobalTransferWithPubKeyInputCtx :: ScriptContext
 mkGlobalTransferWithPubKeyInputCtx =
     buildLedgerShapedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData (TransferAct [1] [wdrlIndexOf [globalCred, transferCred] transferCred] [] 0))
+            (PlutusTx.toBuiltinData (TransferAct [1] [wdrlIndexOf [globalCred, transferCred] transferCred] [] [] 0))
             globalCred
             0
             <> withSigner signerPkh
@@ -967,12 +1065,11 @@ mkGlobalTransferWithPubKeyInputCtx =
             <> mkGlobalTransferRefInputs
         )
 
--- | Mini-ledger input whose address carries no staking credential at all.
 mkGlobalTransferUnstakedInputCtx :: ScriptContext
 mkGlobalTransferUnstakedInputCtx =
     buildLedgerShapedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData (TransferAct [1] [wdrlIndexOf [globalCred, transferCred] transferCred] [] 0))
+            (PlutusTx.toBuiltinData (TransferAct [1] [wdrlIndexOf [globalCred, transferCred] transferCred] [] [] 0))
             globalCred
             0
             <> withSigner signerPkh
@@ -994,7 +1091,7 @@ mkGlobalTransferEscapeCtx :: ScriptContext
 mkGlobalTransferEscapeCtx =
     buildBalancedScriptContext
         ( withRewardingScript
-            (PlutusTx.toBuiltinData $ TransferAct [1] [1] [] 0)
+            (PlutusTx.toBuiltinData $ TransferAct [1] [1] [] [] 0)
             globalCred
             0
             <> withSigner signerPkh

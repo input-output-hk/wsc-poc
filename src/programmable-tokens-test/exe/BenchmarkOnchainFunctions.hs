@@ -608,6 +608,7 @@ mkActualValueFromCredTerm cred cs tn expectedQty = plam $ \ctx ->
                     (pconstant cred)
                     (pfromData $ ptxInfo'signatories txInfo)
                     (pto $ pfromData $ ptxInfo'wdrl txInfo)
+                    pnil
                     (pfromData $ ptxInfo'inputs txInfo)
          in -- `pvalueFromCred` returns the raw currency-pair list rather than a wrapped
             -- `PValue`; the representations are identical, so coerce it back here.

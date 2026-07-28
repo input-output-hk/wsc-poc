@@ -305,6 +305,10 @@ pvalueFromCred ::
     Term s PCredential ->
     Term s (PBuiltinList (PAsData PPubKeyHash)) ->
     Term s (PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace))) ->
+    -- Withdrawal indices of the script owners, in input order. Consumed only by
+    -- script-owned inputs; a pubkey owner is witnessed by its signature and
+    -- takes no entry.
+    Term s (PBuiltinList (PAsData PInteger)) ->
     Term s (PBuiltinList (PAsData PTxInInfo)) ->
     -- Returns the accumulated non-Ada currency-pair list (sorted), same shape
     -- the lockstep proof walk consumes. Hybrid accumulation strategy:
@@ -315,7 +319,7 @@ pvalueFromCred ::
     -- component on the inputs axis, then bridges back to pairs once
     -- (insertCoin amount 0 deletes the ada entry).
     Term s (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
-pvalueFromCred cred sigs withdrawalEntries inputs =
+pvalueFromCred cred sigs withdrawalEntries ownerWdrlIdxs inputs =
     let credData = pforgetData (pdata cred)
 
         -- Shared per-input gate: k receives the input's raw value Data iff the
@@ -324,14 +328,15 @@ pvalueFromCred cred sigs withdrawalEntries inputs =
         -- into each of the three loop bodies below.
         withContributing ::
             Term _ (PAsData PTxInInfo) ->
-            (Term _ PData -> Term _ r) ->
-            Term _ r ->
+            Term _ (PBuiltinList (PAsData PInteger)) ->
+            (Term _ PData -> Term _ (PBuiltinList (PAsData PInteger)) -> Term _ r) ->
+            (Term _ (PBuiltinList (PAsData PInteger)) -> Term _ r) ->
             Term _ r
         -- The address fields are 'plet'-bound because BOTH the payment credential
         -- and the staking credential are read out of them; left unshared, the
         -- address is 'unConstrData'-ed twice for every input the transaction
         -- carries.
-        withContributing txIn k skip =
+        withContributing txIn idxs k skip =
             plet (pdata (ptxInInfoResolved $ pfromData txIn)) $ \resolvedOutData ->
                 plet (psndBuiltin # (pasConstr # pforgetData resolvedOutData)) $ \resolvedOutFields ->
                   plet (psndBuiltin # (pasConstr # (phead # resolvedOutFields))) $ \resolvedOutAddressFields ->
@@ -360,25 +365,38 @@ pvalueFromCred cred sigs withdrawalEntries inputs =
                                             (pfstBuiltin # ownerCred #== pconstantInteger 0)
                                             ( pif
                                                 (ptxSignedByPkh # punsafeCoerce (phead # (psndBuiltin # ownerCred)) # sigs)
-                                                (k resolvedOutValueData)
+                                                (k resolvedOutValueData idxs)
                                                 (ptraceInfoError "Missing required pk witness")
                                             )
+                                            -- Scan-proof: the redeemer witnesses
+                                            -- where this owner's withdrawal sits,
+                                            -- so the check is one comparison at a
+                                            -- known position rather than a search.
+                                            -- Self-validating: a wrong index
+                                            -- resolves to some other credential and
+                                            -- fails this equality, and a misaligned
+                                            -- list fails the same way at the next
+                                            -- script-owned input.
                                             ( pif
-                                                (pisScriptInvokedEntries # punsafeCoerce ownerCredData # withdrawalEntries)
-                                                (k resolvedOutValueData)
+                                                ( ownerCredData
+                                                    #== pforgetData
+                                                        (pfstBuiltin # (phead # (pdropList # pfromData (phead # idxs) # withdrawalEntries)))
+                                                )
+                                                (k resolvedOutValueData (ptail # idxs))
                                                 (ptraceInfoError "Missing required script witness")
                                             )
                             )
-                            skip
+                            (skip idxs)
 
         -- Phase 3: two or more contributing inputs seen; accumulate builtin.
-        goBuiltin = pfix #$ plam $ \self acc remaining ->
+        goBuiltin = pfix #$ plam $ \self acc idxs remaining ->
             pelimList
                 ( \txIn xs ->
                     withContributing
                         txIn
-                        (\vd -> self # (punionValue # acc # (punValueData # vd)) # xs)
-                        (self # acc # xs)
+                        idxs
+                        (\vd idxs' -> self # (punionValue # acc # (punValueData # vd)) # idxs' # xs)
+                        (\idxs' -> self # acc # idxs' # xs)
                 )
                 ( punsafeCoerce
                     @(PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
@@ -386,13 +404,14 @@ pvalueFromCred cred sigs withdrawalEntries inputs =
                 )
                 remaining
         -- Phase 2: exactly one contributing input so far (raw value Data held).
-        goRest = pfix #$ plam $ \self firstVd remaining ->
+        goRest = pfix #$ plam $ \self firstVd idxs remaining ->
             pelimList
                 ( \txIn xs ->
                     withContributing
                         txIn
-                        (\vd -> goBuiltin # (punionValue # (punValueData # firstVd) # (punValueData # vd)) # xs)
-                        (self # firstVd # xs)
+                        idxs
+                        (\vd idxs' -> goBuiltin # (punionValue # (punValueData # firstVd) # (punValueData # vd)) # idxs' # xs)
+                        (\idxs' -> self # firstVd # idxs' # xs)
                 )
                 ( punsafeCoerce
                     @(PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
@@ -400,17 +419,18 @@ pvalueFromCred cred sigs withdrawalEntries inputs =
                 )
                 remaining
         -- Phase 1: no contributing input seen yet.
-        goFind = pfix #$ plam $ \self remaining ->
+        goFind = pfix #$ plam $ \self idxs remaining ->
             pelimList
                 ( \txIn xs ->
                     withContributing
                         txIn
-                        (\vd -> goRest # vd # xs)
-                        (self # xs)
+                        idxs
+                        (\vd idxs' -> goRest # vd # idxs' # xs)
+                        (\idxs' -> self # idxs' # xs)
                 )
                 pnil
                 remaining
-     in goFind # inputs
+     in goFind # ownerWdrlIdxs # inputs
 
 {- | Aggregate all non-Ada output value at a payment credential.
 
@@ -1017,6 +1037,13 @@ data ProgrammableLogicGlobalRedeemer
         -- ^ Per-proof withdrawal index of the policy's transfer-logic script
         -- (scan-proofness: the validator verifies the credential at this index
         -- instead of scanning the withdrawal map).
+        , plgrOwnerWdrlIdxs :: [Integer]
+        -- ^ Withdrawal index of the OWNER script of each script-owned
+        -- mini-ledger input, in input order. Pubkey-owned inputs contribute no
+        -- entry -- they are witnessed by a signature instead. Scan-proofness:
+        -- without this the validator searched the withdrawal map for each such
+        -- owner, so an issuer's cost depended on where their script hash sorted
+        -- against the other participants' -- something they cannot control.
         , plgrMintProofs :: [MintProof]
         , plgrParamsRefIdx :: Integer
         }
@@ -1106,10 +1133,13 @@ data PProgrammableLogicGlobalRedeemer (s :: S)
         -- side; exact-match vs covering derived onchain from the referenced datum).
         -- ptransferWdrlIdxs are the per-proof withdrawal indices of each policy's
         -- transfer-logic script (verified, never scanned).
+        -- pownerWdrlIdxs are the withdrawal indices of the OWNER script of each
+        -- script-owned mini-ledger input, in input order (verified, never scanned).
         -- pmintProofs are per-minted-symbol Member|NonMember classifications.
         -- pparamsRefIdx indexes the protocol-params reference input.
         { ptransferProofs :: Term s (PAsData (PBuiltinList (PAsData PInteger)))
         , ptransferWdrlIdxs :: Term s (PAsData (PBuiltinList (PAsData PInteger)))
+        , pownerWdrlIdxs :: Term s (PAsData (PBuiltinList (PAsData PInteger)))
         , pmintProofs :: Term s (PAsData (PBuiltinList (PAsData PMintProof)))
         , pparamsRefIdx :: Term s (PAsData PInteger)
         }
@@ -1155,7 +1185,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
         -- - No programmable value may escape from outputs at `progLogicCred`.
         -- - Transfer and mint proofs must be consumed in lockstep with the
         --   programmable policies they witness.
-        PTransferAct transferProofs transferWdrlIdxs mintProofs paramsRefIdx -> P.do
+        PTransferAct transferProofs transferWdrlIdxs ownerWdrlIdxs mintProofs paramsRefIdx -> P.do
             -- Reference inputs and protocol params are only needed on the transfer
             -- path, so the ref-input decode happens here (not in the shared
             -- preamble). The params UTxO is resolved by the redeemer-supplied
@@ -1173,6 +1203,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                         progLogicCred
                         (pfromData ptxInfo'signatories)
                         withdrawalEntries
+                        (pfromData ownerWdrlIdxs)
                         (pfromData ptxInfo'inputs)
             totalProgTokenValue_ <-
                 plet $

@@ -61,7 +61,7 @@ import ProgrammableTokens.Test (
 import SmartTokens.Contracts.ExampleTransferLogic (BlacklistProof (NonmembershipProof))
 import SmartTokens.Contracts.ProgrammableLogicBase (BaseSpendRedeemer (..))
 import SmartTokens.Contracts.ProgrammableLogicBase (
-    ProgrammableLogicGlobalRedeemer (TransferAct, plgrMintProofs, plgrParamsRefIdx, plgrTransferProofs, plgrTransferWdrlIdxs),
+    ProgrammableLogicGlobalRedeemer (TransferAct, plgrMintProofs, plgrOwnerWdrlIdxs, plgrParamsRefIdx, plgrTransferProofs, plgrTransferWdrlIdxs),
  )
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import SmartTokens.Types.PTokenDirectory (BlacklistNode (..), DirectorySetNode (..))
@@ -1147,6 +1147,9 @@ oneOutputPerInputTransferTx assetId utxoCount destCred refScripts = do
                             [ fromIntegral @Int @Integer $
                                 BuildTx.findIndexWithdrawal (C.makeStakeAddress networkId transferStakeCred) txBody
                             ]
+                        , -- Pubkey-owned mini-ledger inputs: witnessed by signature,
+                          -- so no owner withdrawal indices are required.
+                          plgrOwnerWdrlIdxs = []
                         , plgrMintProofs = []
                         , plgrParamsRefIdx =
                             fromIntegral @Int @Integer $
