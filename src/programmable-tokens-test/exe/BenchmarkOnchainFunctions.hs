@@ -7,6 +7,7 @@ module Main (main) where
 import BenchmarkOnchain.ScriptHelpers (bs28, mkValue, pubKeyAddress)
 import BenchmarkOnchain.SimpleRunner (BenchCase, mkTermCase, runSimpleBenchmark)
 import Data.ByteString qualified as BS
+import Data.Word (Word8)
 import Plutarch.Core.Context (
     pscriptContextTxInfo,
     ptxInInfoResolved,
@@ -690,6 +691,7 @@ decisionBenchCases =
     ]
         <> dropDecisionCases
         <> refWalkCases
+        <> credCompareCases
 
 -- Decision benchmarks for the Van Rossem dropList adoption: the
 -- plutarch-onchain-lib tail-walk ('pdropFast', ptails30/20/10 unrolling +
@@ -743,6 +745,35 @@ refWalkCases =
         [ PlutusTx.toData idxs
         , PlutusTx.toData [0 .. toInteger p]
         ]
+
+-- Decision benchmarks for how the output walks should compare a payment
+-- credential. Plutarch's typed PEq on PCredential compiles to unConstrData on
+-- both sides, an equalsInteger on the constructor tags, and only then a
+-- comparison of the payload -- so a tag mismatch costs almost nothing. A single
+-- equalsData is fewer builtins, but Data-comparison builtins are charged on the
+-- SIZE of their arguments, not on where the difference is found. Which one wins
+-- therefore depends on how often the walk sees a credential that matches.
+credCompareCases :: [BenchCase]
+credCompareCases =
+    [ mkCase "decision.f.cred.equalsData.match" pCredEqualsData [scriptCredData 0x12, scriptCredData 0x12]
+    , mkCase "decision.f.cred.equalsData.tagDiffers" pCredEqualsData [scriptCredData 0x12, pubKeyCredData 0x12]
+    , mkCase "decision.f.cred.equalsData.hashDiffers" pCredEqualsData [scriptCredData 0x12, scriptCredData 0x99]
+    , mkCase "decision.f.cred.typed.match" pCredTyped [scriptCredData 0x12, scriptCredData 0x12]
+    , mkCase "decision.f.cred.typed.tagDiffers" pCredTyped [scriptCredData 0x12, pubKeyCredData 0x12]
+    , mkCase "decision.f.cred.typed.hashDiffers" pCredTyped [scriptCredData 0x12, scriptCredData 0x99]
+    ]
+
+scriptCredData :: Word8 -> Data
+scriptCredData w = PlutusTx.toData (ScriptCredential (ScriptHash (bs28 w)))
+
+pubKeyCredData :: Word8 -> Data
+pubKeyCredData w = PlutusTx.toData (PubKeyCredential (PubKeyHash (bs28 w)))
+
+pCredEqualsData :: Term s (PData :--> PData :--> PBool)
+pCredEqualsData = plam $ \a b -> a #== b
+
+pCredTyped :: Term s (PAsData PCredential :--> PAsData PCredential :--> PBool)
+pCredTyped = plam $ \a b -> pfromData a #== pfromData b
 
 pRefWalk2Absolute :: Term s (PData :--> PData :--> PData)
 pRefWalk2Absolute = plam $ \idxsData xsData ->
