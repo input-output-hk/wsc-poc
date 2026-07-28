@@ -483,7 +483,15 @@ poutputsContainExpectedValueAtCred ::
     Term s PBool
 poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
     let
-        passetQtyInValue = phoistAcyclic $ plam $ \value cs tn ->
+        passetQtyInPairs ::
+            Term
+                _
+                ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
+                    :--> PCurrencySymbol
+                    :--> PTokenName
+                    :--> PInteger
+                )
+        passetQtyInPairs = phoistAcyclic $ plam $ \csPairs cs tn ->
             let tokenQtyInTokenPairs = pfix #$ plam $ \self remainingTokenPairs ->
                     pelimList
                         ( \tokenPair tokenPairsRest ->
@@ -516,7 +524,7 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
                         )
                         0
                         remainingCurrencyPairs
-             in tokenQtyInCurrencyPairs # pto (pto value)
+             in tokenQtyInCurrencyPairs # csPairs
         hasAtLeastAssetInProgOutputs = pfix #$ plam $ \self requiredQty currentQty cs tn remainingOutputs ->
             pif
                 (currentQty #>= requiredQty)
@@ -526,7 +534,7 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
                         pmatch (pfromData txOut) $ \(PTxOut{ptxOut'address, ptxOut'value}) ->
                             pif
                                 (paddressCredential ptxOut'address #== progLogicCred)
-                                (self # requiredQty # (currentQty + (passetQtyInValue # (pfromData ptxOut'value) # cs # tn)) # cs # tn # outputsRest)
+                                (self # requiredQty # (currentQty + (passetQtyInPairs # pto (pto (pfromData ptxOut'value)) # cs # tn)) # cs # tn # outputsRest)
                                 (self # requiredQty # currentQty # cs # tn # outputsRest)
                     )
                     (currentQty #>= requiredQty)
@@ -1299,9 +1307,17 @@ ptokensForCurrencySymbol ::
 ptokensForCurrencySymbol =
     phoistAcyclic $
         plam $ \targetCs mintValue ->
-            let mintedEntries :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
-                mintedEntries = pto (pto mintValue)
-                go = pfix #$ plam $ \self remainingMintEntries ->
+            ptokensForCurrencyPairs # targetCs # pto (pto mintValue)
+
+-- | 'ptokensForCurrencySymbol' over a raw currency-pair list, for callers that
+-- already hold the value as Data and would otherwise pay a typed decode.
+ptokensForCurrencyPairs ::
+    forall s.
+    Term s (PCurrencySymbol :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))) :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
+ptokensForCurrencyPairs =
+    phoistAcyclic $
+        plam $ \targetCs mintedEntries ->
+            let go = pfix #$ plam $ \self remainingMintEntries ->
                     pelimList
                         ( \mintCsPair mintCsPairs ->
                             let mintCs = pfromData (pfstBuiltin # mintCsPair)
@@ -1469,11 +1485,13 @@ processThirdPartyTransfer programmableCS progLogicCred inputs progOutputs minted
         go2 = pfix #$ plam $ \self programmableOutputs ->
             pelimList
                 ( \programmableOutput programmableOutputsRest ->
-                    pmatch (pfromData programmableOutput) $ \(PTxOut{ptxOut'address = programmableOutputAddress, ptxOut'value = programmableOutputValue}) ->
-                        pif
-                            (paddressCredential programmableOutputAddress #== progLogicCred)
-                            (ptokenPairsUnionFast # (ptokensForCurrencySymbol # programmableCS' # pfromData programmableOutputValue) # (self # programmableOutputsRest))
-                            (self # programmableOutputsRest)
+                    plet (psndBuiltin # (pasConstr # pforgetData programmableOutput)) $ \outFields ->
+                        let paymentCredData = phead # (psndBuiltin # (pasConstr # (phead # outFields)))
+                            outValueData = phead # (ptail # outFields)
+                         in pif
+                                (paymentCredData #== progLogicCredData)
+                                (ptokenPairsUnionFast # (ptokensForCurrencyPairs # programmableCS' # punsafeCoerce (pasMap # outValueData)) # (self # programmableOutputsRest))
+                                (self # programmableOutputsRest)
                 )
                 pnil
                 programmableOutputs
