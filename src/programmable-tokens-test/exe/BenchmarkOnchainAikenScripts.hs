@@ -2,12 +2,44 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Aiken side of the ex-unit comparison.
+--
+-- [HARNESS INVARIANT — same scenario name ⇒ same transaction]
+--
+-- A ratio between two validators is only meaningful if both are evaluated
+-- against the SAME transaction. Every fixture here must therefore be
+-- structurally identical to the same-named fixture in
+-- @BenchmarkOnchainScripts.hs@: same fee, same number and order of inputs,
+-- reference inputs, outputs, withdrawals, mint entries and signatories, same
+-- per-output ada and asset counts, and no zero-ada output on either side.
+--
+-- That means both harnesses build with 'buildLedgerShapedScriptContext' (the
+-- two registry fixtures excepted — see 'directoryInitCtx'). The earlier
+-- 'buildBalancedScriptContext' left @txInfoFee = 0@ and permitted token-only
+-- outputs, so the Aiken side was being measured on transactions no ledger could
+-- produce, and — because a zero fee needs no funding input and a zero-ada
+-- output needs no min-UTxO — systematically SMALLER ones than the Plutarch side.
+--
+-- Verify after any fixture change (prints one shape line per scenario; diff the
+-- two outputs, they must agree except for the documented exceptions):
+--
+-- > BENCH_DUMP_SHAPE=1 $(cabal list-bin benchmark-onchain-scripts)
+-- > BENCH_DUMP_SHAPE=1 $(cabal list-bin benchmark-onchain-aiken-scripts)
+--
+-- Documented, deliberate exceptions (each explained at its fixture):
+--
+--   * the three pure-mint rows carry one reference input to Plutarch's two —
+--     a compile-time-parameter vs params-datum design difference;
+--   * @directoryNodeMinting.{InitDirectory,InsertDirectoryNode}@ are the only
+--     fixtures NOT built by a ledger-shaped builder on EITHER side, because
+--     their Plutarch twins use 'buildScriptContext'.
 module Main (main) where
 
 import BenchmarkOnchain.CardanoScriptHelpers (scriptHashFromCardanoScript)
 import BenchmarkOnchain.MainnetDexFixture
+import BenchmarkOnchain.AikenFixtureIds
 import BenchmarkOnchain.ScriptFixtureIds
-import BenchmarkOnchain.ScriptHelpers (bs28, mkValue, pubKeyAddress, scriptAddress, scriptAddressWithSignerStake, scriptAddressWithStakeCredential, stripZeroChangeOutput, withAuxiliaryRewardingScript, withPubKeyInputValue, withRefInputDatumValue)
+import BenchmarkOnchain.ScriptHelpers (inCurrencySymbolOrder, bs28, mkValue, pubKeyAddress, scriptAddress, scriptAddressWithSignerStake, scriptAddressWithStakeCredential, stripZeroChangeOutput, withAuxiliaryRewardingScript, withPubKeyInputValue, withRefInputDatumValue)
 import BenchmarkOnchain.ScriptRunner (BenchCase, EvalKind (..), EvalSpec (..), mkBenchCase, runScriptBenchmarkWithAxes)
 import BenchmarkOnchain.ScriptScenario qualified as Scenario
 import BenchmarkOnchain.TxD29Fixture
@@ -20,7 +52,7 @@ import PlutusTx qualified
 import PlutusTx.Builtins qualified as BI
 import ProgrammableTokens.OffChain.AikenProgrammableTokenScripts qualified as Aiken
 import ProgrammableTokens.OffChain.Scripts qualified as OffchainScripts
-import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buildBalancedScriptContext, mkAdaValue, withAddress, withFee, withInlineDatum, withInput, withMint, withMintingScript, withOutRef, withOutput, withRedeemer, withRewardingScript, withScriptInput, withSigner, withTxOutAddress, withTxOutInlineDatum, withTxOutValue, withValue, withWithdrawal)
+import ProgrammableTokens.Test.ScriptContext.Builder (ScriptContextBuilder, buildBalancedScriptContext, buildLedgerShapedScriptContext, mkAdaValue, withAddress, withFee, withInlineDatum, withInput, withMint, withMintingScript, withOutRef, withOutput, withRedeemer, withRewardingScript, withScriptInput, withSigner, withTxOutAddress, withTxOutInlineDatum, withTxOutValue, withValue, withWithdrawal)
 import SmartTokens.Core.Scripts (ScriptTarget (Production))
 import SmartTokens.Types.Constants (issuanceCborHexToken, protocolParamsToken)
 
@@ -120,7 +152,11 @@ scenarioBackend =
             \env cs purposeCtx ->
                 EvalSpec
                     (EvalProgrammableMint cs)
-                    (cardanoApiScriptToScript (Aiken.aikenProgrammableLogicMintingScript (Scenario.sseProgLogicBaseCred env) (Scenario.sseDirectoryPolicyCS env) (ScriptCredential (Scenario.sseMintingLogicHash env)) (Scenario.sseGlobalCred env)))
+                    -- registry_node_cs is the policy the programmable-token
+                    -- fixtures mint their registry nodes under (directoryNodeCS);
+                    -- sseDirectoryPolicyCS is the dispatch key for the separate
+                    -- directory-mint fixture family and is a different symbol.
+                    (cardanoApiScriptToScript (Aiken.aikenProgrammableLogicMintingScript (Scenario.sseProgLogicBaseCred env) directoryNodeCS (ScriptCredential (Scenario.sseMintingLogicHash env)) (Scenario.sseGlobalCred env)))
                     (aikenMintArgs purposeCtx)
         , Scenario.ssbProtocolParamsMintSpec =
             \env cs purposeCtx ->
@@ -401,6 +437,22 @@ seizeResidualOutputBuilder n =
             <> withTxOutValue (seizeResidualOutputValueFor n)
         )
 
+-- | Ada that funds the transaction fee and the residual output's min-UTxO ada.
+--
+-- Identical to the Plutarch harness's 'seizeFeeFundingBuilder', and needed for
+-- the same reason on BOTH implementations: a third-party act may not take the
+-- ada out of a seized input, because the per-pair check compares the paired
+-- input/output values on every NON-acted-on policy — and ada (policy id @""@,
+-- which sorts first) is one of them, so @input_tokens_before ==
+-- output_tokens_before@ (third_party.ak:227) pins the paired output's lovelace
+-- to the input's. The fee and the residual output's min-UTxO ada therefore have
+-- to come from a separate pubkey input, exactly as they would on chain. Its
+-- 'TxOutRef' (@0x5efe…@) sorts after every seize input (@0x5e12…@/@0x5e13…@), so
+-- it is appended last and no other input's index moves.
+seizeFeeFundingBuilder :: ScriptContextBuilder
+seizeFeeFundingBuilder =
+    withPubKeyInputValue signerPkh seizeFeeFundingRef 10_000_000
+
 baseSpendingCtx :: ScriptContext
 baseSpendingCtx =
     let ScriptContext txInfo _ _ = globalTransferCtx
@@ -411,7 +463,7 @@ baseSpendingCtx =
 
 globalTransferCtx :: ScriptContext
 globalTransferCtx =
-    buildBalancedScriptContext
+    buildLedgerShapedScriptContext
         ( withRewardingScript
             (aikenTransferActRedeemerData [TokenExists 1])
             globalCred
@@ -453,7 +505,7 @@ globalTransferCtx =
 
 globalTransferDoesNotExistCtx :: ScriptContext
 globalTransferDoesNotExistCtx =
-    buildBalancedScriptContext
+    buildLedgerShapedScriptContext
         ( withRewardingScript
             (aikenTransferActRedeemerData [TokenDoesNotExist 1])
             globalCred
@@ -491,9 +543,20 @@ globalTransferDoesNotExistCtx =
 
 globalTransferMixedManyCtx :: ScriptContext
 globalTransferMixedManyCtx =
-    buildBalancedScriptContext
+    buildLedgerShapedScriptContext
         ( withRewardingScript
-            (aikenTransferActRedeemerData [TokenDoesNotExist 1, TokenExists 2, TokenExists 3, TokenExists 4, TokenDoesNotExist 1])
+            ( aikenTransferActRedeemerData $
+                -- One proof per non-Ada policy, consumed in canonical
+                -- currency-symbol order; with derived ids that order is
+                -- whatever blake2b says, so it is computed rather than listed.
+                inCurrencySymbolOrder
+                    [ (nonProgrammableCS, TokenDoesNotExist 1)
+                    , (programmableTransferCS, TokenExists 2)
+                    , (programmableTransferCS2, TokenExists 3)
+                    , (programmableTransferCS3, TokenExists 4)
+                    , (nonProgrammableCS2, TokenDoesNotExist 1)
+                    ]
+            )
             globalCred
             0
             <> withSigner signerPkh
@@ -587,7 +650,7 @@ mkGlobalTransferManyCtx inputCount =
         scriptInputsBuilder = mconcat (map transferManyInputBuilder inputRefs)
         qtyInFirstOutput = inputCount `div` 2
         qtyInSecondOutput = inputCount - qtyInFirstOutput
-     in buildBalancedScriptContext
+     in buildLedgerShapedScriptContext
             ( withRewardingScript
                 (aikenTransferActRedeemerData [TokenDoesNotExist 1, TokenExists 2])
                 globalCred
@@ -651,7 +714,7 @@ globalTransfer100Ctx = mkGlobalTransferManyCtx 100
 mkGlobalTransferManyTokensCtx :: Integer -> ScriptContext
 mkGlobalTransferManyTokensCtx tokenCount =
     let manyTokensValue = mkValue [(programmableTransferCS, manyTokensTokenName i, 2) | i <- [0 .. (tokenCount - 1)]]
-     in buildBalancedScriptContext
+     in buildLedgerShapedScriptContext
             ( withRewardingScript
                 (aikenTransferActRedeemerData [TokenExists 1])
                 globalCred
@@ -704,7 +767,7 @@ mkGlobalTransferManyOutputsCtx outputCount =
                     <> withTxOutValue (mkAdaValue 3_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 1)])
                 )
         recipientOutputsBuilder = mconcat (replicate (fromIntegral outputCount) recipientOutputBuilder)
-     in buildBalancedScriptContext
+     in buildLedgerShapedScriptContext
             ( withRewardingScript
                 (aikenTransferActRedeemerData [TokenExists 1])
                 globalCred
@@ -781,7 +844,7 @@ mkGlobalTransferManyPoliciesCtx policyCount =
                     (manyPolicyNodeDatum i)
                 | i <- idxs
                 ]
-     in buildBalancedScriptContext
+     in buildLedgerShapedScriptContext
             ( withRewardingScript
                 (aikenTransferActRedeemerData [TokenExists (1 + i) | i <- idxs])
                 globalCred
@@ -829,12 +892,13 @@ mkGlobalSeizeCtx seizeInputCount =
         seizeInputsBuilder = mconcat (map seizeInputBuilder seizeInputRefs)
         correspondingOutputsBuilder = mconcat (replicate (fromIntegral seizeInputCount) seizeCorrespondingOutputBuilder)
      in stripZeroChangeOutput $
-            buildBalancedScriptContext
+            buildLedgerShapedScriptContext
                 ( withRewardingScript
                     (PlutusTx.toBuiltinData seizeRedeemer)
                     globalCred
                     0
                     <> withAuxiliaryRewardingScript issuerCred (PlutusTx.toBuiltinData ())
+                    <> seizeFeeFundingBuilder
                     <> seizeInputsBuilder
                     <> seizeResidualOutputBuilder seizeInputCount
                     <> correspondingOutputsBuilder
@@ -878,12 +942,13 @@ globalSeizeNoiseCtx :: ScriptContext
 globalSeizeNoiseCtx =
     let seizeRedeemer = aikenThirdPartyActRedeemerData 1 0
      in stripZeroChangeOutput $
-            buildBalancedScriptContext
+            buildLedgerShapedScriptContext
                 ( withRewardingScript
                     (PlutusTx.toBuiltinData seizeRedeemer)
                     globalCred
                     0
                     <> withAuxiliaryRewardingScript issuerCred (PlutusTx.toBuiltinData ())
+                    <> seizeFeeFundingBuilder
                     <> withScriptInput
                         (PlutusTx.toBuiltinData ())
                         ( withOutRef (TxOutRef seizeNoiseInputTxId 0)
@@ -949,7 +1014,7 @@ mkGlobalSeizeExternalScriptAndManyPubKeyCtx pubKeyInputCount =
         -- list: the single PLB seize input is the only acted-on input.
         seizeRedeemer = aikenThirdPartyActRedeemerData 1 0
         pubKeyInputsBuilder = mconcat (map leadingPubKeyInputBuilder pubKeyInputIdxs)
-     in buildBalancedScriptContext
+     in buildLedgerShapedScriptContext
             ( withRewardingScript
                 (PlutusTx.toBuiltinData seizeRedeemer)
                 globalCred
@@ -977,6 +1042,123 @@ globalSeize1ExternalScript50PubKeyCtx :: ScriptContext
 globalSeize1ExternalScript50PubKeyCtx =
     mkGlobalSeizeExternalScriptAndManyPubKeyCtx manyPubKeyInputCount
 
+-- Seize x mint/burn family -----------------------------------------------
+--
+-- Twin of the Plutarch-side fixture family (see the long note in
+-- BenchmarkOnchainScripts.hs). Same seized policy, same seized quantities, same
+-- input set (one programmable-logic-base seize input holding 2x "0c" plus one
+-- pubkey fee-funding input), same three outputs (paired continuation, residual
+-- at the base credential, pubkey change), same reference inputs at the same
+-- indices, same mint field and same residual token map per row — and the same
+-- 'buildLedgerShapedScriptContext' entry point, so both harnesses measure the
+-- identical ledger-valid transaction and only the validator differs.
+seizeMintFamilyInputValue :: Value
+seizeMintFamilyInputValue =
+    mkAdaValue 3_000_000
+        <> mkValue [(programmableTransferCS, TokenName "0c", 2)]
+
+seizeMintFamilyInputBuilder :: ScriptContextBuilder
+seizeMintFamilyInputBuilder =
+    withScriptInput
+        (PlutusTx.toBuiltinData ())
+        ( withOutRef (TxOutRef seizeInputTxId 0)
+            <> withAddress seizeInputAddr
+            <> withValue seizeMintFamilyInputValue
+        )
+
+-- | @Nothing@ = no mint field at all (the SeizeOnly row); @Just v@ = mint @v@,
+-- always under the seized policy.
+mkGlobalSeizeMintFamilyCtx :: Maybe Value -> Value -> ScriptContext
+mkGlobalSeizeMintFamilyCtx mintValue residualValue =
+    let seizeRedeemer = aikenThirdPartyActRedeemerData 1 0
+        mintBuilder = maybe mempty (\v -> withMint v (PlutusTx.toBuiltinData ())) mintValue
+     in buildLedgerShapedScriptContext
+            ( withRewardingScript
+                (PlutusTx.toBuiltinData seizeRedeemer)
+                globalCred
+                0
+                <> withAuxiliaryRewardingScript issuerCred (PlutusTx.toBuiltinData ())
+                <> mintBuilder
+                <> seizeFeeFundingBuilder
+                <> seizeMintFamilyInputBuilder
+                -- withOutput prepends: composing the residual first lands the
+                -- final tx-output order at [paired-with-input, residual, change].
+                <> withOutput
+                    ( withTxOutAddress seizeInputAddr
+                        <> withTxOutValue residualValue
+                    )
+                <> withOutput
+                    ( withTxOutAddress seizeInputAddr
+                        <> withTxOutValue seizeCorrespondingOutputValue
+                    )
+                <> withRefInputDatumValue
+                    paramRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(protocolParamsCS, protocolParamsToken, 1)])
+                    protocolParamsDatum
+                <> withRefInputDatumValue
+                    dirNodeRef
+                    (pubKeyAddress signerPkh)
+                    (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, TokenName "", 1)])
+                    directoryProgrammableNode
+            )
+
+globalSeizeOnlyCtx :: ScriptContext
+globalSeizeOnlyCtx =
+    mkGlobalSeizeMintFamilyCtx
+        Nothing
+        (mkValue [(programmableTransferCS, TokenName "0c", 2)])
+
+globalSeizeAndBurnCtx :: ScriptContext
+globalSeizeAndBurnCtx =
+    mkGlobalSeizeMintFamilyCtx
+        (Just (mkValue [(programmableTransferCS, TokenName "0c", -1)]))
+        (mkValue [(programmableTransferCS, TokenName "0c", 1)])
+
+globalSeizeAndMintCtx :: ScriptContext
+globalSeizeAndMintCtx =
+    mkGlobalSeizeMintFamilyCtx
+        (Just (mkValue [(programmableTransferCS, TokenName "0c", 2)]))
+        (mkValue [(programmableTransferCS, TokenName "0c", 4)])
+
+globalSeizeMintAndBurnCtx :: ScriptContext
+globalSeizeMintAndBurnCtx =
+    mkGlobalSeizeMintFamilyCtx
+        ( Just
+            ( mkValue
+                [ (programmableTransferCS, TokenName "0c", -1)
+                , (programmableTransferCS, TokenName "0d", 2)
+                ]
+            )
+        )
+        ( mkValue
+            [ (programmableTransferCS, TokenName "0c", 1)
+            , (programmableTransferCS, TokenName "0d", 2)
+            ]
+        )
+
+-- | [SHAPE PARITY EXCEPTION — registry fixtures are not ledger-shaped]
+--
+-- 'directoryInitCtx' and 'aikenDirectoryInsertCtx' are the only two fixtures in
+-- this file still built by 'buildBalancedScriptContext', because their Plutarch
+-- twins are built by 'buildScriptContext' — no fee, no min-UTxO top-up, no
+-- balancing at all. Keeping them balanced is what makes the two sides agree
+-- (both emit @txInfoFee = 0@ and the same input/output counts and values);
+-- moving only this side to 'buildLedgerShapedScriptContext' would introduce a
+-- 0.5 ada fee and an extra change output the Plutarch side does not have.
+--
+-- Neither side is ledger-realistic here: a zero-fee transaction cannot exist.
+-- The fix is to migrate BOTH harnesses' registry fixtures to
+-- 'buildLedgerShapedScriptContext' at once — it will move the Plutarch registry
+-- numbers, so it is deliberately left out of a change whose contract is that no
+-- Plutarch number moves.
+--
+-- One residual asymmetry cannot be fixed from this side at all:
+-- 'buildScriptContext' REVERSES the builder's outref-sorted input list, so the
+-- Plutarch insert fixture presents its two inputs in DESCENDING 'TxOutRef'
+-- order. The ledger presents inputs ascending, which is what every builder here
+-- produces, so the Aiken fixture is the correct one and the Plutarch fixture is
+-- the ledger-invalid one. Both hold the same two inputs.
 directoryInitCtx :: ScriptContext
 directoryInitCtx =
     let mintValue = mkValue [(directoryPolicyCS, TokenName "", 1)]
@@ -1025,18 +1207,51 @@ mintingRegistryNodeRefBuilder =
         (mkAdaValue 3_000_000 <> mkValue [(directoryNodeCS, mintingPolicyNodeTokenName, 1)])
         directoryMintingNode
 
+-- | [SHAPE PARITY EXCEPTION — reference-input count]
+--
+-- The three pure-mint contexts below carry ONE reference input (the registry
+-- node); their Plutarch twins carry TWO (protocol params at index 0, registry
+-- node at index 1). Every other benchmarked scenario is structurally identical
+-- across the two harnesses — same fee, inputs, outputs, withdrawals, mint
+-- entries, signatories and per-output values.
+--
+-- This one is a DESIGN difference, not a fixture artifact, and equalising it
+-- would build a transaction neither deployment emits:
+--
+--   * Plutarch's @mkProgrammableLogicMinting@ is parameterised by the protocol
+--     params CURRENCY SYMBOL and resolves the params UTxO at @paramsRefIdx@ to
+--     read the base/global/directory credentials out of its datum
+--     (Issuance.hs:163). A mint on that deployment MUST carry the params ref
+--     input.
+--   * Aiken's @issuance_mint@ takes @programmable_logic_base@,
+--     @registry_node_cs@, @minting_logic_cred@ and @plg_stake_cred@ as
+--     COMPILE-TIME parameters, so a mint on that deployment never carries it.
+--
+-- Each side therefore carries exactly the witnesses its own design requires,
+-- which is the apples-to-apples comparison. Measured cost of forcing parity
+-- anyway (adding an inert params ref input here and moving the @RefInput@ proof
+-- from index 0 to 1): Aiken +1.72% CPU / +2.08% mem on @Mint@ and
+-- @Mint.TenUnrelatedWithdrawals@, +0.61% / +0.79% on @Mint.BusyTx20Outputs@ —
+-- i.e. it would make Aiken look WORSE for work its validator never does. The
+-- ledger-shape defects this harness was fixed for (zero fee, token-only
+-- outputs, missing fee funding) applied to BOTH implementations equally; this
+-- does not.
+--
+-- Do not "fix" the ref-input count without re-reading the two mint validators.
+
 programmableMintCtx :: ScriptContext
 programmableMintCtx =
     let scriptRedeemer = aikenRefInputProofData 0
         mintValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
-     in stripZeroChangeOutput $
-            buildBalancedScriptContext
-            ( withFee 0
-                <> withRedeemer scriptRedeemer
+     in buildLedgerShapedScriptContext
+            ( withRedeemer scriptRedeemer
                 <> withMintingScript mintValue scriptRedeemer
                 <> withSigner signerPkh
                 <> withAuxiliaryRewardingScript (ScriptCredential mintingLogicHash) scriptRedeemer
-                <> withPubKeyInputValue signerPkh programmableMintFundingRef 4_000_000
+                -- 8 ada, as on the Plutarch side: the funding input must cover
+                -- the 2 ada min-UTxO of the minted-to output, the fee, and a
+                -- change output that is itself above the min-UTxO floor.
+                <> withPubKeyInputValue signerPkh programmableMintFundingRef 8_000_000
                 <> withOutput
                     ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
@@ -1059,10 +1274,8 @@ programmableMintBusyTxCtx =
         -- withOutput prepends: compose the filler outputs FIRST so the
         -- minted-to output (composed last) stays at tx-output index 0.
         extraOutputsBuilder = mconcat (replicate 19 extraOutputBuilder)
-     in stripZeroChangeOutput $
-            buildBalancedScriptContext
-            ( withFee 0
-                <> withRedeemer scriptRedeemer
+     in buildLedgerShapedScriptContext
+            ( withRedeemer scriptRedeemer
                 <> withMintingScript mintValue scriptRedeemer
                 <> withSigner signerPkh
                 <> withAuxiliaryRewardingScript (ScriptCredential mintingLogicHash) scriptRedeemer
@@ -1087,15 +1300,13 @@ programmableMintManyWithdrawalsCtx =
                 [ withWithdrawal (PubKeyCredential (PubKeyHash (bs28 w))) 0
                 | w <- [0x70 .. 0x79]
                 ]
-     in stripZeroChangeOutput $
-            buildBalancedScriptContext
-            ( withFee 0
-                <> withRedeemer scriptRedeemer
+     in buildLedgerShapedScriptContext
+            ( withRedeemer scriptRedeemer
                 <> withMintingScript mintValue scriptRedeemer
                 <> withSigner signerPkh
                 <> withAuxiliaryRewardingScript (ScriptCredential mintingLogicHash) scriptRedeemer
                 <> unrelatedWithdrawalsBuilder
-                <> withPubKeyInputValue signerPkh programmableMintFundingRef 4_000_000
+                <> withPubKeyInputValue signerPkh programmableMintFundingRef 8_000_000
                 <> withOutput
                     ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
                         <> withTxOutValue (mkAdaValue 2_000_000 <> mintValue)
@@ -1108,10 +1319,10 @@ programmableBurnCtx =
     let scriptRedeemer = aikenRefInputProofData 1
         burnValue = mkValue [(mintingPolicyCS, TokenName "0c", -1)]
         remainingValue = mkValue [(mintingPolicyCS, TokenName "0c", 1)]
-        burnInputValue = mkAdaValue 10_000_000 <> mkValue [(mintingPolicyCS, TokenName "0c", 2)]
+        burnInputValue = mkAdaValue 12_000_000 <> mkValue [(mintingPolicyCS, TokenName "0c", 2)]
         globalRedeemer = aikenTransferActRedeemerData [TokenExists 1]
      in stripZeroChangeOutput $
-            buildBalancedScriptContext
+            buildLedgerShapedScriptContext
                 ( withRedeemer scriptRedeemer
                     <> withMintingScript burnValue scriptRedeemer
                     <> withSigner signerPkh
@@ -1159,7 +1370,7 @@ programmableBurnRedeem10Ctx =
         globalRedeemer = aikenTransferActRedeemerData [TokenExists 1]
         inputsBuilder = mconcat (map burnRedeemInputBuilder [0 .. 9])
      in stripZeroChangeOutput $
-            buildBalancedScriptContext
+            buildLedgerShapedScriptContext
                 ( withRedeemer scriptRedeemer
                     <> withMintingScript burnValue scriptRedeemer
                     <> withSigner signerPkh
@@ -1169,7 +1380,7 @@ programmableBurnRedeem10Ctx =
                     <> inputsBuilder
                     <> withOutput
                         ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
-                            <> withTxOutValue (mkAdaValue 30_000_000 <> remainingValue)
+                            <> withTxOutValue (mkAdaValue 28_000_000 <> remainingValue)
                         )
                     <> withRefInputDatumValue
                         paramRef
@@ -1193,7 +1404,7 @@ programmableMintTopUpCtx =
         existingValue = mkValue [(mintingPolicyCS, TokenName "0c", 5)]
         globalRedeemer = aikenTransferActRedeemerData [TokenExists 1]
      in stripZeroChangeOutput $
-            buildBalancedScriptContext
+            buildLedgerShapedScriptContext
                 ( withRedeemer scriptRedeemer
                     <> withMintingScript mintValue scriptRedeemer
                     <> withSigner signerPkh
@@ -1204,7 +1415,7 @@ programmableMintTopUpCtx =
                         (PlutusTx.toBuiltinData ())
                         ( withOutRef topUpInputRef
                             <> withAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
-                            <> withValue (mkAdaValue 6_000_000 <> existingValue)
+                            <> withValue (mkAdaValue 8_000_000 <> existingValue)
                         )
                     -- withOutput prepends: continuing-treasury output composed
                     -- first (landing second), minted-to output composed last
@@ -1249,7 +1460,7 @@ globalTransferMixedOwners5Ctx =
                     <> withValue (mkAdaValue 3_000_000 <> mkValue [(programmableTransferCS, TokenName "0c", 1)])
                 )
         inputsBuilder = mconcat (map inputBuilder (zip [0 ..] ownerStakes))
-     in buildBalancedScriptContext
+     in buildLedgerShapedScriptContext
             ( withRewardingScript
                 (aikenTransferActRedeemerData [TokenExists 1])
                 globalCred
@@ -1300,7 +1511,7 @@ aikenIssuancePolicyCS =
 aikenProtocolParamsMintCtx :: ScriptContext
 aikenProtocolParamsMintCtx =
     let mintValue = mkValue [(protocolParamsCS, protocolParamsToken, 1)]
-     in buildBalancedScriptContext
+     in buildLedgerShapedScriptContext
             ( withMintingScript mintValue (PlutusTx.toBuiltinData ())
                 <> withSigner signerPkh
                 <> withInput
@@ -1318,7 +1529,7 @@ aikenProtocolParamsMintCtx =
 aikenIssuanceMintCtx :: ScriptContext
 aikenIssuanceMintCtx =
     let mintValue = mkValue [(issuancePolicyCS, issuanceCborHexToken, 1)]
-     in buildBalancedScriptContext
+     in buildLedgerShapedScriptContext
             ( withMintingScript mintValue (PlutusTx.toBuiltinData ())
                 <> withSigner signerPkh
                 <> withInput
@@ -1392,10 +1603,23 @@ aikenDirectoryInsertCtx =
                         <> withInlineDatum coveringNode
                     )
                 <> withPubKeyInputValue signerPkh directoryInsertFundingRef 6_000_000
+                -- withOutput PREPENDS, so this block is composed in reverse of
+                -- the intended tx-output order. The order below yields
+                -- [updated-covering, inserted, registered-asset, change] —
+                -- byte-for-byte the output order of the Plutarch twin. It is
+                -- load-bearing, not cosmetic: registry_mint filters the two
+                -- registry-node outputs and classifies them with
+                -- `is_inserted_directory_node(node1, ..)`
+                -- (registry_mint.ak:132). With the inserted node FIRST that
+                -- predicate hits on its first call; with the covering node
+                -- first — which is what the Plutarch fixture builds — it fails
+                -- and the `expect is_inserted_directory_node(node2, ..)` in the
+                -- else branch runs a second time. Same transaction, two
+                -- different amounts of validator work, so the fixtures have to
+                -- agree on the order.
                 <> withOutput
-                    ( withTxOutAddress (scriptAddress (ScriptHash (bs28 0x44)))
-                        <> withTxOutValue (mkAdaValue 2_000_000 <> mkValue [(directoryPolicyCS, TokenName "", 1)])
-                        <> withTxOutInlineDatum coveringOutput
+                    ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> registeredAssetMintValue)
                     )
                 <> withOutput
                     ( withTxOutAddress (scriptAddress (ScriptHash (bs28 0x44)))
@@ -1403,8 +1627,9 @@ aikenDirectoryInsertCtx =
                         <> withTxOutInlineDatum insertedNode
                     )
                 <> withOutput
-                    ( withTxOutAddress (scriptAddressWithSignerStake progLogicBaseHash signerPkh)
-                        <> withTxOutValue (mkAdaValue 2_000_000 <> registeredAssetMintValue)
+                    ( withTxOutAddress (scriptAddress (ScriptHash (bs28 0x44)))
+                        <> withTxOutValue (mkAdaValue 2_000_000 <> mkValue [(directoryPolicyCS, TokenName "", 1)])
+                        <> withTxOutInlineDatum coveringOutput
                     )
                 <> withRefInputDatumValue
                     paramRef
@@ -1504,7 +1729,7 @@ mainnetDexGlobalTransferCtx =
                     mainnetDexSwapOutputAdaQtys
                     mainnetDexSwapOutputNightQtys
      in stripZeroChangeOutput $
-            buildBalancedScriptContext
+            buildLedgerShapedScriptContext
                 ( withFee mainnetDexFeeAda
                     <> withRewardingScript
                         -- Proofs positional over the aggregated programmable input value
@@ -1768,6 +1993,30 @@ benchCases =
         (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
         (aikenRewardArgs globalSeize1ExternalScript50PubKeyCtx)
         globalSeize1ExternalScript50PubKeyCtx
+    , mkAikenCase
+        "programmableLogicGlobal.SeizeAct1.SeizeOnly"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalSeizeOnlyCtx)
+        globalSeizeOnlyCtx
+    , mkAikenCase
+        "programmableLogicGlobal.SeizeAct1.SeizeAndBurn"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalSeizeAndBurnCtx)
+        globalSeizeAndBurnCtx
+    , mkAikenCase
+        "programmableLogicGlobal.SeizeAct1.SeizeAndMint"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalSeizeAndMintCtx)
+        globalSeizeAndMintCtx
+    , mkAikenCase
+        "programmableLogicGlobal.SeizeAct1.SeizeMintAndBurn"
+        (EvalGlobalReward globalCred)
+        (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+        (aikenRewardArgs globalSeizeMintAndBurnCtx)
+        globalSeizeMintAndBurnCtx
     , mkAikenCase
         "programmableLogicGlobal.SeizeAct5"
         (EvalGlobalReward globalCred)

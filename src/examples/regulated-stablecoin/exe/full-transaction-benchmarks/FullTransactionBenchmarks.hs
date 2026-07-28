@@ -59,8 +59,9 @@ import ProgrammableTokens.Test (
     productionMaxTxExBudget,
  )
 import SmartTokens.Contracts.ExampleTransferLogic (BlacklistProof (NonmembershipProof))
+import SmartTokens.Contracts.ProgrammableLogicBase (BaseSpendRedeemer (..))
 import SmartTokens.Contracts.ProgrammableLogicBase (
-    ProgrammableLogicGlobalRedeemer (TransferAct, plgrMintProofs, plgrParamsRefIdx, plgrTransferProofs, plgrTransferWdrlIdxs),
+    ProgrammableLogicGlobalRedeemer (TransferAct, plgrMintProofs, plgrOwnerWdrlIdxs, plgrParamsRefIdx, plgrTransferProofs, plgrTransferWdrlIdxs),
  )
 import SmartTokens.Core.Scripts (ScriptTarget (Debug, Production))
 import SmartTokens.Types.PTokenDirectory (BlacklistNode (..), DirectorySetNode (..))
@@ -1146,6 +1147,9 @@ oneOutputPerInputTransferTx assetId utxoCount destCred refScripts = do
                             [ fromIntegral @Int @Integer $
                                 BuildTx.findIndexWithdrawal (C.makeStakeAddress networkId transferStakeCred) txBody
                             ]
+                        , -- Pubkey-owned mini-ledger inputs: witnessed by signature,
+                          -- so no owner withdrawal indices are required.
+                          plgrOwnerWdrlIdxs = []
                         , plgrMintProofs = []
                         , plgrParamsRefIdx =
                             fromIntegral @Int @Integer $
@@ -1181,7 +1185,20 @@ oneOutputPerInputTransferTx assetId utxoCount destCred refScripts = do
                             (WstQuery.uIn (case directoryProofNode of DirectoryProofExists node -> node; DirectoryProofDoesNotExist node -> node))
                         BuildTx.addReference (brsBase refScripts)
                         BuildTx.addReference (brsGlobal refScripts)
-                        traverse_ (\txIn -> RefScripts.spendPlutusRefWithInlineDatum txIn (brsBase refScripts) C.PlutusScriptV3 ()) txIns
+                        traverse_
+                            ( \txIn ->
+                                RefScripts.spendPlutusRefWithInlineDatumWithRedeemerFn
+                                    txIn
+                                    (brsBase refScripts)
+                                    C.PlutusScriptV3
+                                    ( \txBody ->
+                                        SpendViaGlobal
+                                            ( fromIntegral @Int @Integer
+                                                (BuildTx.findIndexWithdrawal (C.makeStakeAddress networkId globalStakeCred) txBody)
+                                            )
+                                    )
+                            )
+                            txIns
                         BuildTx.addWithdrawalWithTxBody
                             (C.makeStakeAddress networkId globalStakeCred)
                             (C.Quantity 0)

@@ -87,6 +87,8 @@ test-suite programmable-tokens-test
     ProgrammableTokens.Test.DirectorySet
     ProgrammableTokens.Test.Error
     ProgrammableTokens.Test.GoldenEncoding
+    ProgrammableTokens.Test.ProgrammableLogicBase
+    ProgrammableTokens.Test.OwnerWitness
     ProgrammableTokens.Test.ProgrammableLogicGlobal
     ProgrammableTokens.Test.ProgrammableLogicMinting
 
@@ -121,6 +123,7 @@ executable benchmark-onchain-scripts
     BenchmarkOnchain.Compile
     BenchmarkOnchain.Formatting
     BenchmarkOnchain.MainnetDexFixture
+    BenchmarkOnchain.PlutarchFixtureIds
     BenchmarkOnchain.ScriptFixtureIds
     BenchmarkOnchain.ScriptHelpers
     BenchmarkOnchain.ScriptRunner
@@ -131,6 +134,7 @@ executable benchmark-onchain-scripts
     , base
     , bytestring
     , cardano-api
+    , convex-base
     , plutarch
     , plutus-ledger-api
     , plutus-tx
@@ -143,6 +147,7 @@ executable benchmark-onchain-aiken-scripts
   hs-source-dirs: exe
   main-is:        BenchmarkOnchainAikenScripts.hs
   other-modules:
+    BenchmarkOnchain.AikenFixtureIds
     BenchmarkOnchain.CardanoScriptHelpers
     BenchmarkOnchain.Formatting
     BenchmarkOnchain.MainnetDexFixture
@@ -156,6 +161,7 @@ executable benchmark-onchain-aiken-scripts
     , base
     , bytestring
     , cardano-api
+    , convex-base
     , plutarch
     , plutus-ledger-api
     , plutus-tx

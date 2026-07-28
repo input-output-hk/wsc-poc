@@ -60,6 +60,15 @@ extract_breakdown_table() {
       next
     }
 
+    # The scaling-extrapolation section follows the breakdown and is introduced by
+    # a "Basis: ..." line. Its table is pipe-delimited too, so without this
+    # terminator its rows (Dimension/Inputs/Outputs/Tokens/Policies) would be read
+    # as benchmark cases.
+    in_table && /^Basis:/ {
+      in_table = 0
+      next
+    }
+
     in_table && index($0, " | ") {
       column_count = split($0, columns, / \| /)
       case_name = trim(columns[1])
@@ -376,6 +385,9 @@ extract_sizes() {
   awk -F ' \\| ' '
     function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
     $0 == "Per-script breakdown" { in_table = 1; next }
+    # Stop before the scaling-extrapolation tables (see extract_breakdown_table);
+    # their R² columns would otherwise be read as script sizes.
+    in_table && /^Basis:/ { in_table = 0; next }
     in_table && index($0, " | ") && NF >= 6 {
       script = trim($2)
       size = trim($6)

@@ -47,6 +47,7 @@ import ProgrammableTokens.OffChain.Env.TransferLogic (HasTransferLogicEnv (..),
                                                       programmableTokenPolicyId)
 import ProgrammableTokens.OffChain.Error (AsProgrammableTokensError (..))
 import ProgrammableTokens.OffChain.UTxODat (UTxODat (..), extractUTxO,
+                                            programmableOutputOwner,
                                             extractUtxoNoDatum)
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex (..))
 import SmartTokens.Types.ProtocolParams (ProgrammableLogicGlobalParams)
@@ -153,7 +154,7 @@ selectProgammableOutputsFor :: forall era env m.
   => (C.PaymentCredential, Maybe C.StakeCredential)
   -> C.AssetName
   -> C.Quantity
-  -> m ([C.TxIn], C.Quantity)
+  -> m ([(C.TxIn, C.StakeCredential)], C.Quantity)
 selectProgammableOutputsFor (owner, ownerStakeCred) assetname quantity = do
   userOutputs <- userProgrammableOutputs (owner, ownerStakeCred)
   policyId <- programmableTokenPolicyId
@@ -162,7 +163,15 @@ selectProgammableOutputsFor (owner, ownerStakeCred) assetname quantity = do
   let userOutputsMap = fromList $ map (\UTxODat {uIn, uOut, uDatum} -> (uIn, (C.inAnyCardanoEra (C.cardanoEra @era) uOut, uDatum))) userOutputs
   (totalVal, txins) <- maybe (error "insufficient funds for transfer") pure $ selectMixedInputsCovering (UtxoSet userOutputsMap) [(assetId, quantity)]
   let quantityAvailable = C.selectAsset totalVal assetId
-  pure (txins, quantityAvailable - quantity)
+      -- Pair each selected input with its mini-ledger OWNER. 'userProgrammableOutputs'
+      -- can return UTxOs under two different staking credentials (the payment
+      -- credential viewed as a stake credential, and the supplied one), so the owner
+      -- has to come from each output's own address rather than from the argument.
+      ownerOf txin =
+        case [uOut | UTxODat{uIn, uOut} <- userOutputs, uIn == txin] of
+          out : _ -> programmableOutputOwner out
+          []      -> error "selectProgammableOutputsFor: selected an input that is not among the user's programmable outputs"
+  pure (map (\txin -> (txin, ownerOf txin)) txins, quantityAvailable - quantity)
 
 {-| Find the UTxO with the issuance script cbor hex
 -}

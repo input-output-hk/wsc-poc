@@ -2,7 +2,9 @@
   description = "Smart Tokens";
 
   inputs = {
-    nixpkgs.follows = "haskell-nix/nixpkgs";
+    # nixpkgs 24.11 still carries the ghc94x boot compilers haskell.nix needs to
+    # bootstrap ghc966 (mirrors sc-tools main's wiring).
+    nixpkgs.follows = "haskell-nix/nixpkgs-2411";
 
     hackage = {
       url = "github:input-output-hk/hackage.nix";
@@ -15,7 +17,10 @@
     };
 
     haskell-nix = {
-      url = "github:input-output-hk/haskell.nix";
+      # Pinned to sc-tools main's haskell.nix (required for typed-protocols >= 1.2
+      # public sublibraries; older haskell.nix fails with "Dependency on
+      # unbuildable package cborg" when configuring typed-protocols:stateful-cborg).
+      url = "github:input-output-hk/haskell.nix/4c085ca207389ae2f2bfdc811afeebfcb326a399";
       inputs.hackage.follows = "hackage";
     };
 

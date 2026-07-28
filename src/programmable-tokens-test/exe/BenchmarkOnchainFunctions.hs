@@ -7,7 +7,9 @@ module Main (main) where
 import BenchmarkOnchain.ScriptHelpers (bs28, mkValue, pubKeyAddress)
 import BenchmarkOnchain.SimpleRunner (BenchCase, mkTermCase, runSimpleBenchmark)
 import Data.ByteString qualified as BS
+import Data.Word (Word8)
 import Plutarch.Core.Context (
+    paddressCredential,
     pscriptContextTxInfo,
     ptxInInfoResolved,
  )
@@ -26,7 +28,7 @@ import PlutusLedgerApi.V3 (
     CurrencySymbol (CurrencySymbol),
     Data,
     Datum (Datum),
-    OutputDatum (OutputDatum),
+    OutputDatum (NoOutputDatum, OutputDatum),
     PubKeyHash (PubKeyHash),
     ScriptContext,
     ScriptHash (ScriptHash),
@@ -38,6 +40,7 @@ import PlutusLedgerApi.V3 (
     TxOutRef (TxOutRef),
  )
 import PlutusTx qualified
+import PlutusTx.AssocMap qualified as AssocMap
 import ProgrammableTokens.Test.ScriptContext.Builder
 import SmartTokens.Contracts.ProgrammableLogicBase qualified as Actual
 
@@ -605,6 +608,7 @@ mkActualValueFromCredTerm cred cs tn expectedQty = plam $ \ctx ->
                     (pconstant cred)
                     (pfromData $ ptxInfo'signatories txInfo)
                     (pto $ pfromData $ ptxInfo'wdrl txInfo)
+                    pnil
                     (pfromData $ ptxInfo'inputs txInfo)
          in -- `pvalueFromCred` returns the raw currency-pair list rather than a wrapped
             -- `PValue`; the representations are identical, so coerce it back here.
@@ -689,6 +693,11 @@ decisionBenchCases =
     , mkLocalIndexedCase "decision.c.local.indexed.outs020.dests02.ins50tok" (localCustodyCtx 20 2 False 50 True) [0, 1] 200
     ]
         <> dropDecisionCases
+        <> refWalkCases
+        <> credCompareCases
+        <> containScanCases
+        <> ownerWitnessCases
+        <> seizeDiffCases
 
 -- Decision benchmarks for the Van Rossem dropList adoption: the
 -- plutarch-onchain-lib tail-walk ('pdropFast', ptails30/20/10 unrolling +
@@ -708,6 +717,508 @@ dropDecisionCases =
     dropInput :: [Integer]
     dropInput = [0 .. 299]
     dropArgs n = [PlutusTx.toData (n :: Integer), PlutusTx.toData dropInput]
+
+-- Decision benchmarks for reference-input index encoding in the transfer proof
+-- walk. The walk resolves one directory node per programmable policy. With
+-- ABSOLUTE indices every lookup restarts at the head of the reference-input
+-- list, so the drops sum to 1+2+...+p; with RELATIVE indices (the encoding
+-- 'absoluteToRelativeInputIdxs' already uses for seize input indices) each
+-- lookup continues from the previous position, so the drops sum to p. Both
+-- terms end at the same element and pay the same pasInt/pasList decodes, so the
+-- difference is exactly the quadratic term.
+refWalkCases :: [BenchCase]
+refWalkCases =
+    [ mkCase ("decision.e.refwalk.absolute.p" <> pad p) pRefWalkAbsolute (walkArgs p [1 .. toInteger p])
+    | p <- walkSizes
+    ]
+        <> [ mkCase ("decision.e.refwalk.relative.p" <> pad p) pRefWalkRelative (walkArgs p (replicate p (1 :: Integer)))
+           | p <- walkSizes
+           ]
+        -- Leanest possible pair: identical loop shape and identical arity, the
+        -- ONLY difference being whether the drop starts from the closed-over
+        -- full list (absolute) or from the threaded suffix (relative).
+        <> [ mkCase ("decision.e.refwalk2.absolute.p" <> pad p) pRefWalk2Absolute (walkArgs p [1 .. toInteger p])
+           | p <- walkSizes
+           ]
+        <> [ mkCase ("decision.e.refwalk2.relative.p" <> pad p) pRefWalk2Relative (walkArgs p (replicate p (1 :: Integer)))
+           | p <- walkSizes
+           ]
+  where
+    walkSizes = [5, 10, 20, 40, 80]
+    pad n = let str = show n in replicate (3 - length str) '0' <> str
+    walkArgs :: Int -> [Integer] -> [Data]
+    walkArgs p idxs =
+        [ PlutusTx.toData idxs
+        , PlutusTx.toData [0 .. toInteger p]
+        ]
+
+-- ===================================================================
+-- (h) Owner-script witness lookup: scan versus witnessed index.
+--
+-- Every mini-ledger input owned by a SCRIPT must prove that script is
+-- invoked, which today means scanning the credential-sorted withdrawal map.
+-- The cost therefore depends on where the owner's hash happens to sort
+-- against the other participants' -- including the global validator's own,
+-- which nobody controls. A redeemer-witnessed index would make it flat.
+-- These cases measure one lookup at varying map size and target position.
+-- ===================================================================
+ownerWitnessCases :: [BenchCase]
+ownerWitnessCases =
+    concat
+        [ [ mkCase ("decision.h.owner.scan.wdrl" <> pad3 n <> ".pos" <> pad3 i) pOwnerScan (ownerArgs n i)
+          , mkCase ("decision.h.owner.indexed.wdrl" <> pad3 n <> ".pos" <> pad3 i) pOwnerIndexed (ownerArgs n i)
+          ]
+        | (n, i) <- [(2, 0), (2, 1), (4, 0), (4, 3), (8, 7), (20, 19)]
+        ]
+  where
+    pad3 n = let str = show n in replicate (3 - length str) '0' <> str
+
+-- | A withdrawal map of @n@ script credentials in ledger order, and the
+-- credential sitting at position @i@ as the lookup target.
+ownerArgs :: Int -> Int -> [Data]
+ownerArgs n i =
+    [ PlutusTx.toData (ScriptCredential (ScriptHash (bs28 (fromIntegral (i + 1)))))
+    , PlutusTx.toData (AssocMap.unsafeFromList [(ScriptCredential (ScriptHash (bs28 (fromIntegral (k + 1)))), 0 :: Integer) | k <- [0 .. n - 1]])
+    , PlutusTx.toData (toInteger i)
+    ]
+
+pOwnerScan :: forall s. Term s (PData :--> PData :--> PData :--> PUnit)
+pOwnerScan = plam $ \credD wdrlD _idxD ->
+    pif
+        ( Actual.pisScriptInvokedEntries
+            # punsafeCoerce credD
+            # (punsafeCoerce (pasMap # wdrlD) :: Term s (PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace))))
+        )
+        (pconstant ())
+        perror
+
+pOwnerIndexed :: forall s. Term s (PData :--> PData :--> PData :--> PUnit)
+pOwnerIndexed = plam $ \credD wdrlD idxD ->
+    pif
+        ( pforgetData (pfstBuiltin # (phead # (pdropList # (pasInt # idxD) # (punsafeCoerce (pasMap # wdrlD) :: Term s (PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace)))))))
+            #== credD
+        )
+        (pconstant ())
+        perror
+
+-- ===================================================================
+-- (i) Seize per-pair value difference.
+--
+-- For each seized input/output pair the validator must establish that only
+-- the seized policy changed (ada may be topped up) and extract that
+-- policy's delta. Today it does so with the CIP-153 Value builtins:
+-- unValueData both sides, negate the output, union, then convert back.
+--
+-- The candidate never materialises a builtin Value. Both values are
+-- canonical and ada-first, so: drop the ada entry from each, walk the
+-- remaining policy list to lift out the seized policy, compare what is left
+-- with ONE equalsData, and check ada separately with >=.
+-- ===================================================================
+seizeDiffCases :: [BenchCase]
+seizeDiffCases =
+    concat
+        [ [ mkCase ("decision.i.seizediff.builtins.pol" <> pad2 k) pSeizeDiffBuiltins (seizeArgs k)
+          , mkCase ("decision.i.seizediff.stripeq.pol" <> pad2 k) pSeizeDiffStripEq (seizeArgs k)
+          , mkCase ("decision.i.seizediff.lockstep.pol" <> pad2 k) pSeizeDiffLockstep (seizeArgs k)
+          ]
+        | k <- [1, 2, 4, 10]
+        ]
+  where
+    pad2 n = let str = show n in replicate (2 - length str) '0' <> str
+
+seizeProgCS :: CurrencySymbol
+seizeProgCS = CurrencySymbol (bs28 0x40)
+
+{- | An input holding ada, @k@ untouched policies, and the seized policy; and
+the corresponding output, identical except that the seized policy is reduced.
+The seized symbol sorts after the untouched ones so the walk has to pass them.
+-}
+seizeArgs :: Int -> [Data]
+seizeArgs k =
+    [ PlutusTx.toData seizeProgCS
+    , PlutusTx.toData (seizeValue 100)
+    , PlutusTx.toData (seizeValue 40)
+    ]
+  where
+    seizeValue progQty =
+        assetClassValue (assetClass (CurrencySymbol "") (TokenName "")) 5_000_000
+            <> mconcat
+                [ assetClassValue (assetClass (CurrencySymbol (bs28 (fromIntegral (0x10 + j)))) (TokenName "tok")) 7
+                | j <- [1 .. k]
+                ]
+            <> assetClassValue (assetClass seizeProgCS (TokenName "SEIZED")) progQty
+
+-- | Deployed implementation, called directly so the comparison cannot drift.
+pSeizeDiffBuiltins :: Term s (PData :--> PData :--> PData :--> PInteger)
+pSeizeDiffBuiltins = plam $ \progCSD inV outV ->
+    pSumTokenQtys # Actual.pvalueEqualsDeltaCurrencySymbol (punsafeCoerce progCSD) inV outV
+
+{- | Candidate: strip ada and the seized policy from both sides, prove the
+remainder identical with one 'equalsData', and subtract the seized policy's
+token maps.
+-}
+pSeizeDiffStripEq :: forall s. Term s (PData :--> PData :--> PData :--> PInteger)
+pSeizeDiffStripEq = plam $ \progCSD inV outV ->
+    plet (punsafeCoerce (pasMap # inV) :: Term s CsPairs) $ \inPairs ->
+        plet (punsafeCoerce (pasMap # outV) :: Term s CsPairs) $ \outPairs ->
+            -- Ledger invariant: ada is present and sorts first, so the head is
+            -- lovelace without needing to look at its key.
+            plet (pAdaQty # (phead # inPairs)) $ \inAda ->
+                plet (pAdaQty # (phead # outPairs)) $ \outAda ->
+                    plet (ptail # inPairs) $ \inRest ->
+                        plet (ptail # outPairs) $ \outRest ->
+                            pif
+                                ( -- everything except ada and the seized policy is untouched
+                                  (pmapData # punsafeCoerce (pDropCS # progCSD # inRest))
+                                    #== (pmapData # punsafeCoerce (pDropCS # progCSD # outRest))
+                                    -- ada may only be topped up, never reduced
+                                    #&& (inAda #<= outAda)
+                                )
+                                ( plet (pTokensOfCS # progCSD # inRest) $ \inTok ->
+                                    pelimList
+                                        (\_ _ -> pSumTokenPairDiff # inTok # (pTokensOfCS # progCSD # outRest))
+                                        (ptraceInfoError "seize: paired input does not hold the seized policy")
+                                        inTok
+                                )
+                                (ptraceInfoError "corresponding output: value changed outside the seized policy")
+
+{- | Third candidate: never allocate. Walk both currency lists in lockstep,
+skipping the seized policy on each side and proving every other entry equal
+with 'equalsData' on the key and the value. No 'pmapData' rebuild, no
+intermediate lists -- the objection to 'stripeq'.
+-}
+pSeizeDiffLockstep :: forall s. Term s (PData :--> PData :--> PData :--> PInteger)
+pSeizeDiffLockstep = plam $ \progCSD inV outV ->
+    plet (punsafeCoerce (pasMap # inV) :: Term s CsPairs) $ \inPairs ->
+        plet (punsafeCoerce (pasMap # outV) :: Term s CsPairs) $ \outPairs ->
+            pif
+                (pAdaQty # (phead # inPairs) #<= pAdaQty # (phead # outPairs))
+                ( plet (pTokensOfCS # progCSD # (ptail # inPairs)) $ \inTok ->
+                    pelimList
+                        ( \_ _ ->
+                            pif
+                                (pLockstepEqExcept # progCSD # (ptail # inPairs) # (ptail # outPairs))
+                                (pSumTokenPairDiff # inTok # (pTokensOfCS # progCSD # (ptail # outPairs)))
+                                (ptraceInfoError "corresponding output: value changed outside the seized policy")
+                        )
+                        (ptraceInfoError "seize: paired input does not hold the seized policy")
+                        inTok
+                )
+                (ptraceInfoError "corresponding output: value changed outside the seized policy")
+
+-- | Both lists equal once the target symbol is skipped on either side.
+pLockstepEqExcept :: Term s (PData :--> CsPairs :--> CsPairs :--> PBool)
+pLockstepEqExcept = phoistAcyclic $
+    pfix #$ plam $ \self target as bs ->
+        pelimList
+            ( \a as' ->
+                pif
+                    (pforgetData (pfstBuiltin # a) #== target)
+                    (self # target # as' # bs)
+                    ( pelimList
+                        ( \b bs' ->
+                            pif
+                                (pforgetData (pfstBuiltin # b) #== target)
+                                (self # target # as # bs')
+                                ( pif
+                                    ( (pforgetData (pfstBuiltin # a) #== pforgetData (pfstBuiltin # b))
+                                        #&& (pforgetData (psndBuiltin # a) #== pforgetData (psndBuiltin # b))
+                                    )
+                                    (self # target # as' # bs')
+                                    (pconstant False)
+                                )
+                        )
+                        (pconstant False)
+                        bs
+                    )
+            )
+            (pelimList (\b bs' -> pif (pforgetData (pfstBuiltin # b) #== target) (self # target # pnil # bs') (pconstant False)) (pconstant True) bs)
+            as
+
+type CsPairs = PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
+
+type TokPairs = PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))
+
+-- | Lovelace quantity out of the leading (ada) currency pair.
+pAdaQty :: Term s (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)) :--> PInteger)
+pAdaQty = phoistAcyclic $ plam $ \pair ->
+    pfromData (psndBuiltin # (phead # pto (pfromData (psndBuiltin # pair))))
+
+-- | The currency-pair list with the target symbol removed, canonical order kept.
+pDropCS :: Term s (PData :--> CsPairs :--> CsPairs)
+pDropCS = phoistAcyclic $
+    pfix #$ plam $ \self target pairs ->
+        pelimList
+            ( \pair rest ->
+                pif
+                    (pforgetData (pfstBuiltin # pair) #== target)
+                    rest
+                    (pcons # pair #$ self # target # rest)
+            )
+            pnil
+            pairs
+
+-- | The target symbol's token pairs, or empty when it is absent.
+pTokensOfCS :: Term s (PData :--> CsPairs :--> TokPairs)
+pTokensOfCS = phoistAcyclic $
+    pfix #$ plam $ \self target pairs ->
+        pelimList
+            ( \pair rest ->
+                pif
+                    (pforgetData (pfstBuiltin # pair) #== target)
+                    (pto (pfromData (psndBuiltin # pair)))
+                    (self # target # rest)
+            )
+            pnil
+            pairs
+
+-- | Sum a token-pair list's quantities; forces the whole result.
+pSumTokenQtys :: Term s (PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)) :--> PInteger)
+pSumTokenQtys = phoistAcyclic $
+    pfix #$ plam $ \self pairs ->
+        pelimList (\pair rest -> pfromData (psndBuiltin # pair) + (self # rest)) 0 pairs
+
+-- | Sum of (input - output) over two sorted token-pair lists.
+pSumTokenPairDiff :: Term s (TokPairs :--> TokPairs :--> PInteger)
+pSumTokenPairDiff = phoistAcyclic $
+    pfix #$ plam $ \self insT outsT ->
+        pelimList
+            ( \i is ->
+                pelimList
+                    ( \o os ->
+                        pif
+                            (pfstBuiltin # i #== pfstBuiltin # o)
+                            (pfromData (psndBuiltin # i) - pfromData (psndBuiltin # o) + (self # is # os))
+                            (pfromData (psndBuiltin # i) + (self # is # outsT))
+                    )
+                    (pfromData (psndBuiltin # i) + (self # is # pnil))
+                    outsT
+            )
+            0
+            insT
+
+-- Isolated benchmark of the SINGLE-ASSET containment scan in
+-- 'poutputsContainExpectedValueAtCred' -- the loop that walks the transaction
+-- outputs, picks the ones at the programmable base credential, and sums one
+-- asset until the required quantity is reached.
+--
+-- Two variants, byte-identical except for the two lines under test: the
+-- deployed one decodes each output into a Plutarch 'PTxOut' and compares
+-- 'PCredential' structurally; the candidate indexes the constructor and
+-- compares the credential as Data. Both share one 'passetQtyInPairs', so the
+-- asset lookup is common to both and drops out of the difference.
+--
+-- Run over two shapes: ~17 matching outputs (the mainnet DEX transaction) and
+-- 80 (the ManyOutputs benchmark), because those two disagreed about which
+-- variant is faster when measured as whole transactions.
+containScanCases :: [BenchCase]
+containScanCases =
+    concat
+        [ [ mkCase ("decision.g.contain.typed." <> label) pContainScanTyped (scanArgs matching padding)
+          , mkCase ("decision.g.contain.rawdata." <> label) pContainScanRaw (scanArgs matching padding)
+          ]
+        | (label, matching, padding) <-
+            [ ("match017", 17, 1)
+            , ("match080", 80, 1)
+            , ("match017.skip064", 17, 64)
+            , ("match001.skip016", 1, 16)
+            ]
+        ]
+
+scanBaseCred :: Credential
+scanBaseCred = ScriptCredential (ScriptHash (bs28 0x12))
+
+scanNightCS :: CurrencySymbol
+scanNightCS = CurrencySymbol (bs28 0x1b)
+
+scanNightTN :: TokenName
+scanNightTN = TokenName "NIGHT"
+
+-- | One output holding ada plus the tracked asset. 'atBase' decides whether it
+-- sits at the programmable base credential or at an unrelated pubkey address.
+scanOutput :: Bool -> Integer -> TxOut
+scanOutput atBase qty =
+    (
+          TxOut
+            ( if atBase
+                then Address scanBaseCred (Just (StakingHash (PubKeyCredential (PubKeyHash (bs28 0x01)))))
+                else Address (PubKeyCredential (PubKeyHash (bs28 0x07))) Nothing
+            )
+            ( assetClassValue (assetClass (CurrencySymbol "") (TokenName "")) 2_000_000
+                <> assetClassValue (assetClass scanNightCS scanNightTN) qty
+            )
+            NoOutputDatum
+            Nothing
+        )
+
+-- | Required quantity equals the total held by the matching outputs, so the
+-- scan must visit every one of them -- no early exit skewing the comparison.
+scanArgs :: Integer -> Integer -> [Data]
+scanArgs matching padding =
+    [ PlutusTx.toData scanBaseCred
+    , PlutusTx.toData
+        ( [scanOutput False 5 | _ <- [1 .. padding]]
+            <> [scanOutput True 3 | _ <- [1 .. matching]]
+        )
+    , PlutusTx.toData scanNightCS
+    , PlutusTx.toData scanNightTN
+    , PlutusTx.toData (3 * matching)
+    ]
+
+-- | Shared asset lookup: identical in both variants.
+pScanAssetQty ::
+    Term
+        s
+        ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
+            :--> PCurrencySymbol
+            :--> PTokenName
+            :--> PInteger
+        )
+pScanAssetQty = phoistAcyclic $ plam $ \csPairs cs tn ->
+    let tokenQtyInTokenPairs = pfix #$ plam $ \self remainingTokenPairs ->
+            pelimList
+                ( \tokenPair tokenPairsRest ->
+                    let tokenName = pfromData (pfstBuiltin # tokenPair)
+                        tokenQty = pfromData (psndBuiltin # tokenPair)
+                     in pif (tokenName #== tn) tokenQty (pif (tn #< tokenName) 0 (self # tokenPairsRest))
+                )
+                0
+                remainingTokenPairs
+        tokenQtyInCurrencyPairs = pfix #$ plam $ \self remainingCurrencyPairs ->
+            pelimList
+                ( \currencyPair currencyPairsRest ->
+                    let currencySymbol = pfromData (pfstBuiltin # currencyPair)
+                        tokenPairs = pto (pfromData (psndBuiltin # currencyPair))
+                     in pif
+                            (currencySymbol #== cs)
+                            (tokenQtyInTokenPairs # tokenPairs)
+                            (pif (cs #< currencySymbol) 0 (self # currencyPairsRest))
+                )
+                0
+                remainingCurrencyPairs
+     in tokenQtyInCurrencyPairs # csPairs
+
+-- | Deployed variant: typed 'PTxOut' decode, structural 'PCredential' compare.
+pContainScanTyped :: forall s. Term s (PData :--> PData :--> PData :--> PData :--> PData :--> PUnit)
+pContainScanTyped = plam $ \credD outsD csD tnD reqD ->
+    plet (pfromData (punsafeCoerce credD :: Term s (PAsData PCredential))) $ \progLogicCred ->
+        plet (punsafeCoerce (pasList # outsD) :: Term s (PBuiltinList (PAsData PTxOut))) $ \outs ->
+            plet (punsafeCoerce (pasByteStr # csD) :: Term s PCurrencySymbol) $ \cs0 ->
+                plet (punsafeCoerce (pasByteStr # tnD) :: Term s PTokenName) $ \tn0 ->
+                    let go = pfix #$ plam $ \self requiredQty currentQty cs tn remainingOutputs ->
+                            pif
+                                (currentQty #>= requiredQty)
+                                (pconstant True)
+                                ( pelimList
+                                    ( \txOut outputsRest ->
+                                        pmatch (pfromData txOut) $ \(PTxOut{ptxOut'address, ptxOut'value}) ->
+                                            pif
+                                                (paddressCredential ptxOut'address #== progLogicCred)
+                                                (self # requiredQty # (currentQty + (pScanAssetQty # pto (pto (pfromData ptxOut'value)) # cs # tn)) # cs # tn # outputsRest)
+                                                (self # requiredQty # currentQty # cs # tn # outputsRest)
+                                    )
+                                    (currentQty #>= requiredQty)
+                                    remainingOutputs
+                                )
+                     in pif (go # (pasInt # reqD) # 0 # cs0 # tn0 # outs) (pconstant ()) perror
+
+-- | Candidate variant: index the constructor, compare the credential as Data.
+pContainScanRaw :: forall s. Term s (PData :--> PData :--> PData :--> PData :--> PData :--> PUnit)
+pContainScanRaw = plam $ \credD outsD csD tnD reqD ->
+    plet credD $ \progLogicCredData ->
+        plet (punsafeCoerce (pasList # outsD) :: Term s (PBuiltinList (PAsData PTxOut))) $ \outs ->
+            plet (punsafeCoerce (pasByteStr # csD) :: Term s PCurrencySymbol) $ \cs0 ->
+                plet (punsafeCoerce (pasByteStr # tnD) :: Term s PTokenName) $ \tn0 ->
+                    let go = pfix #$ plam $ \self requiredQty currentQty cs tn remainingOutputs ->
+                            pif
+                                (currentQty #>= requiredQty)
+                                (pconstant True)
+                                ( pelimList
+                                    ( \txOut outputsRest ->
+                                        plet (psndBuiltin # (pasConstr # pforgetData txOut)) $ \txOutFields ->
+                                            let paymentCredData = phead # (psndBuiltin # (pasConstr # (phead # txOutFields)))
+                                                txOutValueData = phead # (ptail # txOutFields)
+                                             in pif
+                                                    (paymentCredData #== progLogicCredData)
+                                                    (self # requiredQty # (currentQty + (pScanAssetQty # punsafeCoerce (pasMap # txOutValueData) # cs # tn)) # cs # tn # outputsRest)
+                                                    (self # requiredQty # currentQty # cs # tn # outputsRest)
+                                    )
+                                    (currentQty #>= requiredQty)
+                                    remainingOutputs
+                                )
+                     in pif (go # (pasInt # reqD) # 0 # cs0 # tn0 # outs) (pconstant ()) perror
+
+-- Decision benchmarks for how the output walks should compare a payment
+-- credential. Plutarch's typed PEq on PCredential compiles to unConstrData on
+-- both sides, an equalsInteger on the constructor tags, and only then a
+-- comparison of the payload -- so a tag mismatch costs almost nothing. A single
+-- equalsData is fewer builtins, but Data-comparison builtins are charged on the
+-- SIZE of their arguments, not on where the difference is found. Which one wins
+-- therefore depends on how often the walk sees a credential that matches.
+credCompareCases :: [BenchCase]
+credCompareCases =
+    [ mkCase "decision.f.cred.equalsData.match" pCredEqualsData [scriptCredData 0x12, scriptCredData 0x12]
+    , mkCase "decision.f.cred.equalsData.tagDiffers" pCredEqualsData [scriptCredData 0x12, pubKeyCredData 0x12]
+    , mkCase "decision.f.cred.equalsData.hashDiffers" pCredEqualsData [scriptCredData 0x12, scriptCredData 0x99]
+    , mkCase "decision.f.cred.typed.match" pCredTyped [scriptCredData 0x12, scriptCredData 0x12]
+    , mkCase "decision.f.cred.typed.tagDiffers" pCredTyped [scriptCredData 0x12, pubKeyCredData 0x12]
+    , mkCase "decision.f.cred.typed.hashDiffers" pCredTyped [scriptCredData 0x12, scriptCredData 0x99]
+    ]
+
+scriptCredData :: Word8 -> Data
+scriptCredData w = PlutusTx.toData (ScriptCredential (ScriptHash (bs28 w)))
+
+pubKeyCredData :: Word8 -> Data
+pubKeyCredData w = PlutusTx.toData (PubKeyCredential (PubKeyHash (bs28 w)))
+
+pCredEqualsData :: Term s (PData :--> PData :--> PBool)
+pCredEqualsData = plam $ \a b -> a #== b
+
+pCredTyped :: Term s (PAsData PCredential :--> PAsData PCredential :--> PBool)
+pCredTyped = plam $ \a b -> pfromData a #== pfromData b
+
+pRefWalk2Absolute :: Term s (PData :--> PData :--> PData)
+pRefWalk2Absolute = plam $ \idxsData xsData ->
+    plet (pasList # xsData) $ \xs ->
+        let go = pfix #$ plam $ \self is acc ->
+                pelimList
+                    (\i is' -> self # is' # (pdropList # (pasInt # i) # xs))
+                    acc
+                    is
+         in phead # (go # (pasList # idxsData) # xs)
+
+pRefWalk2Relative :: Term s (PData :--> PData :--> PData)
+pRefWalk2Relative = plam $ \idxsData xsData ->
+    plet (pasList # xsData) $ \xs ->
+        let go = pfix #$ plam $ \self is cur ->
+                pelimList
+                    (\i is' -> self # is' # (pdropList # (pasInt # i) # cur))
+                    cur
+                    is
+         in phead # (go # (pasList # idxsData) # xs)
+
+pRefWalkAbsolute :: Term s (PData :--> PData :--> PData)
+pRefWalkAbsolute = plam $ \idxsData xsData ->
+    plet (pasList # xsData) $ \xs ->
+        let go = pfix #$ plam $ \self is acc ->
+                pelimList
+                    (\i is' -> self # is' # (phead # (pdropList # (pasInt # i) # xs)))
+                    acc
+                    is
+         in go # (pasList # idxsData) # (phead # xs)
+
+pRefWalkRelative :: Term s (PData :--> PData :--> PData)
+pRefWalkRelative = plam $ \idxsData xsData ->
+    plet (pasList # xsData) $ \xs ->
+        let go = pfix #$ plam $ \self is cur acc ->
+                pelimList
+                    ( \i is' ->
+                        plet (pdropList # (pasInt # i) # cur) $ \cur' ->
+                            self # is' # cur' # (phead # cur')
+                    )
+                    acc
+                    is
+         in go # (pasList # idxsData) # xs # (phead # xs)
 
 -- Args arrive as Data constants from the harness; both candidates pay the
 -- identical pasInt/pasList decode so the comparison isolates the drop itself.

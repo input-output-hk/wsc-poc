@@ -15,7 +15,7 @@ import Cardano.Api qualified as C
 import Control.Lens (over, view, (^.), _1, _2)
 import Control.Monad (unless)
 import Control.Monad.Reader (MonadReader, asks)
-import Convex.BuildTx (MonadBuildTx, TxBuilder (..), addMintWithTxBody, buildScriptWitness, mintPlutus, payToAddress, spendPlutusRefWithInlineDatum)
+import Convex.BuildTx (MonadBuildTx, TxBuilder (..), addMintWithTxBody, buildScriptWitness, mintPlutus, payToAddress, spendPlutusInlineDatumWithRedeemerFn, spendPlutusRefWithInlineDatumWithRedeemerFn)
 import Convex.BuildTx qualified as BuildTx
 import Convex.CardanoApi.Lenses qualified as L
 import Convex.Class (MonadBlockchain, queryNetworkId)
@@ -33,10 +33,11 @@ import ProgrammableTokens.OffChain.BuildTx.Directory (insertDirectoryNode)
 import ProgrammableTokens.OffChain.BuildTx.Utils qualified as Utils
 import ProgrammableTokens.OffChain.Env (TransferLogicEnv (..))
 import ProgrammableTokens.OffChain.Env qualified as Env
-import ProgrammableTokens.OffChain.UTxODat (UTxODat (..))
+import ProgrammableTokens.OffChain.UTxODat (UTxODat (..), ownerWitnessOrder)
 import SmartTokens.Contracts.Issuance (MintRedeemer (..), RegistrationWitness (..))
 import SmartTokens.Contracts.IssuanceCborHex (IssuanceCborHex)
 import SmartTokens.Contracts.ProgrammableLogicBase (
+    BaseSpendRedeemer (..),
     MintProof (..),
     ProgrammableLogicGlobalRedeemer (..),
  )
@@ -239,8 +240,8 @@ registerTransferScripts = do
    programmable token(s) in this transaction all correspond to the same
    programmable logic payment credential otherwise the transaction will fail onchain validation.
 -}
-transferProgrammableToken :: forall env era m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> [C.TxIn] -> CurrencySymbol -> [UTxODat era DirectorySetNode] -> m ()
-transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol directoryNodes = Utils.inBabbage @era $ do
+transferProgrammableToken :: forall env era m. (MonadReader env m, Env.HasDirectoryEnv env, C.IsBabbageBasedEra era, MonadBlockchain era m, C.HasScriptLanguageInEra C.PlutusScriptV3 era, MonadBuildTx era m) => UTxODat era ProgrammableLogicGlobalParams -> [(C.TxIn, C.StakeCredential)] -> CurrencySymbol -> [UTxODat era DirectorySetNode] -> m ()
+transferProgrammableToken paramsTxIn tokenInputs programmableTokenSymbol directoryNodes = Utils.inBabbage @era $ do
     nid <- queryNetworkId
 
     baseSpendingScript <- asks (Env.dsProgrammableLogicBaseScript . Env.directoryEnv)
@@ -268,6 +269,19 @@ transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol director
 
         transferWdrlIdxs txBody = [transferWdrlIdxFor txBody programmableTokenSymbol]
 
+        -- Ownership in the mini-ledger is the STAKING credential. A pubkey owner
+        -- is witnessed by its signature and takes no entry here; a script owner
+        -- must be invoked, and the redeemer names WHERE that invocation sits in
+        -- the withdrawal map so the validator does not have to search for it.
+        --
+        -- Positional over the script-owned inputs in the order the LEDGER
+        -- presents them, which is 'TxIn' order -- hence the sort, not the order
+        -- the caller happened to pass them in.
+        ownerWdrlIdxs txBody =
+            [ fromIntegral (BuildTx.findIndexWithdrawal (C.makeStakeAddress nid ownerCred) txBody)
+            | ownerCred <- ownerWitnessOrder tokenInputs
+            ]
+
         -- Classify each minted currency symbol against the directory (spec §11.3):
         -- the covering node found by 'proofNodeForSymbol' is a Member when its key
         -- equals the symbol (registered — no index needed), otherwise a NonMember
@@ -291,10 +305,18 @@ transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol director
 
         transferProofReferences _ = map (uIn . proofNodeForSymbol sortedDirectoryNodes) [programmableTokenSymbol]
 
+        -- The base validator no longer scans the withdrawal map: the spend
+        -- names the validator authorising it and where that validator's
+        -- withdrawal sits, resolved against the balanced transaction.
+        baseSpendRedeemer txBody =
+            SpendViaGlobal
+                (fromIntegral (BuildTx.findIndexWithdrawal (C.makeStakeAddress nid globalStakeCred) txBody))
+
         programmableLogicGlobalRedeemer txBody =
             TransferAct
                 { plgrTransferProofs = transferProofs txBody
                 , plgrTransferWdrlIdxs = transferWdrlIdxs txBody
+                , plgrOwnerWdrlIdxs = ownerWdrlIdxs txBody
                 , plgrMintProofs = mintProofs txBody
                 , plgrParamsRefIdx = fromIntegral (BuildTx.findIndexReference (uIn paramsTxIn) txBody)
                 }
@@ -311,10 +333,10 @@ transferProgrammableToken paramsTxIn tokenTxIns programmableTokenSymbol director
     addReferencesWithTxBody mintProofReferences
     case baseRefTxIn of
         Just baseRef -> do
-            traverse_ (\tin -> spendPlutusRefWithInlineDatum tin baseRef C.PlutusScriptV3 ()) tokenTxIns
+            traverse_ (\(tin, _) -> spendPlutusRefWithInlineDatumWithRedeemerFn tin baseRef C.PlutusScriptV3 baseSpendRedeemer) tokenInputs
             BuildTx.addTxBuilder (TxBuilder $ \_ -> over (L.txInsReference . L._TxInsReferenceIso . _1) nub)
         Nothing ->
-            traverse_ (\tin -> BuildTx.spendPlutusInlineDatum tin baseSpendingScript ()) tokenTxIns
+            traverse_ (\(tin, _) -> spendPlutusInlineDatumWithRedeemerFn tin baseSpendingScript baseSpendRedeemer) tokenInputs
     traverse_ BuildTx.addReference globalRefTxIn
     BuildTx.addWithdrawalWithTxBody -- Add the global script witness to the transaction
         (C.makeStakeAddress nid globalStakeCred)
