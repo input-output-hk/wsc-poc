@@ -14,7 +14,7 @@ import Plutarch.Core.Context (
     ptxInInfoResolved,
  )
 import Plutarch.Core.Internal.Builtins (pmapData, ppairDataBuiltinRaw)
-import Plutarch.Builtin.List (pdropList)
+import SmartTokens.Core.Builtins (pdropList)
 import Plutarch.Core.List (pdropFast)
 import Plutarch.Core.Utils
 import Plutarch.LedgerApi.V3
