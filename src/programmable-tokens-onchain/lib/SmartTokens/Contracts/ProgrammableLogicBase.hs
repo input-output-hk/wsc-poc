@@ -272,6 +272,12 @@ Security invariants:
   spending or minting witness check.
 - Callers must only use it with a non-empty withdrawal list, because the loop
   assumes one.
+NOTE: no validator calls this any more. The transfer path used to search this
+map for each script-owned input's owner, which made an issuer's cost depend on
+where their script hash sorted against the other participants' -- including
+this validator's own. 'TransferAct' now witnesses the index instead. This is
+retained as the benchmark's scan baseline (decision.h.owner.* in the function
+benchmark), which is what justifies that redeemer field.
 -}
 pisScriptInvokedEntries :: Term s (PAsData PCredential :--> PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace)) :--> PBool)
 pisScriptInvokedEntries = phoistAcyclic $ plam $ \scriptCredData withdrawalEntries ->
