@@ -114,7 +114,7 @@ mkProtocolParametersMinting = plam $ \paramsSpendScriptHash oref ctx -> P.do
 pfindAnchorOutput :: Term s (PAsData PCurrencySymbol :--> PAsData PTokenName :--> PBuiltinList (PAsData PTxOut) :--> PTxOut)
 pfindAnchorOutput = phoistAcyclic $ plam $ \cs tn outputs ->
   pmatch (pfromData cs) $ \(PCurrencySymbol csb) ->
-    let go = pfix #$ plam $ \self outs ->
+    let go = pfixHoisted #$ plam $ \self outs ->
           pelimList
             ( \out rest ->
                 pmatch (pfromData out) $ \txout@(PTxOut{ptxOut'value}) ->

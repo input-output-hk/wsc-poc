@@ -84,7 +84,7 @@ mkPermissionedTransfer = plam $ \_ permissionedCred ctx ->
   3. The proof must demonstrate that the associated witness is not in the blacklist.
   4. If all proofs are valid, the function returns 'True'. Otherwise, it returns 'False'.
 
-  The function uses a recursive approach with 'pfix' and 'pelimList' to process the list of proofs and witnesses.
+  The function uses a recursive approach with 'pfixHoisted' and 'pelimList' to process the list of proofs and witnesses.
   It performs the following checks for each proof:
   - For 'PNonmembershipProof':
     - Ensures that the two nodes are adjacent in the blacklist.
@@ -97,7 +97,7 @@ mkPermissionedTransfer = plam $ \_ permissionedCred ctx ->
 pvalidateWitnesses :: Term s (PAsData PCurrencySymbol :--> PBuiltinList (PAsData PBlacklistProof) :--> PBuiltinList (PAsData PTxInInfo) :--> PBuiltinList (PAsData PByteString) :--> PBool)
 pvalidateWitnesses = phoistAcyclic $ plam $ \blacklistNodeCS proofs refInputs witnesses ->
   plet (pelemAtFast @PBuiltinList # refInputs) $ \patRefUTxOIdx ->
-    (pfix #$ plam $ \self remainingProofs txWits ->
+    (pfixHoisted #$ plam $ \self remainingProofs txWits ->
       pelimList @PBuiltinList
         (\wit remainWits ->
           pmatch (pfromData $ phead # remainingProofs) $ \case
@@ -128,7 +128,7 @@ pvalidateWitnesses = phoistAcyclic $ plam $ \blacklistNodeCS proofs refInputs wi
 
 pextractRequiredWitnesses :: Term s (PCredential :--> PBuiltinList (PAsData PTxInInfo) :--> PBuiltinList (PAsData PByteString))
 pextractRequiredWitnesses = phoistAcyclic $ plam $ \progBaseCred inputs ->
-  (pfix #$ plam $ \self acc ->
+  (pfixHoisted #$ plam $ \self acc ->
     pelimList
       (\txIn xs ->
         self

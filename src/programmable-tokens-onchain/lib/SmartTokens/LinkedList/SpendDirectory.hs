@@ -26,7 +26,7 @@ pfindReferenceInputByCS ::
     Term s (PBuiltinList (PAsData PTxInInfo)) ->
     Term s (PAsData PTxInInfo)
 pfindReferenceInputByCS currencySymbol referenceInputs =
-    ( pfix #$ plam $ \self remainingRefInputs ->
+    ( pfixHoisted #$ plam $ \self remainingRefInputs ->
         let txIn = phead # remainingRefInputs
             resolvedIn = ptxInInfoResolved $ pfromData txIn
          in pif
