@@ -1,10 +1,13 @@
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE NamedFieldPuns #-}
 module ProgrammableTokens.OffChain.UTxODat(
   UTxODat(..),
   fromOutputNoDatum,
   extractUtxoNoDatum,
   fromOutput,
-  extractUTxO
+  extractUTxO,
+  programmableOutputOwner,
+  ownerWitnessOrder
 ) where
 
 import Cardano.Api qualified as C
@@ -16,6 +19,7 @@ import Convex.Utxos (UtxoSet, toApiUtxo)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Aeson qualified as JSON
 import Data.Map qualified as Map
+import Data.List (sortOn)
 import Data.Maybe (mapMaybe)
 import Data.OpenApi.Schema (ToSchema (..))
 import Data.OpenApi.Schema qualified as Schema
@@ -63,3 +67,37 @@ fromOutput _ _ = Nothing
 
 extractUTxO :: forall era a b. (PlutusTx.FromData a, C.IsBabbageBasedEra era) => UtxoSet C.CtxUTxO b -> [UTxODat era a]
 extractUTxO = mapMaybe (uncurry fromOutput) . Map.toList . C.unUTxO . toApiUtxo @era
+
+{- | The mini-ledger owner of a programmable UTxO, which is its address's
+STAKING credential. Every programmable UTxO shares one payment credential -- the
+base script -- so the staking credential is the only thing that says who owns
+it, and it is what the transfer path demands a witness for.
+
+Errors on an address with no staking credential: such a UTxO has no owner, so
+no witness exists for it and the transfer validator rejects it. Failing here
+gives a comprehensible message instead of an opaque script failure.
+-}
+programmableOutputOwner :: C.TxOut ctx era -> C.StakeCredential
+programmableOutputOwner (C.TxOut addr _ _ _) = case addr of
+    C.AddressInEra _ (C.ShelleyAddress _ _ (C.fromShelleyStakeReference -> C.StakeAddressByValue stakeCred)) -> stakeCred
+    _ ->
+        error "programmableOutputOwner: programmable UTxO has no staking credential, so it has no owner and cannot be spent"
+
+{- | The mini-ledger owners that a 'TransferAct' redeemer must carry witness
+indices for, in the order the validator expects them.
+
+Two rules, and both are easy to get wrong, which is why this is a separate
+function with its own tests rather than a comprehension inside the builder:
+
+* Only SCRIPT owners appear. A pubkey owner is witnessed by its signature and
+  consumes no entry, so including one would push every later index onto the
+  wrong input.
+* The order is by 'TxIn', because that is the order the ledger presents inputs
+  in and the validator consumes the list as it walks them -- not the order the
+  caller happened to pass them in.
+-}
+ownerWitnessOrder :: [(C.TxIn, C.StakeCredential)] -> [C.StakeCredential]
+ownerWitnessOrder = mapMaybe scriptOwner . sortOn fst
+  where
+    scriptOwner (_, cred@C.StakeCredentialByScript{}) = Just cred
+    scriptOwner _ = Nothing

@@ -6,6 +6,7 @@ module Main (
 import ProgrammableTokens.Test.DirectoryMint qualified as DirectoryMint
 import ProgrammableTokens.Test.DirectorySet qualified as DirectorySet
 import ProgrammableTokens.Test.GoldenEncoding qualified as GoldenEncoding
+import ProgrammableTokens.Test.OwnerWitness qualified as OwnerWitness
 import ProgrammableTokens.Test.ProgrammableLogicBase qualified as ProgrammableLogicBase
 import ProgrammableTokens.Test.ProgrammableLogicGlobal qualified as ProgrammableLogicGlobal
 import ProgrammableTokens.Test.ProgrammableLogicMinting qualified as ProgrammableLogicMinting
@@ -19,6 +20,7 @@ main =
             [ DirectoryMint.tests
             , DirectorySet.tests
             , GoldenEncoding.tests
+            , OwnerWitness.tests
             , ProgrammableLogicBase.tests
             , ProgrammableLogicGlobal.tests
             , ProgrammableLogicMinting.tests

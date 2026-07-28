@@ -74,6 +74,7 @@ import PlutusLedgerApi.V3 (
 import PlutusLedgerApi.V3 qualified as PlutusTx
 import ProgrammableTokens.OffChain.BuildTx qualified as BuildTx
 import ProgrammableTokens.OffChain.BuildTx.ProgrammableLogic (transferProgrammableToken)
+import ProgrammableTokens.OffChain.UTxODat (programmableOutputOwner)
 import ProgrammableTokens.OffChain.Env.Operator qualified as Env
 import ProgrammableTokens.OffChain.Scripts (scriptPolicyIdV3)
 import SmartTokens.Contracts.ExampleTransferLogic (BlacklistProof (..))
@@ -250,7 +251,16 @@ transferSmartTokens paramsTxIn blacklistNodes directoryNodes spendingUserOutputs
             C.AssetId policyId _ -> policyId
             C.AdaAssetId -> error "Ada is not programmable"
 
-    transferProgrammableToken paramsTxIn txins (transPolicyId programmablePolicyId) directoryNodes -- Invoking the programmableBase and global scripts
+    -- Pair each selected input with its mini-ledger owner (the address's staking
+    -- credential), so a script-owned input can be witnessed by the index of its
+    -- owner's withdrawal rather than by a scan.
+    let ownerOf txin =
+            case [uOut | UTxODat{uIn, uOut} <- spendingUserOutputs, uIn == txin] of
+                out : _ -> programmableOutputOwner out
+                [] -> error "transferSmartTokens: selected an input that is not among the spending outputs"
+        tokenInputs = map (\txin -> (txin, ownerOf txin)) txins
+
+    transferProgrammableToken paramsTxIn tokenInputs (transPolicyId programmablePolicyId) directoryNodes -- Invoking the programmableBase and global scripts
     result <- addTransferWitness blacklistNodes (length txins) -- Proof of non-membership of the blacklist
 
     -- Send outputs to destinationCred
