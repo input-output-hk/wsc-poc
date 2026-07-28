@@ -23,6 +23,7 @@ module SmartTokens.Contracts.ProgrammableLogicBase (
     mkProgrammableSeize,
     pparamsAtRefIdx,
     pisScriptInvokedEntries,
+    pvalueEqualsDeltaCurrencySymbol,
     pvalueFromCred,
     pvalueToCred,
     poutputsContainExpectedValueAtCred,
