@@ -39,7 +39,7 @@ import Plutarch.Core.Context (
  )
 import Plutarch.Core.Integrity (pisRewardingScript)
 import Plutarch.Core.Internal.Builtins (pmapData, ppairDataBuiltinRaw)
-import Plutarch.Builtin.List (pdropList)
+import SmartTokens.Core.Builtins (pdropList)
 import Plutarch.Builtin.Value (pinsertCoin, pscaleValue, punValueData, punionValue, pvalueData)
 import Plutarch.Builtin.Value qualified as BuiltinValue
 import Plutarch.Core.Utils

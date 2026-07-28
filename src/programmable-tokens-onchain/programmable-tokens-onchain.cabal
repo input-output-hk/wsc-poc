@@ -61,6 +61,7 @@ library
     SmartTokens.Contracts.IssuanceCborHex
     SmartTokens.Contracts.ProgrammableLogicBase
     SmartTokens.Contracts.ProtocolParams
+    SmartTokens.Core.Builtins
     SmartTokens.Core.Scripts
     SmartTokens.LinkedList.BlacklistCommon
     SmartTokens.LinkedList.Common

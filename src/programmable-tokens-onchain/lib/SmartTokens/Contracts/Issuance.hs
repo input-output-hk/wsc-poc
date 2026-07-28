@@ -25,7 +25,7 @@ module SmartTokens.Contracts.Issuance (
 import Generics.SOP qualified as SOP
 import GHC.Generics (Generic)
 import Plutarch.Core.Context (paddressCredential, ptxInInfoResolved)
-import Plutarch.Builtin.List (pdropList)
+import SmartTokens.Core.Builtins (pdropList)
 import Plutarch.Core.ValidationLogic (pvalidateConditions)
 import Plutarch.Core.Value (phasCS, ptryLookupValue)
 import Plutarch.LedgerApi.AssocMap (KeyGuarantees (Sorted))
