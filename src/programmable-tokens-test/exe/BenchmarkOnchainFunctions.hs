@@ -17,7 +17,8 @@ import Plutarch.Core.Internal.Builtins (pmapData, ppairDataBuiltinRaw)
 import SmartTokens.Core.Builtins (pdropList)
 import Plutarch.Core.List (pdropFast)
 import Plutarch.Core.Utils
-import Plutarch.Core.Value (pledgerValueCsPairs, pmkSortedValue, pvalueCsPairs)
+import Plutarch.Core.Value (pledgerValueCsPairs, pmkSortedValue, ptokenPairs,
+                            punsortedMapPairs, pvalueCsPairs)
 import Plutarch.LedgerApi.AssocMap qualified as AssocMap
 import Plutarch.LedgerApi.V3
 import Plutarch.LedgerApi.Value qualified as Value
@@ -69,7 +70,7 @@ withdrawalCtxWithMatchAt totalCount _matchIdx =
 hasCredEqualsData :: Term s (PAsData PCredential :--> PScriptContext :--> PBool)
 hasCredEqualsData = phoistAcyclic $ plam $ \stakeCred ctx ->
     pmatch (pscriptContextTxInfo ctx) $ \txInfo ->
-        let withdrawals = pto $ pfromData $ ptxInfo'wdrl txInfo
+        let withdrawals = punsortedMapPairs (pfromData (ptxInfo'wdrl txInfo))
             firstWithdrawal = pfstBuiltin # (phead @PBuiltinList # withdrawals)
             hasCred =
                 (firstWithdrawal #== stakeCred)
@@ -193,8 +194,8 @@ pcurrencyPairsUnionFastBench = phoistAcyclic $
                             currencySymbolBBytes = pasByteStr # pforgetData currencySymbolB
                          in pif
                                 (currencySymbolABytes #== currencySymbolBBytes)
-                                ( let tokenPairsA = pto (pfromData (psndBuiltin # csPairA))
-                                      tokenPairsB = pto (pfromData (psndBuiltin # csPairB))
+                                ( let tokenPairsA = ptokenPairs (pfromData (psndBuiltin # csPairA))
+                                      tokenPairsB = ptokenPairs (pfromData (psndBuiltin # csPairB))
                                       mergedTokenPairs = ptokenPairsUnionFastBench # tokenPairsA # tokenPairsB
                                       mergedPair =
                                         punsafeCoerce $
@@ -252,7 +253,7 @@ passetQtyInValueBench = phoistAcyclic $ plam $ \value cs tn ->
                 ( \currencyPair currencyPairsRest ->
                     let currencySymbolData = pfstBuiltin # currencyPair
                         currencySymbolBytes = pasByteStr # pforgetData currencySymbolData
-                        tokenPairs = pto (pfromData (psndBuiltin # currencyPair))
+                        tokenPairs = ptokenPairs (pfromData (psndBuiltin # currencyPair))
                      in pif
                             (currencySymbolBytes #== csBytes)
                             (tokenQtyInTokenPairs # tokenPairs)
@@ -355,7 +356,7 @@ poutputsContainExpectedValueAtCredBench progLogicCred txOutputs expectedValue =
                             paymentCredData = phead # (psndBuiltin # (pasConstr # txOutAddressData))
                          in pif
                                 (paymentCredData #== progLogicCredData)
-                                (self # requiredQty # (currentQty + (passetQtyInValueBench # (pfromData txOutValue) # cs # tn)) # cs # tn # outputsRest)
+                                (self # requiredQty # (currentQty + (passetQtyInValueBench # pto (pfromData txOutValue) # cs # tn)) # cs # tn # outputsRest)
                                 (self # requiredQty # currentQty # cs # tn # outputsRest)
                     )
                     (currentQty #>= requiredQty)
@@ -378,7 +379,7 @@ poutputsContainExpectedValueAtCredBench progLogicCred txOutputs expectedValue =
             pelimList
                 ( \expectedCurrencyPair expectedCurrencyPairsRest ->
                     let expectedCurrencySymbol = pfromData (pfstBuiltin # expectedCurrencyPair)
-                        expectedTokenPairs = pto (pfromData (psndBuiltin # expectedCurrencyPair))
+                        expectedTokenPairs = ptokenPairs (pfromData (psndBuiltin # expectedCurrencyPair))
                      in checkExpectedTokenPairsAgainstActualValue
                             # actualValue
                             # expectedCurrencySymbol
@@ -393,7 +394,7 @@ poutputsContainExpectedValueAtCredBench progLogicCred txOutputs expectedValue =
         actualValueAtCred = pvalueToCredBench progLogicCred txOutputs
      in pelimList
             ( \firstExpectedCsPair expectedCsPairsRest ->
-                let firstExpectedTokenPairs = pto (pfromData (psndBuiltin # firstExpectedCsPair))
+                let firstExpectedTokenPairs = ptokenPairs (pfromData (psndBuiltin # firstExpectedCsPair))
                  in pelimList
                         ( \expectedTokenPair firstExpectedTokenPairsRest ->
                             pif
@@ -572,7 +573,7 @@ mkValueFromCredTerm cred cs tn expectedQty = plam $ \ctx ->
                 pvalueFromCredBench
                     (pconstant cred)
                     (pfromData $ ptxInfo'signatories txInfo)
-                    (pto $ pfromData $ ptxInfo'wdrl txInfo)
+                    (punsortedMapPairs (pfromData (ptxInfo'wdrl txInfo)))
                     (pfromData $ ptxInfo'inputs txInfo)
          in passetQtyInValueBench # actualValue # pconstant cs # pconstant tn #== pconstant expectedQty
 
@@ -581,7 +582,7 @@ mkActualPisScriptInvokedEntriesTerm cred = plam $ \ctx ->
     pmatch (pscriptContextTxInfo ctx) $ \txInfo ->
         Actual.pisScriptInvokedEntries
             # pdata (pconstant cred)
-            # (pto $ pfromData $ ptxInfo'wdrl txInfo)
+            # (punsortedMapPairs (pfromData (ptxInfo'wdrl txInfo)))
 
 mkActualValueToCredTerm :: Credential -> CurrencySymbol -> TokenName -> Integer -> Term s (PScriptContext :--> PBool)
 mkActualValueToCredTerm cred cs tn expectedQty = plam $ \ctx ->
@@ -607,7 +608,7 @@ mkActualValueFromCredTerm cred cs tn expectedQty = plam $ \ctx ->
                 Actual.pvalueFromCred
                     (pconstant cred)
                     (pfromData $ ptxInfo'signatories txInfo)
-                    (pto $ pfromData $ ptxInfo'wdrl txInfo)
+                    (punsortedMapPairs (pfromData (ptxInfo'wdrl txInfo)))
                     pnil
                     (pfromData $ ptxInfo'inputs txInfo)
          in -- `pvalueFromCred` returns the raw currency-pair list rather than a wrapped
@@ -942,7 +943,7 @@ type TokPairs = PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PIntege
 -- | Lovelace quantity out of the leading (ada) currency pair.
 pAdaQty :: Term s (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger)) :--> PInteger)
 pAdaQty = phoistAcyclic $ plam $ \pair ->
-    pfromData (psndBuiltin # (phead # pto (pfromData (psndBuiltin # pair))))
+    pfromData (psndBuiltin # (phead # ptokenPairs (pfromData (psndBuiltin # pair))))
 
 -- | The currency-pair list with the target symbol removed, canonical order kept.
 pDropCS :: Term s (PData :--> CsPairs :--> CsPairs)
@@ -966,7 +967,7 @@ pTokensOfCS = phoistAcyclic $
             ( \pair rest ->
                 pif
                     (pforgetData (pfstBuiltin # pair) #== target)
-                    (pto (pfromData (psndBuiltin # pair)))
+                    (ptokenPairs (pfromData (psndBuiltin # pair)))
                     (self # target # rest)
             )
             pnil
@@ -1088,7 +1089,7 @@ pScanAssetQty = phoistAcyclic $ plam $ \csPairs cs tn ->
             pelimList
                 ( \currencyPair currencyPairsRest ->
                     let currencySymbol = pfromData (pfstBuiltin # currencyPair)
-                        tokenPairs = pto (pfromData (psndBuiltin # currencyPair))
+                        tokenPairs = ptokenPairs (pfromData (psndBuiltin # currencyPair))
                      in pif
                             (currencySymbol #== cs)
                             (tokenQtyInTokenPairs # tokenPairs)
@@ -1235,7 +1236,7 @@ pdropListHead = plam $ \n xs -> phead # (pdropList # (pasInt # n) # (pasList # x
 pbaseFwdScan :: Term s (PAsData PCredential :--> PAsData PCredential :--> PScriptContext :--> PBool)
 pbaseFwdScan = plam $ \globalCred seizeCred ctx ->
     pmatch (pscriptContextTxInfo ctx) $ \txInfo ->
-        let wdrls = pto $ pfromData $ ptxInfo'wdrl txInfo
+        let wdrls = punsortedMapPairs (pfromData (ptxInfo'wdrl txInfo))
             go = pfixHoisted #$ plam $ \self withdrawals' ->
                 pelimList
                     ( \withdrawal rest ->
@@ -1250,7 +1251,7 @@ pbaseFwdScan = plam $ \globalCred seizeCred ctx ->
 pbaseFwdIndexed :: Term s (PData :--> PAsData PCredential :--> PAsData PCredential :--> PScriptContext :--> PBool)
 pbaseFwdIndexed = plam $ \idxData globalCred seizeCred ctx ->
     pmatch (pscriptContextTxInfo ctx) $ \txInfo ->
-        let wdrls = pto $ pfromData $ ptxInfo'wdrl txInfo
+        let wdrls = punsortedMapPairs (pfromData (ptxInfo'wdrl txInfo))
          in plet (pfstBuiltin # (phead # (pdropFast # (pasInt # idxData) # wdrls))) $ \c ->
                 (c #== globalCred) #|| (c #== seizeCred)
 
@@ -1431,7 +1432,7 @@ mkLocalIndexedTerm ownCS tn mintedTotal = plam $ \destIdxsData ctx ->
                                                     let addrData = phead # fields
                                                         credData = phead # (psndBuiltin # (pasConstr # addrData))
                                                         outValue = pfromData (punsafeCoerce @(PAsData PLedgerValue) (phead # (ptail # fields)))
-                                                        qty = passetQtyInValueBench # outValue # pconstant ownCS # pconstant tn
+                                                        qty = passetQtyInValueBench # pto outValue # pconstant ownCS # pconstant tn
                                                      in pif
                                                             (credData #== baseCredData)
                                                             (self # idxsRest # (idx + 1) # (ptail # remAtIdx) # (acc + qty))
