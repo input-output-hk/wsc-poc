@@ -668,6 +668,8 @@ benchCases =
     ]
         <> decisionBenchCases
         <> casingDecisionCases
+        <> casingDecision2Cases
+        <> casingDecision3Cases
 
 -- =====================================================================
 -- Decision benchmarks for design-issuance-dual-arm-custody.md pending
@@ -1657,4 +1659,90 @@ casingDecisionCases =
     , mkCase "decision.case.field2.case" casingField2Case []
     , mkCase "decision.case.intDispatch.pif" casingIntDispatchPif []
     , mkCase "decision.case.intDispatch.case" casingIntDispatchCase []
+    ]
+
+-- =====================================================================
+-- Second round of casing decision benchmarks, shaped after the ACTUAL usage
+-- contexts in the converted walks, with every head-to-head computing the same
+-- result (the first round's pairBoth vs pairFst comparison differed by an
+-- AddInteger, so only within-group deltas were fair):
+--   * matchWalk.none — sorted-walk mismatch path: compare fst every
+--     iteration, never touch snd. The builtin variant pays one FstPair; the
+--     Case variant binds both components eagerly and discards snd.
+--   * matchWalk.all — the same walk with every comparison succeeding, so snd
+--     is consumed each iteration (builtin pays FstPair+SndPair).
+-- Together with decision.case.field2.* these cover shapes B (fst-compare,
+-- snd-on-match), C (fst only), A (both, = matchWalk.all) and D (field
+-- chains).
+
+casingMatchWalkNoneBuiltins :: forall s. Term s PInteger
+casingMatchWalkNoneBuiltins = casingWalk (casingPairs @s) $ \acc p ->
+    pif ((pfstBuiltin # p) #== pconstantInteger (-1)) (acc + (psndBuiltin # p)) (acc + pconstantInteger 1)
+
+casingMatchWalkNoneCase :: forall s. Term s PInteger
+casingMatchWalkNoneCase = casingWalk (casingPairs @s) $ \acc p ->
+    pmatch p $ \(PBuiltinPair x y) ->
+        pif (x #== pconstantInteger (-1)) (acc + y) (acc + pconstantInteger 1)
+
+casingMatchWalkAllBuiltins :: forall s. Term s PInteger
+casingMatchWalkAllBuiltins = casingWalk (casingPairs @s) $ \acc p ->
+    pif ((pfstBuiltin # p) #< pconstantInteger 1000000) (acc + (psndBuiltin # p)) (acc + pconstantInteger 1)
+
+casingMatchWalkAllCase :: forall s. Term s PInteger
+casingMatchWalkAllCase = casingWalk (casingPairs @s) $ \acc p ->
+    pmatch p $ \(PBuiltinPair x y) ->
+        pif (x #< pconstantInteger 1000000) (acc + y) (acc + pconstantInteger 1)
+
+casingDecision2Cases :: [BenchCase]
+casingDecision2Cases =
+    [ mkCase "decision.case2.matchWalk.none.builtins" casingMatchWalkNoneBuiltins []
+    , mkCase "decision.case2.matchWalk.none.case" casingMatchWalkNoneCase []
+    , mkCase "decision.case2.matchWalk.all.builtins" casingMatchWalkAllBuiltins []
+    , mkCase "decision.case2.matchWalk.all.case" casingMatchWalkAllCase []
+    ]
+
+-- The two real field-chain shapes, each with every variant computing the same
+-- result:
+--   * fieldPrelude — walk preamble: head (address) AND second field (value)
+--     both consumed. Old form pays phead + ptail + phead (3 builtins); the
+--     Case form one list Case + one phead.
+--   * skipSecond — phasCSH shape: only the SECOND element's fst is consumed,
+--     everything bound on the way is discarded. Variants: 3 builtins; nested
+--     Case (binds 4, discards 3); and a hybrid (builtin ptail, then one list
+--     Case and one pair Case).
+casingFieldPreludeBuiltins :: forall s. Term s PInteger
+casingFieldPreludeBuiltins = casingWalk (casingTags @s) $ \acc _ ->
+    plet casingFieldFixture $ \fields ->
+        acc + (phead # fields) + (phead # (ptail # fields))
+
+casingFieldPreludeCase :: forall s. Term s PInteger
+casingFieldPreludeCase = casingWalk (casingTags @s) $ \acc _ ->
+    pheadTailBuiltin casingFieldFixture $ \h rest ->
+        acc + h + (phead # rest)
+
+casingSkipSecondBuiltins :: forall s. Term s PInteger
+casingSkipSecondBuiltins = casingWalk (casingPairs @s) $ \acc _ ->
+    acc + (pfstBuiltin # (phead # (ptail # casingPairFixtureList)))
+
+casingSkipSecondAllCase :: forall s. Term s PInteger
+casingSkipSecondAllCase = casingWalk (casingPairs @s) $ \acc _ ->
+    pheadTailBuiltin casingPairFixtureList $ \_ rest ->
+        pheadTailBuiltin rest $ \secondEntry _ ->
+            pmatch secondEntry $ \(PBuiltinPair x _) -> acc + x
+
+casingSkipSecondHybrid :: forall s. Term s PInteger
+casingSkipSecondHybrid = casingWalk (casingPairs @s) $ \acc _ ->
+    pheadTailBuiltin (ptail # casingPairFixtureList) $ \secondEntry _ ->
+        pmatch secondEntry $ \(PBuiltinPair x _) -> acc + x
+
+casingPairFixtureList :: forall s. Term s (PBuiltinList (PBuiltinPair PInteger PInteger))
+casingPairFixtureList = pconstant [(i, i) | i <- [1 .. 4 :: Integer]]
+
+casingDecision3Cases :: [BenchCase]
+casingDecision3Cases =
+    [ mkCase "decision.case3.fieldPrelude.builtins" casingFieldPreludeBuiltins []
+    , mkCase "decision.case3.fieldPrelude.case" casingFieldPreludeCase []
+    , mkCase "decision.case3.skipSecond.builtins" casingSkipSecondBuiltins []
+    , mkCase "decision.case3.skipSecond.allCase" casingSkipSecondAllCase []
+    , mkCase "decision.case3.skipSecond.hybrid" casingSkipSecondHybrid []
     ]
