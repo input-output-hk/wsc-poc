@@ -4,7 +4,7 @@
 
 module Main (main) where
 
-import BenchmarkOnchain.ScriptHelpers (bs28, mkValue, pubKeyAddress)
+import BenchmarkOnchain.ScriptHelpers (bs28, mkValue, pubKeyAddress, withdrawalIndexOf)
 import BenchmarkOnchain.SimpleRunner (BenchCase, mkTermCase, runSimpleBenchmark)
 import Data.ByteString qualified as BS
 import Data.Word (Word8)
@@ -603,15 +603,19 @@ mkActualOutputsContainExpectedValueTerm cred expectedValue = plam $ \ctx ->
                 (pfromData $ ptxInfo'outputs txInfo)
                 expectedValueTerm
 
-mkActualValueFromCredTerm :: Credential -> CurrencySymbol -> TokenName -> Integer -> Term s (PScriptContext :--> PBool)
-mkActualValueFromCredTerm cred cs tn expectedQty = plam $ \ctx ->
+mkActualValueFromCredTerm :: Credential -> CurrencySymbol -> TokenName -> Integer -> [Integer] -> Term s (PScriptContext :--> PBool)
+mkActualValueFromCredTerm cred cs tn expectedQty ownerWdrlIdxs = plam $ \ctx ->
     pmatch (pscriptContextTxInfo ctx) $ \txInfo ->
         let actualValue =
                 Actual.pvalueFromCred
                     (pconstant cred)
                     (pfromData $ ptxInfo'signatories txInfo)
                     (punsortedMapPairs (pfromData (ptxInfo'wdrl txInfo)))
-                    pnil
+                    -- Script-owned inputs each consume one witnessed withdrawal
+                    -- index, in input order; the empty list this harness used to
+                    -- pass predates that parameter and crashed every
+                    -- script-owner case at the first phead.
+                    (foldr (\i acc -> pcons # pdata (pconstantInteger i) # acc) pnil ownerWdrlIdxs)
                     (pfromData $ ptxInfo'inputs txInfo)
          in -- `pvalueFromCred` returns the raw currency-pair list rather than a wrapped
             -- `PValue`; the representations are identical, so coerce it back here.
@@ -657,9 +661,9 @@ benchCases =
     , mkValueFromCredCase "local.valueFromCred.sparse.total.n100.matching.n020" (inputCtxSparse 100 20) 20
     , mkActualValueFromCredCase "actual.valueFromCred.pubKeyOwners.inputs.n010" (inputCtxPubKeyOwners 10) 10
     , mkActualValueFromCredCase "actual.valueFromCred.pubKeyOwners.inputs.n050" (inputCtxPubKeyOwners 50) 50
-    , mkActualValueFromCredCase "actual.valueFromCred.scriptOwners.inputs.n010" (inputCtxScriptOwners 10) 10
-    , mkActualValueFromCredCase "actual.valueFromCred.scriptOwners.inputs.n050" (inputCtxScriptOwners 50) 50
-    , mkActualValueFromCredCase "actual.valueFromCred.mixedOwners.inputs.n020" (inputCtxMixedOwners 20) 20
+    , mkActualValueFromCredCaseIdx "actual.valueFromCred.scriptOwners.inputs.n010" (inputCtxScriptOwners 10) 10 (scriptOwnerIdxsFor [0 .. 9])
+    , mkActualValueFromCredCaseIdx "actual.valueFromCred.scriptOwners.inputs.n050" (inputCtxScriptOwners 50) 50 (scriptOwnerIdxsFor [0 .. 49])
+    , mkActualValueFromCredCaseIdx "actual.valueFromCred.mixedOwners.inputs.n020" (inputCtxMixedOwners 20) 20 (scriptOwnerIdxsFor [10 .. 19])
     , mkActualValueFromCredCase "actual.valueFromCred.sparse.total.n100.matching.n020" (inputCtxSparse 100 20) 20
     ]
         <> decisionBenchCases
@@ -1552,10 +1556,23 @@ mkValueFromCredCase name ctx expectedQty =
 
 mkActualValueFromCredCase :: String -> ScriptContext -> Integer -> BenchCase
 mkActualValueFromCredCase name ctx expectedQty =
+    mkActualValueFromCredCaseIdx name ctx expectedQty []
+
+mkActualValueFromCredCaseIdx :: String -> ScriptContext -> Integer -> [Integer] -> BenchCase
+mkActualValueFromCredCaseIdx name ctx expectedQty ownerWdrlIdxs =
     mkCase
         name
-        (mkActualValueFromCredTerm progLogicBaseCred (currencySymbolAt 0) (tokenNameAt 0) expectedQty)
+        (mkActualValueFromCredTerm progLogicBaseCred (currencySymbolAt 0) (tokenNameAt 0) expectedQty ownerWdrlIdxs)
         [PlutusTx.toData ctx]
+
+-- | Owner-withdrawal indices for a fixture whose script-owned inputs are
+-- 'ownerScriptHashAt' lo..hi in input order, with exactly those credentials
+-- withdrawn. Positions are derived, never hand-written: the map is
+-- credential-sorted, so each is a function of every participating hash.
+scriptOwnerIdxsFor :: [Int] -> [Integer]
+scriptOwnerIdxsFor idxRange =
+    let creds = [ScriptCredential (ownerScriptHashAt i) | i <- idxRange]
+     in [withdrawalIndexOf creds c | c <- creds]
 
 -- =====================================================================
 -- Decision benchmarks for the remaining Van Rossem casing adoptions. Each
