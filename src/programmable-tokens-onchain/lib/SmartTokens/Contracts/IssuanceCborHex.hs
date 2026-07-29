@@ -63,7 +63,7 @@ mkIssuanceCborHexMinting = plam $ \oref ctx -> P.do
   PTxInfo {ptxInfo'inputs, ptxInfo'mint} <- pmatch pscriptContext'txInfo
   PMintingScript ownCS <- pmatch pscriptContext'scriptInfo
 
-  mintedValue <- plet $ pfromData ptxInfo'mint
+  mintedValue <- plet $ pto (pfromData ptxInfo'mint)
   let ownTkPairs = ptryLookupValue # ownCS # mintedValue
 
   -- Enforce that only a single token name is minted for this policy

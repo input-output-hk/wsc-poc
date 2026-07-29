@@ -599,7 +599,7 @@ mkOutputsContainScript cred expectedValue =
             pmatch (pscriptContextTxInfo ctx) $ \txInfo ->
                 let expectedValueTerm =
                         punsafeCoerce $
-                            pconstant @(PlutarchV3.PValue 'PlutarchV3.Unsorted 'PlutarchV3.NoGuarantees) expectedValue
+                            pconstant @PlutarchV3.PRawValue expectedValue
                  in pif
                         ( poutputsContainExpectedValueAtCred
                             (pconstant cred)

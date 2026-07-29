@@ -14,11 +14,24 @@ repository cardano-haskell-packages
     c00aae8461a256275598500ea0e187588c35a5d5d7454fb57eac18d9edb86a56
     d4a35cd3121aa00d18544bb0ac01c3e1691d618f462c46129271bccf39f7e8ee
 
--- Van Rossem (PV11) stack: plutus 1.63 (final batch6 builtins) via
--- cardano-api 11 / cardano-node 11, mirroring sc-tools main's pin set.
+-- Van Rossem (PV11) stack on plutus 1.65 via cardano-api 11 / cardano-node 11.
+--
+-- Van Rossem support does NOT come from cardano-api: it has no builtin code at
+-- all, and its Plutus-facing modules are byte-identical between 11.0.0.0 and
+-- 11.3.0.0. The builtins are implemented in plutus-core 1.65 and gated on
+-- `vanRossemPV = MajorProtocolVersion 11` in plutus-ledger-api 1.65, enforced at
+-- script deserialisation. cardano-api 11.3's entire changelog is one entry --
+-- widening its plutus bound from ^>=1.61 to ^>=1.65, "No ledger API changes".
+--
+-- So we take the equivalent plutus stack on 11.0 and lift the bound with the
+-- allow-newer below. Staying on 11.0 avoids two unrelated sc-tools breakages:
+-- convex-optics is built with -Werror and is written against the TxBodyContent
+-- lenses that 11.2+ deprecates at the type level, and convex-base imports from
+-- the Cardano.Api.Certificate wrapper module that 11.2 deleted. (PoolId itself
+-- still exists in 11.3 -- an earlier note here claiming otherwise was wrong.)
 index-state:
-  , hackage.haskell.org 2026-05-04T12:54:40Z
-  , cardano-haskell-packages 2026-05-03T22:28:43Z
+  , hackage.haskell.org 2026-05-31T00:00:00Z
+  , cardano-haskell-packages 2026-05-31T00:00:00Z
 
 with-compiler: ghc-9.6.6
 
@@ -31,10 +44,15 @@ packages:
 
 constraints:
   cardano-node == 11.0.0
-  , plutus-core == 1.63.0.0
-  , plutus-ledger-api == 1.63.0.0
-  , plutus-tx == 1.63.0.0
-  , plutarch == 1.12.0
+  -- Must be pinned, not merely intended: `allow-newer: *:cardano-api` below
+  -- lifts every upper bound on it, so without this the solver takes 11.3.0.0,
+  -- which deprecates the TxBodyContent lenses convex-optics builds with
+  -- -Werror and removes PoolId from convex-base.
+  , cardano-api == 11.0.0.0
+  , plutus-core == 1.65.0.0
+  , plutus-ledger-api == 1.65.0.0
+  , plutus-tx == 1.65.0.0
+  , plutarch == 1.14.0
   , aeson == 2.2.4.1
   , io-classes == 1.8.0.1
   , blockfrost-client == 0.13.0.0
@@ -53,13 +71,22 @@ allow-newer:
   , *:plutus-ledger-api
   , servant-multipart-client:random
 
--- Plutarch 1.12-API (GHC 9.6.6) line with the Van Rossem backport:
--- plutus-1.63 compatibility + Plutarch.Builtin.Value (CIP-153) +
--- Plutarch.Builtin.List (CIP-132 dropList). choener 99315dad + f91c649d.
+-- Upstream Plutarch 1.14.0 (c3b47719) plus two fixes that belong upstream, on a
+-- fork branch until they land there:
+--   * Plutarch/Internal/Parse.hs carries a stray {-# LANGUAGE TypeAbstractions #-}
+--     (GHC 9.8+) though upstream declares tested-with GHC ==9.6.4 and every @a in
+--     that file is a type APPLICATION, not an abstraction.
+--   * plutarch-orphanage defines `instance Arbitrary1 NonEmptyList`, which newer
+--     QuickCheck now provides itself, making it a duplicate.
+-- Each is a separate commit on that branch so it maps to its own upstream PR;
+-- once both merge, repoint this at upstream and drop the fork.
+--
+-- 1.14 is what brings UPLC casing: pif is punsafeCase-based, ~6.9x cheaper CPU
+-- and ~4.5x cheaper memory per conditional than the pif'/ifThenElse idiom.
 source-repository-package
   type: git
   location: https://github.com/colll78/plutarch-plutus
-  tag: f91c649d0a57ed820952a43513b6007884c44b7e
+  tag: eac4bf1c36bced4e7174e51680122c1f88f6405f
   subdir:
     .
     plutarch-ledger-api
@@ -79,10 +106,12 @@ source-repository-package
     src/blockfrost
     src/tx-mod
 
+-- plutarch-onchain-lib ported to Plutarch 1.14 on branch wsc/plutarch-1.14; no
+-- catalyst branch upstream targets anything newer than Plutarch 1.10.1, so this
+-- tracks the port branch until it merges.
 source-repository-package
-    type: git
-    location: https://github.com/input-output-hk/catalyst-onchain-libs
-    tag: 6c7156c441c18b2c76066eae1cce1578190c9cfd
-    --sha256: sha256-bGf20nAEeMJ3iajMqRBN88BQSMVTXecXl6CztHiZUtA=
-    subdir:
-      src/plutarch-onchain-lib
+  type: git
+  location: https://github.com/input-output-hk/catalyst-onchain-libs
+  tag: 09e0d68786254f2adf556fa28768e67692721ac8
+  subdir:
+    src/plutarch-onchain-lib

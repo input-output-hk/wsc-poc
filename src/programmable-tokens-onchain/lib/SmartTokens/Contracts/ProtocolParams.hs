@@ -52,7 +52,7 @@ mkProtocolParametersMinting = plam $ \paramsSpendScriptHash oref ctx -> P.do
   PMintingScript ownCS' <- pmatch pscriptContext'scriptInfo
   ownCS <- plet ownCS'
 
-  mintedValue <- plet $ pfromData ptxInfo'mint
+  mintedValue <- plet $ pto (pfromData ptxInfo'mint)
   let ownTkPairs = ptryLookupValue # ownCS # mintedValue
 
   -- (2) Enforce that only a single token name, qty 1, is minted for this policy.
@@ -68,7 +68,7 @@ mkProtocolParametersMinting = plam $ \paramsSpendScriptHash oref ctx -> P.do
     , ptxOut'datum = anchorDatum
     , ptxOut'referenceScript = anchorRefScript
     } <- pmatch anchorOut
-  anchorValue <- plet $ pfromData anchorValD
+  anchorValue <- plet $ pto (pfromData anchorValD)
 
   -- (3) Canonical always-fail address, no stake credential.
   PAddress {paddress'credential = anchorCred, paddress'stakingCredential = anchorStake} <- pmatch anchorAddr
@@ -94,7 +94,7 @@ mkProtocolParametersMinting = plam $ \paramsSpendScriptHash oref ctx -> P.do
         anchorStake #== pcon PDNothing
     -- (4) only Ada + the single NFT (exactly two policies: Ada and ownCS), NFT qty 1
     , pdebug "anchor value must be ada + single NFT only" $
-        (plength # pto (pto anchorValue)) #== 2
+        (plength # pvalueCsPairs anchorValue) #== 2
     , pdebug "anchor holds the NFT" $
         pvalueOf # anchorValue # pfromData ownCS # pfromData ownTokenName #== 1
     -- (5) canonical field lengths
@@ -114,12 +114,12 @@ mkProtocolParametersMinting = plam $ \paramsSpendScriptHash oref ctx -> P.do
 pfindAnchorOutput :: Term s (PAsData PCurrencySymbol :--> PAsData PTokenName :--> PBuiltinList (PAsData PTxOut) :--> PTxOut)
 pfindAnchorOutput = phoistAcyclic $ plam $ \cs tn outputs ->
   pmatch (pfromData cs) $ \(PCurrencySymbol csb) ->
-    let go = pfix #$ plam $ \self outs ->
+    let go = pfixHoisted #$ plam $ \self outs ->
           pelimList
             ( \out rest ->
                 pmatch (pfromData out) $ \txout@(PTxOut{ptxOut'value}) ->
                   pif
-                    (pvalueOf # pfromData ptxOut'value # pcon (PCurrencySymbol csb) # pfromData tn #== 1)
+                    (pvalueOf # pto (pfromData ptxOut'value) # pcon (PCurrencySymbol csb) # pfromData tn #== 1)
                     (pcon txout)
                     (self # rest)
             )

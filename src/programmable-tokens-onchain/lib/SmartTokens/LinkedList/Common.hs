@@ -52,13 +52,13 @@ correctNodeTokenMinted ::
         ( PCurrencySymbol
             :--> PTokenName
             :--> PInteger
-            :--> PValue 'Sorted 'NonZero
+            :--> PSortedValue
             :--> PBool
         )
 correctNodeTokenMinted = phoistAcyclic $
     plam $ \nodeCS tokenName amount mint -> P.do
         PJust nodeMint <- pmatch $ AssocMap.plookup # nodeCS # pto mint
-        tokenPair <- plet $ pheadSingleton # pto nodeMint
+        tokenPair <- plet $ pheadSingleton # ptokenPairs nodeMint
         let mintedTokenName = pfromData $ pfstBuiltin # tokenPair
             mintedAmount = pfromData $ psndBuiltin # tokenPair
         (mintedTokenName #== tokenName) #&& (mintedAmount #== amount)
@@ -70,7 +70,7 @@ nodeInputUtxoDatumUnsafePair ::
     Term
         s
         ( PAsData PTxOut
-            :--> PPair (PValue 'Sorted 'Positive) (PAsData PDirectorySetNode)
+            :--> PPair PLedgerValue (PAsData PDirectorySetNode)
         )
 nodeInputUtxoDatumUnsafePair = phoistAcyclic $ plam $ \out ->
     pmatch (pfromData out) $ \(PTxOut{ptxOut'value, ptxOut'datum}) ->
@@ -96,11 +96,11 @@ parseNodeOutputUtxo ::
 parseNodeOutputUtxo = phoistAcyclic $
     plam $ \nodeCS out -> P.do
         PTxOut{ptxOut'value, ptxOut'datum} <- pmatch $ pfromData out
-        value <- plet $ pfromData ptxOut'value
+        value <- plet $ pto (pfromData ptxOut'value)
         csPair <- plet $ ptrySingleTokenCS # nodeCS # value
         let nodeTokenName = pfstBuiltin # csPair
             amount = pfromData $ psndBuiltin # csPair
-            policyCount = plength # pto (pto value)
+            policyCount = plength # pvalueCsPairs value
             hasAdaPolicy = phasCS # value # pcon (PCurrencySymbol (pconstant ""))
         POutputDatum od <- pmatch ptxOut'datum
         datum <- plet $ punsafeCoerce od
@@ -134,12 +134,12 @@ makeCommon ctx' = do
         PMintingScript mintRecord <- pmatch pscriptContext'scriptInfo
         mintRecord
 
-    mint <- tcont . plet $ pfromData ptxInfo'mint
+    mint <- tcont . plet $ pto (pfromData ptxInfo'mint)
     hasNodeTk <- tcont . plet $ phasDataCS # ownCS
     txInputs <- tcont . plet $ pfromData ptxInfo'inputs
     let txOutputs = pfromData ptxInfo'outputs
-    fromNodeValidator <- tcont . plet $ pmapFilter @PBuiltinList # plam (\txo -> hasNodeTk # pfromData (ptxOutValue txo)) # plam (ptxInInfoResolved . pfromData) # txInputs
-    toNodeValidator <- tcont . plet $ pfilter @PBuiltinList # plam (\txo -> hasNodeTk # pfromData (ptxOutValue $ pfromData txo)) # txOutputs
+    fromNodeValidator <- tcont . plet $ pmapFilter @PBuiltinList # plam (\txo -> hasNodeTk # pto (pfromData (ptxOutValue txo))) # plam (ptxInInfoResolved . pfromData) # txInputs
+    toNodeValidator <- tcont . plet $ pfilter @PBuiltinList # plam (\txo -> hasNodeTk # pto (pfromData (ptxOutValue $ pfromData txo))) # txOutputs
     ------------------------------
 
     let atNodeValidator =
@@ -168,7 +168,7 @@ makeCommon ctx' = do
                 , nodeInputs
                 , nodeOutputs
                 , referenceInputs = pfromData ptxInfo'referenceInputs
-                , withdrawals = pto $ pfromData ptxInfo'wdrl
+                , withdrawals = punsortedMapPairs (pfromData ptxInfo'wdrl)
                 }
     pure common
 
@@ -215,7 +215,7 @@ pInsert issuanceCborHexCS common = plam $ \keyToInsert hashedParam -> P.do
                         # plam
                             ( \txIn ->
                                 let resolvedIn = ptxInInfoResolved $ pfromData txIn
-                                 in phasDataCS # issuanceCborHexCS # pfromData (ptxOutValue resolvedIn)
+                                 in phasDataCS # issuanceCborHexCS # pto (pfromData (ptxOutValue resolvedIn))
                             )
                         # common.referenceInputs
     POutputDatum issuanceDat' <- pmatch $ ptxOutDatum issuanceCborHexUTxO
@@ -281,7 +281,7 @@ pInsert issuanceCborHexCS common = plam $ \keyToInsert hashedParam -> P.do
 data PDirectoryCommon (s :: S) = MkCommon
     { ownCS :: Term s PCurrencySymbol
     -- ^ state token (own) CS
-    , mint :: Term s (PValue 'Sorted 'NonZero)
+    , mint :: Term s (PSortedValue)
     -- ^ value minted in current Tx
     , nodeInputs :: Term s (PBuiltinList (PAsData PDirectorySetNode))
     -- ^ node inputs in the tx
@@ -294,7 +294,7 @@ data PDirectoryCommon (s :: S) = MkCommon
     }
     deriving stock (Generic)
 
-_pisProgrammableTokenRegistration :: Term s PByteString -> Term s PByteString -> Term s PByteString -> Term s (PAsData PByteString) -> Term s (PValue 'Sorted 'NonZero) -> Term s PBool
+_pisProgrammableTokenRegistration :: Term s PByteString -> Term s PByteString -> Term s PByteString -> Term s (PAsData PByteString) -> Term s (PSortedValue) -> Term s PBool
 _pisProgrammableTokenRegistration csToInsert prefixScriptBytes postfixScriptBytes hashedParam _mintValue =
     -- Item 34 (register-without-mint): the programmable token need NOT be minted in
     -- the registration transaction. The blake2b preimage binding below already
