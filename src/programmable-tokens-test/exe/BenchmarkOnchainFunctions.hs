@@ -16,6 +16,8 @@ import Plutarch.Core.Context (
 import Plutarch.Core.Internal.Builtins (pmapData, ppairDataBuiltinRaw)
 import SmartTokens.Core.Builtins (pdropList)
 import Plutarch.Core.List (pdropFast)
+import Plutarch.Builtin.Integer (pconstantInteger)
+import Plutarch.Internal.Case (punsafeCase)
 import Plutarch.Core.Utils
 import Plutarch.Core.Value (pledgerValueCsPairs, pmkSortedValue, ptokenPairs,
                             punsortedMapPairs, pvalueCsPairs)
@@ -661,6 +663,7 @@ benchCases =
     , mkActualValueFromCredCase "actual.valueFromCred.sparse.total.n100.matching.n020" (inputCtxSparse 100 20) 20
     ]
         <> decisionBenchCases
+        <> casingDecisionCases
 
 -- =====================================================================
 -- Decision benchmarks for design-issuance-dual-arm-custody.md pending
@@ -1553,3 +1556,88 @@ mkActualValueFromCredCase name ctx expectedQty =
         name
         (mkActualValueFromCredTerm progLogicBaseCred (currencySymbolAt 0) (tokenNameAt 0) expectedQty)
         [PlutusTx.toData ctx]
+
+-- =====================================================================
+-- Decision benchmarks for the remaining Van Rossem casing adoptions. Each
+-- group holds the loop shape constant (a pelimList walk over the same
+-- 200-element fixture) so the delta between variants is only the operation
+-- under test:
+--   * pair.both  — extract BOTH pair components: FstPair+SndPair builtins vs
+--                  one pmatch (a single one-branch Case binding both)
+--   * pair.fst   — extract ONE component: is pmatch still worth it when the
+--                  second binding is discarded?
+--   * field2     — second-element access, phead#(ptail#xs) vs nested
+--                  pheadTailBuiltin (one-branch Case per level)
+--   * intDispatch — 2-way constructor-tag dispatch, pif(#==0) vs integer Case
+-- The control case runs the bare walk so the loop overhead is visible.
+
+casingPairs :: forall s. Term s (PBuiltinList (PBuiltinPair PInteger PInteger))
+casingPairs = pconstant [(i, i + 1000) | i <- [1 .. 200 :: Integer]]
+
+casingTags :: forall s. Term s (PBuiltinList PInteger)
+casingTags = pconstant (take 200 (cycle [0, 1 :: Integer]))
+
+casingFieldFixture :: forall s. Term s (PBuiltinList PInteger)
+casingFieldFixture = pconstant [1 .. 5 :: Integer]
+
+-- Shared walk skeleton: fold the fixture with a step function.
+casingWalk ::
+    forall a s.
+    PElemConstraint PBuiltinList a =>
+    Term s (PBuiltinList a) ->
+    (Term s PInteger -> Term s a -> Term s PInteger) ->
+    Term s PInteger
+casingWalk fixture step =
+    ( pfixHoisted #$ plam $ \self acc xs ->
+        pelimList (\x rest -> self # step acc x # rest) acc xs
+    )
+        # pconstantInteger 0
+        # fixture
+
+casingControl :: forall s. Term s PInteger
+casingControl = casingWalk (casingPairs @s) $ \acc _ -> acc + pconstantInteger 1
+
+casingPairBothBuiltins :: forall s. Term s PInteger
+casingPairBothBuiltins = casingWalk (casingPairs @s) $ \acc p ->
+    acc + (pfstBuiltin # p) + (psndBuiltin # p)
+
+casingPairBothCase :: forall s. Term s PInteger
+casingPairBothCase = casingWalk (casingPairs @s) $ \acc p ->
+    pmatch p $ \(PBuiltinPair x y) -> acc + x + y
+
+casingPairFstBuiltin :: forall s. Term s PInteger
+casingPairFstBuiltin = casingWalk (casingPairs @s) $ \acc p ->
+    acc + (pfstBuiltin # p)
+
+casingPairFstCase :: forall s. Term s PInteger
+casingPairFstCase = casingWalk (casingPairs @s) $ \acc p ->
+    pmatch p $ \(PBuiltinPair x _) -> acc + x
+
+casingField2Builtins :: forall s. Term s PInteger
+casingField2Builtins = casingWalk (casingPairs @s) $ \acc _ ->
+    acc + (phead # (ptail # casingFieldFixture))
+
+casingField2Case :: forall s. Term s PInteger
+casingField2Case = casingWalk (casingPairs @s) $ \acc _ ->
+    acc + pheadTailBuiltin casingFieldFixture (\_ t -> pheadTailBuiltin t (\x _ -> x))
+
+casingIntDispatchPif :: forall s. Term s PInteger
+casingIntDispatchPif = casingWalk (casingTags @s) $ \acc tag ->
+    pif (tag #== pconstantInteger 0) (acc + pconstantInteger 1) (acc + pconstantInteger 2)
+
+casingIntDispatchCase :: forall s. Term s PInteger
+casingIntDispatchCase = casingWalk (casingTags @s) $ \acc tag ->
+    punsafeCase tag [popaque (acc + pconstantInteger 1), popaque (acc + pconstantInteger 2)]
+
+casingDecisionCases :: [BenchCase]
+casingDecisionCases =
+    [ mkCase "decision.case.control.walk200" casingControl []
+    , mkCase "decision.case.pairBoth.builtins" casingPairBothBuiltins []
+    , mkCase "decision.case.pairBoth.case" casingPairBothCase []
+    , mkCase "decision.case.pairFst.builtin" casingPairFstBuiltin []
+    , mkCase "decision.case.pairFst.case" casingPairFstCase []
+    , mkCase "decision.case.field2.builtins" casingField2Builtins []
+    , mkCase "decision.case.field2.case" casingField2Case []
+    , mkCase "decision.case.intDispatch.pif" casingIntDispatchPif []
+    , mkCase "decision.case.intDispatch.case" casingIntDispatchCase []
+    ]
