@@ -49,48 +49,61 @@ import BenchmarkOnchain.ScriptFixtureIds (
     initRef,
     issuanceInitRef,
     mintingLogicHash,
+    pinnedDirectoryNodeCS,
+    pinnedDirectorySpendHash,
+    pinnedGlobalScriptHash,
+    pinnedIssuanceAlwaysFailHash,
+    pinnedIssuancePolicyCS,
+    pinnedMintingPolicyCS,
+    pinnedProgLogicBaseHash,
+    pinnedProgrammableTransferCS,
+    pinnedProgrammableTransferCS2,
+    pinnedProgrammableTransferCS3,
+    pinnedProtocolParamsAlwaysFailHash,
+    pinnedProtocolParamsCS,
     programmableTransferMintingLogicHash,
     programmableTransferMintingLogicHash2,
     programmableTransferMintingLogicHash3,
     protocolParamsInitRef,
+    useDerivedDeploymentIds,
  )
 import PlutusLedgerApi.V3
 import ProgrammableTokens.OffChain.AikenProgrammableTokenScripts qualified as Aiken
 
 -- (1) Protocol-params NFT: one-shot mint pinned to 'protocolParamsInitRef'.
-protocolParamsCS :: CurrencySymbol
-protocolParamsCS =
+derivedProtocolParamsCS :: CurrencySymbol
+derivedProtocolParamsCS =
     scriptCurrencySymbol (Aiken.aikenProtocolParamsMintingScript protocolParamsInitRef)
 
-protocolParamsAlwaysFailHash :: ScriptHash
-protocolParamsAlwaysFailHash =
+derivedProtocolParamsAlwaysFailHash :: ScriptHash
+derivedProtocolParamsAlwaysFailHash =
     scriptHashFromCardanoScript Aiken.aikenProtocolParamsSpendingScript
 
 -- (2) Issuance-cbor-hex NFT: one-shot mint pinned to 'issuanceInitRef'.
-issuancePolicyCS :: CurrencySymbol
-issuancePolicyCS =
+derivedIssuancePolicyCS :: CurrencySymbol
+derivedIssuancePolicyCS =
     scriptCurrencySymbol (Aiken.aikenIssuanceCborHexMintingScript issuanceInitRef)
 
-issuanceAlwaysFailHash :: ScriptHash
-issuanceAlwaysFailHash =
+derivedIssuanceAlwaysFailHash :: ScriptHash
+derivedIssuanceAlwaysFailHash =
     scriptHashFromCardanoScript Aiken.aikenIssuanceCborHexSpendingScript
 
 -- (3) Registry node spending script, parameterised by the protocol-params
 -- policy; its credential is in turn a parameter of the registry MINTING policy.
-directorySpendHash :: ScriptHash
-directorySpendHash =
-    scriptHashFromCardanoScript (Aiken.aikenDirectoryNodeSpendingScript protocolParamsCS)
+derivedDirectorySpendHash :: ScriptHash
+derivedDirectorySpendHash =
+    scriptHashFromCardanoScript (Aiken.aikenDirectoryNodeSpendingScript derivedProtocolParamsCS)
 
-directorySpendCred :: Credential
-directorySpendCred = ScriptCredential directorySpendHash
+derivedDirectorySpendCred :: Credential
+derivedDirectorySpendCred = ScriptCredential derivedDirectorySpendHash
 
 -- | The registry (directory) node authentication policy. The builder recomputes
 -- the issuance policy id internally from 'issuanceInitRef', so this and
 -- 'issuancePolicyCS' cannot drift apart.
-directoryNodeCS :: CurrencySymbol
-directoryNodeCS =
+derivedDirectoryNodeCS :: CurrencySymbol
+derivedDirectoryNodeCS =
     scriptCurrencySymbol
-        (Aiken.aikenDirectoryNodeMintingScript initRef issuanceInitRef directorySpendCred)
+        (Aiken.aikenDirectoryNodeMintingScript initRef issuanceInitRef derivedDirectorySpendCred)
 
 -- | A deployment has ONE registry policy: the NFTs authenticating registry
 -- nodes are minted by the very script the directory-mint scenarios benchmark.
@@ -99,24 +112,19 @@ directoryPolicyCS = directoryNodeCS
 
 -- (4) Global validator. Aiken has no standalone seize script — third-party
 -- seizure is a redeemer arm of this same validator — so 'seizeCred' is it.
-globalScriptHash :: ScriptHash
-globalScriptHash =
-    scriptHashFromCardanoScript (Aiken.aikenProgrammableLogicGlobalScript protocolParamsCS)
+derivedGlobalScriptHash :: ScriptHash
+derivedGlobalScriptHash =
+    scriptHashFromCardanoScript (Aiken.aikenProgrammableLogicGlobalScript derivedProtocolParamsCS)
 
-globalCred :: Credential
-globalCred = ScriptCredential globalScriptHash
-
-seizeCred :: Credential
-seizeCred = globalCred
+derivedGlobalCred :: Credential
+derivedGlobalCred = ScriptCredential derivedGlobalScriptHash
 
 -- (5) Programmable-logic base: the mini-ledger payment credential, taking the
 -- global validator's credential as its only parameter.
-progLogicBaseHash :: ScriptHash
-progLogicBaseHash =
-    scriptHashFromCardanoScript (Aiken.aikenProgrammableLogicBaseScript globalCred)
+derivedProgLogicBaseHash :: ScriptHash
+derivedProgLogicBaseHash =
+    scriptHashFromCardanoScript (Aiken.aikenProgrammableLogicBaseScript derivedGlobalCred)
 
-progLogicBaseCred :: Credential
-progLogicBaseCred = ScriptCredential progLogicBaseHash
 
 -- (6) Programmable token policies: @issuance_mint@ applied to the base
 -- credential, the registry policy, that token's minting-logic credential, and
@@ -125,27 +133,84 @@ programmableTokenPolicyCS :: ScriptHash -> CurrencySymbol
 programmableTokenPolicyCS tokenMintingLogicHash =
     scriptCurrencySymbol
         ( Aiken.aikenProgrammableLogicMintingScript
-            progLogicBaseCred
-            directoryNodeCS
+            (ScriptCredential derivedProgLogicBaseHash)
+            derivedDirectoryNodeCS
             (ScriptCredential tokenMintingLogicHash)
-            globalCred
+            derivedGlobalCred
         )
 
 -- | The token whose mint/burn scenarios are benchmarked.
-mintingPolicyCS :: CurrencySymbol
-mintingPolicyCS = programmableTokenPolicyCS mintingLogicHash
+derivedMintingPolicyCS :: CurrencySymbol
+derivedMintingPolicyCS = programmableTokenPolicyCS mintingLogicHash
 
 -- | The tokens the transfer / seize scenarios move.
+derivedProgrammableTransferCS :: CurrencySymbol
+derivedProgrammableTransferCS = programmableTokenPolicyCS programmableTransferMintingLogicHash
+
+derivedProgrammableTransferCS2 :: CurrencySymbol
+derivedProgrammableTransferCS2 = programmableTokenPolicyCS programmableTransferMintingLogicHash2
+
+derivedProgrammableTransferCS3 :: CurrencySymbol
+derivedProgrammableTransferCS3 = programmableTokenPolicyCS programmableTransferMintingLogicHash3
+
+-- Mode switch: see the note in "BenchmarkOnchain.ScriptFixtureIds". Aiken has
+-- no standalone seize script (seizure is a redeemer arm of the global
+-- validator), so in BOTH modes 'seizeCred' is the global credential; the
+-- pinned global hash is the lexicographically smallest, so it still sorts
+-- first in every withdrawal map.
+
+pick :: a -> a -> a
+pick derived pinned = if useDerivedDeploymentIds then derived else pinned
+
+protocolParamsCS :: CurrencySymbol
+protocolParamsCS = pick derivedProtocolParamsCS pinnedProtocolParamsCS
+
+protocolParamsAlwaysFailHash :: ScriptHash
+protocolParamsAlwaysFailHash = pick derivedProtocolParamsAlwaysFailHash pinnedProtocolParamsAlwaysFailHash
+
+issuancePolicyCS :: CurrencySymbol
+issuancePolicyCS = pick derivedIssuancePolicyCS pinnedIssuancePolicyCS
+
+issuanceAlwaysFailHash :: ScriptHash
+issuanceAlwaysFailHash = pick derivedIssuanceAlwaysFailHash pinnedIssuanceAlwaysFailHash
+
+directorySpendHash :: ScriptHash
+directorySpendHash = pick derivedDirectorySpendHash pinnedDirectorySpendHash
+
+directorySpendCred :: Credential
+directorySpendCred = ScriptCredential directorySpendHash
+
+directoryNodeCS :: CurrencySymbol
+directoryNodeCS = pick derivedDirectoryNodeCS pinnedDirectoryNodeCS
+
+globalScriptHash :: ScriptHash
+globalScriptHash = pick derivedGlobalScriptHash pinnedGlobalScriptHash
+
+globalCred :: Credential
+globalCred = ScriptCredential globalScriptHash
+
+seizeCred :: Credential
+seizeCred = globalCred
+
+progLogicBaseHash :: ScriptHash
+progLogicBaseHash = pick derivedProgLogicBaseHash pinnedProgLogicBaseHash
+
+progLogicBaseCred :: Credential
+progLogicBaseCred = ScriptCredential progLogicBaseHash
+
+mintingPolicyCS :: CurrencySymbol
+mintingPolicyCS = pick derivedMintingPolicyCS pinnedMintingPolicyCS
+
 programmableTransferCS :: CurrencySymbol
-programmableTransferCS = programmableTokenPolicyCS programmableTransferMintingLogicHash
+programmableTransferCS = pick derivedProgrammableTransferCS pinnedProgrammableTransferCS
 
 programmableTransferCS2 :: CurrencySymbol
-programmableTransferCS2 = programmableTokenPolicyCS programmableTransferMintingLogicHash2
+programmableTransferCS2 = pick derivedProgrammableTransferCS2 pinnedProgrammableTransferCS2
 
 programmableTransferCS3 :: CurrencySymbol
-programmableTransferCS3 = programmableTokenPolicyCS programmableTransferMintingLogicHash3
+programmableTransferCS3 = pick derivedProgrammableTransferCS3 pinnedProgrammableTransferCS3
 
--- | Every derived id, labelled, for the startup 28-byte check and the
+-- | Every ACTIVE id, labelled, for the startup 28-byte check and the
 -- @BENCH_DUMP_IDS@ dump.
 aikenDeploymentIds :: [(String, BuiltinByteString)]
 aikenDeploymentIds =

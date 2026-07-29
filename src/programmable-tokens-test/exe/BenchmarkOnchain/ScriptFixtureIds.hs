@@ -23,6 +23,20 @@
 -- different bytes and therefore have different ids.
 module BenchmarkOnchain.ScriptFixtureIds (
     burnRedeemInputTxId,
+    pinnedDirectoryNodeCS,
+    pinnedDirectorySpendHash,
+    pinnedGlobalScriptHash,
+    pinnedIssuanceAlwaysFailHash,
+    pinnedIssuancePolicyCS,
+    pinnedMintingPolicyCS,
+    pinnedProgLogicBaseHash,
+    pinnedProgrammableTransferCS,
+    pinnedProgrammableTransferCS2,
+    pinnedProgrammableTransferCS3,
+    pinnedProtocolParamsAlwaysFailHash,
+    pinnedProtocolParamsCS,
+    pinnedSeizeScriptHash,
+    useDerivedDeploymentIds,
     directoryInsertFundingRef,
     directoryMintingNodeRef,
     directoryProgrammableNode2Ref,
@@ -82,11 +96,91 @@ module BenchmarkOnchain.ScriptFixtureIds (
 
 import BenchmarkOnchain.CardanoScriptHelpers (assertHash28)
 import BenchmarkOnchain.ScriptHelpers (bs2, bs28, txId32, txOutRef32)
+import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.List (sort)
+import Data.Word (Word8)
 import PlutusLedgerApi.V1 qualified as PV1
 import PlutusLedgerApi.V3
 import PlutusTx.Builtins qualified as BI
+import System.Environment (lookupEnv)
+import System.IO.Unsafe (unsafePerformIO)
+
+-- Pinned deployment identities --------------------------------------------
+--
+-- By default the benchmark contexts are built from these FIXED, ledger-valid
+-- identities instead of the hashes of the compiled scripts. Real script bytes
+-- change on every optimisation, and because fixture credential/policy
+-- orderings (withdrawal maps, value maps, directory chains) are functions of
+-- those hashes, a one-line validator change used to reshuffle walk distances
+-- across the whole suite: per-scenario readings moved +-3.5% on hash
+-- reordering ALONE. Pinning makes benchmark deltas attributable to code
+-- changes again, and makes the Plutarch and Aiken harnesses build identical
+-- contexts where they are comparable.
+--
+-- Set @BENCH_DERIVED_IDS=1@ to restore the old behaviour (every id derived by
+-- hashing the parameter-applied scripts, per-implementation) — that mode is
+-- what proves the fixtures stay consistent with a REAL deployment, so run it
+-- after changes to script parameterisation.
+--
+-- The global and seize hashes are deliberately the two lexicographically
+-- smallest possible script hashes: the ledger sorts withdrawal maps with
+-- script credentials first, ordered by hash bytes, so these sort ahead of
+-- every other credential in any fixture. This mirrors the production plan of
+-- grinding those two script hashes low so their withdrawals sit at the front
+-- of the map (cheap witnessed indices) with overwhelming probability.
+
+-- | True iff @BENCH_DERIVED_IDS@ is set (to anything non-empty): fixture ids
+-- are derived from the compiled scripts instead of the pinned constants.
+useDerivedDeploymentIds :: Bool
+useDerivedDeploymentIds = unsafePerformIO $ do
+    v <- lookupEnv "BENCH_DERIVED_IDS"
+    pure (maybe False (not . null) v)
+{-# NOINLINE useDerivedDeploymentIds #-}
+
+-- | 27 zero bytes and one trailing byte: the lexicographically smallest
+-- ledger-valid 28-byte hashes.
+lowHash28 :: Word8 -> BuiltinByteString
+lowHash28 b = PV1.toBuiltin (BS.replicate 27 0x00 <> BS.singleton b)
+
+pinnedGlobalScriptHash :: ScriptHash
+pinnedGlobalScriptHash = ScriptHash (lowHash28 0x00)
+
+pinnedSeizeScriptHash :: ScriptHash
+pinnedSeizeScriptHash = ScriptHash (lowHash28 0x01)
+
+pinnedProtocolParamsCS :: CurrencySymbol
+pinnedProtocolParamsCS = syntheticCurrencySymbol "pinned-deployment:protocol-params-policy"
+
+pinnedProtocolParamsAlwaysFailHash :: ScriptHash
+pinnedProtocolParamsAlwaysFailHash = syntheticScriptHash "pinned-deployment:protocol-params-spend"
+
+pinnedIssuancePolicyCS :: CurrencySymbol
+pinnedIssuancePolicyCS = syntheticCurrencySymbol "pinned-deployment:issuance-cbor-hex-policy"
+
+pinnedIssuanceAlwaysFailHash :: ScriptHash
+pinnedIssuanceAlwaysFailHash = syntheticScriptHash "pinned-deployment:issuance-cbor-hex-spend"
+
+pinnedDirectoryNodeCS :: CurrencySymbol
+pinnedDirectoryNodeCS = syntheticCurrencySymbol "pinned-deployment:directory-node-policy"
+
+pinnedDirectorySpendHash :: ScriptHash
+pinnedDirectorySpendHash = syntheticScriptHash "pinned-deployment:directory-node-spend"
+
+pinnedProgLogicBaseHash :: ScriptHash
+pinnedProgLogicBaseHash = syntheticScriptHash "pinned-deployment:programmable-logic-base"
+
+pinnedMintingPolicyCS :: CurrencySymbol
+pinnedMintingPolicyCS = syntheticCurrencySymbol "pinned-deployment:benchmarked-token-policy"
+
+pinnedProgrammableTransferCS :: CurrencySymbol
+pinnedProgrammableTransferCS = syntheticCurrencySymbol "pinned-deployment:transfer-token-1-policy"
+
+pinnedProgrammableTransferCS2 :: CurrencySymbol
+pinnedProgrammableTransferCS2 = syntheticCurrencySymbol "pinned-deployment:transfer-token-2-policy"
+
+pinnedProgrammableTransferCS3 :: CurrencySymbol
+pinnedProgrammableTransferCS3 = syntheticCurrencySymbol "pinned-deployment:transfer-token-3-policy"
 
 -- Synthetic-but-valid identities -----------------------------------------
 --

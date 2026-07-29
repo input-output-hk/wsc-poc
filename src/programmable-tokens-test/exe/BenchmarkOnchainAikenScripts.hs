@@ -652,7 +652,17 @@ mkGlobalTransferManyCtx inputCount =
         qtyInSecondOutput = inputCount - qtyInFirstOutput
      in buildLedgerShapedScriptContext
             ( withRewardingScript
-                (aikenTransferActRedeemerData [TokenDoesNotExist 1, TokenExists 2])
+                -- Proofs are positional over the aggregated input value in
+                -- canonical currency-symbol order, which is a property of the
+                -- policy HASHES — so the list is keyed by symbol and sorted,
+                -- never written down in source order.
+                ( aikenTransferActRedeemerData
+                    ( inCurrencySymbolOrder
+                        [ (nonProgrammableCS, TokenDoesNotExist 1)
+                        , (programmableTransferCS, TokenExists 2)
+                        ]
+                    )
+                )
                 globalCred
                 0
                 <> withSigner signerPkh
@@ -1732,10 +1742,16 @@ mainnetDexGlobalTransferCtx =
             buildLedgerShapedScriptContext
                 ( withFee mainnetDexFeeAda
                     <> withRewardingScript
-                        -- Proofs positional over the aggregated programmable input value
-                        -- in CANONICAL currency-symbol order: nonProgrammableCS (0x1a)
-                        -- then programmableTransferCS (0x1b).
-                        (aikenTransferActRedeemerData [TokenDoesNotExist 1, TokenExists 2])
+                        -- Proofs positional over the aggregated programmable input
+                        -- value in canonical currency-symbol order — keyed by
+                        -- symbol and sorted, never written down in source order.
+                        ( aikenTransferActRedeemerData
+                            ( inCurrencySymbolOrder
+                                [ (nonProgrammableCS, TokenDoesNotExist 1)
+                                , (programmableTransferCS, TokenExists 2)
+                                ]
+                            )
+                        )
                         globalCred
                         0
                     <> withSigner signerPkh
