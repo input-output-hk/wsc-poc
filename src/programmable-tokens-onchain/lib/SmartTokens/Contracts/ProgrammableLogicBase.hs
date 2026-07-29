@@ -1758,6 +1758,10 @@ pvalueEqualsDeltaCurrencySymbol ::
     Term s (PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
 pvalueEqualsDeltaCurrencySymbol progCSAsData inputUTxOValue outputUTxOValue =
     let progCSData = pforgetData progCSAsData
+        -- Policy ids are B-shaped Data: comparing payload bytes replaces
+        -- equalsData's ~950k-CPU intercept with equalsByteString (~31k). The
+        -- target bytes are bound once for the whole seize walk, so only the
+        -- per-entry pasByteStr is paid inside the loop.
 
         -- input - output, canonicalised by the builtin: shared policies cancel and
         -- are dropped, so only genuinely differing policies survive. Ada is left
@@ -1831,12 +1835,13 @@ pvalueEqualsDeltaCurrencySymbol progCSAsData inputUTxOValue outputUTxOValue =
         -- No difference at all: the pair is a pure pass-through, which is legal
         -- only if the input really holds the seized policy.
         purePassThrough = pif inputHoldsProgCS pnil notHeld
-     in plet progCSDelta $ \onProgCS ->
+     in plet (pasByteStr # progCSData) $ \progCSBytes ->
+        plet progCSDelta $ \onProgCS ->
             pelimList
                 ( \entry rest ->
                     pmatch entry $ \(PBuiltinPair entryCsD entryMapD) ->
                         pif
-                            (entryCsD #== progCSData)
+                            ((pasByteStr # entryCsD) #== progCSBytes)
                             (onProgCS # entryMapD # rest)
                             -- Not the seized policy: tolerated only as an ada top-up,
                             -- after which the seized policy may still follow.
@@ -1846,7 +1851,7 @@ pvalueEqualsDeltaCurrencySymbol progCSAsData inputUTxOValue outputUTxOValue =
                                     ( \nextEntry nextRest ->
                                         pmatch nextEntry $ \(PBuiltinPair nextCsD nextMapD) ->
                                             pif
-                                                (nextCsD #== progCSData)
+                                                ((pasByteStr # nextCsD) #== progCSBytes)
                                                 (onProgCS # nextMapD # nextRest)
                                                 movedOtherPolicy
                                     )

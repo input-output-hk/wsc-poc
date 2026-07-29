@@ -670,6 +670,7 @@ benchCases =
         <> casingDecisionCases
         <> casingDecision2Cases
         <> casingDecision3Cases
+        <> casingSigDecisionCases
 
 -- =====================================================================
 -- Decision benchmarks for design-issuance-dual-arm-custody.md pending
@@ -1740,9 +1741,85 @@ casingPairFixtureList = pconstant [(i, i) | i <- [1 .. 4 :: Integer]]
 
 casingDecision3Cases :: [BenchCase]
 casingDecision3Cases =
-    [ mkCase "decision.case3.fieldPrelude.builtins" casingFieldPreludeBuiltins []
+    [ mkCase "decision.eqData.cred.equalsData" casingEqDataCred []
+    , mkCase "decision.eqData.cred.decomposed" casingEqDataDecomposed []
+    , mkCase "decision.case3.fieldPrelude.builtins" casingFieldPreludeBuiltins []
     , mkCase "decision.case3.fieldPrelude.case" casingFieldPreludeCase []
     , mkCase "decision.case3.skipSecond.builtins" casingSkipSecondBuiltins []
     , mkCase "decision.case3.skipSecond.allCase" casingSkipSecondAllCase []
     , mkCase "decision.case3.skipSecond.hybrid" casingSkipSecondHybrid []
+    ]
+
+-- =====================================================================
+-- Decision benchmarks for Data equality on credentials. equalsData carries a
+-- ~898k CPU intercept (variant E), so every `#==` on a credential-as-Data in
+-- a per-item walk is a candidate for decomposition into a constructor-tag
+-- comparison plus an equalsByteString on the payload — IF the extra machine
+-- steps (100 mem each) don't eat the win. Same-result variants:
+--   * eqData.cred.equalsData — the current idiom
+--   * eqData.cred.decomposed — tag + payload bytes against a pre-split
+--     constant side
+-- Fixtures exercise the mismatch-heavy walk shape (the common case in
+-- address filters) plus an all-match control.
+
+casingCredFixture :: forall s. Term s (PBuiltinList PData)
+casingCredFixture =
+    pconstant
+        ( take 200 . cycle $
+            [ PlutusTx.toData (ScriptCredential (ScriptHash (bs28 w)))
+            | w <- [0x41 .. 0x48]
+            ]
+        )
+
+casingCredTarget :: Data
+casingCredTarget = PlutusTx.toData (ScriptCredential (ScriptHash (bs28 0x44)))
+
+casingEqDataCred :: forall s. Term s PInteger
+casingEqDataCred = casingWalk (casingCredFixture @s) $ \acc d ->
+    pif (d #== pconstant casingCredTarget) (acc + 1) acc
+
+casingEqDataDecomposed :: forall s. Term s PInteger
+casingEqDataDecomposed = casingWalk (casingCredFixture @s) $ \acc d ->
+    pmatch (pasConstr # d) $ \(PBuiltinPair tag fields) ->
+        pif
+            ((tag #== pconstantInteger 1) #&& (pasByteStr # (phead # fields) #== pconstant (BS.replicate 28 0x44)))
+            (acc + 1)
+            acc
+
+-- Signature-scan decision probes: pelem/equalsData vs the tight byte scan,
+-- over the realistic 1-signatory and 3-signatory shapes.
+casingSigs1 :: forall s. Term s (PBuiltinList (PAsData PPubKeyHash))
+casingSigs1 = pconstant [PubKeyHash (bs28 0x51)]
+
+casingSigs3 :: forall s. Term s (PBuiltinList (PAsData PPubKeyHash))
+casingSigs3 = pconstant [PubKeyHash (bs28 w) | w <- [0x51, 0x52, 0x53]]
+
+casingSigTarget :: forall s. Term s (PAsData PPubKeyHash)
+casingSigTarget = pconstant (PubKeyHash (bs28 0x53))
+
+casingSigElem :: forall s. Term s (PBuiltinList (PAsData PPubKeyHash)) -> Term s PInteger
+casingSigElem sigs = casingWalk (casingTags @s) $ \acc _ ->
+    pif (pelem # casingSigTarget # sigs) (acc + 1) acc
+
+casingSigBytes :: forall s. Term s (PBuiltinList (PAsData PPubKeyHash)) -> Term s PInteger
+casingSigBytes sigs = casingWalk (casingTags @s) $ \acc _ ->
+    plet (pasByteStr # pforgetData (casingSigTarget @s)) $ \target ->
+        pif
+            ( ( pfixHoisted #$ plam $ \self rest ->
+                    pelimList
+                        (\sig ss -> pif ((pasByteStr # pforgetData sig) #== target) (pconstant True) (self # ss))
+                        (pconstant False)
+                        rest
+              )
+                # sigs
+            )
+            (acc + 1)
+            acc
+
+casingSigDecisionCases :: [BenchCase]
+casingSigDecisionCases =
+    [ mkCase "decision.sig.n1.equalsData" (casingSigElem casingSigs1) []
+    , mkCase "decision.sig.n1.bytes" (casingSigBytes casingSigs1) []
+    , mkCase "decision.sig.n3.equalsData" (casingSigElem casingSigs3) []
+    , mkCase "decision.sig.n3.bytes" (casingSigBytes casingSigs3) []
     ]
