@@ -43,7 +43,7 @@ import SmartTokens.Core.Builtins (pdropList)
 import Plutarch.Builtin.Value (pinsertCoin, pscaleValue, punValueData, punionValue, pvalueData)
 import Plutarch.Builtin.Value qualified as BuiltinValue
 import Plutarch.Core.Utils
-import Plutarch.Core.ValidationLogic hiding (pemptyLedgerValue, pvalueFromCred, pvalueToCred)
+import Plutarch.Core.ValidationLogic hiding (pemptyLedgerValue, pvalidateConditions, pvalueFromCred, pvalueToCred)
 import Plutarch.Core.Value (pledgerValueCsPairs, pmkSortedValue, ptokenPairs,
                             punsortedMapPairs, pvalueCsPairs)
 import Plutarch.Internal.Case (punsafeCase)
@@ -73,6 +73,21 @@ Security invariants:
 pjustData :: Term s (PMaybeData a) -> Term s a
 pjustData term =
     punsafeCoerce $ phead # (psndBuiltin # (pasConstr # pforgetData (pdata term)))
+
+{- | Fold conditions with right-nested Case instead of pcondsAll's applied
+pand' closure: each condition costs one Case step here versus ~5-6 machine
+steps of closure application there. The first false condition short-circuits
+the rest; since every caller rejects on False (perror), skipping a
+later condition that would itself have errored changes nothing observable.
+-}
+pcondsAll :: [Term s PBool] -> Term s PBool
+pcondsAll [] = pconstant True
+pcondsAll [x] = x -- a singleton IS its own conjunction; wrapping it in a Case costs 2 steps per evaluation, which the base validator pays per input
+pcondsAll (x : xs) = pif x (pcondsAll xs) (pconstant False)
+
+-- | 'Plutarch.Core.ValidationLogic.pvalidateConditions' over 'pcondsAll'.
+pvalidateConditions' :: [Term s PBool] -> Term s PUnit
+pvalidateConditions' conds = pif (pcondsAll conds) (pconstant ()) perror
 
 -- TODO: Replace current corresponding input / output comparison (which compares address, reference script and datum) for multi-seize
 -- with constructing the expected output from the input with this function and comparing it to the actual output.
@@ -668,7 +683,7 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
                 pmatch csPair $ \(PBuiltinPair csD tokenMapD) ->
                     plet (ptokenPairs (pfromData tokenMapD)) $ \tnPairs ->
                         pif
-                            ((pnull # csPairsRest) #&& (pelimList (\_ tnRest -> pnull # tnRest) (pconstant False) tnPairs))
+                            (pif (pnull # csPairsRest) (pelimList (\_ tnRest -> pnull # tnRest) (pconstant False) tnPairs) (pconstant False))
                             ( pelimList
                                 ( \tnPair _ ->
                                     pmatch tnPair $ \(PBuiltinPair tnD tnQtyD) ->
@@ -753,7 +768,7 @@ mkProgrammableLogicBase = plam $ \globalCred seizeCred ctx -> P.do
             -- arm's withdrawal at the witnessed index below.
             claimed = punsafeCase witnessTag [popaque (pforgetData globalCred), popaque (pforgetData seizeCred)]
             witnessed = pmatch (phead # (pdropList # (pasInt # (phead # witnessFields)) # wdrls)) (\(PBuiltinPair wCredD _) -> wCredD)
-         in pvalidateConditions
+         in pvalidateConditions'
                 [ptraceInfoIfFalse "programmable global/seize not invoked at the witnessed index" (witnessed #== claimed)]
 
 {- | Check that the first non-Ada policy in a ledger value matches a state-token
@@ -917,7 +932,7 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
                         pif
                             (nodeKey #< currCS)
                             ( let checks =
-                                    pand'List
+                                    pcondsAll
                                         [ ptraceInfoIfFalse "dir neg-proof node must cover" (currCS #< nodeNext)
                                         , ptraceInfoIfFalse "invalid dir node n" (phasCSH # directoryNodeCS # directoryNodeUTxOFValue)
                                         ]
@@ -932,12 +947,14 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
                                     perror
                             )
                             ( let checks =
-                                    pand'List
+                                    pcondsAll
                                         [ ptraceInfoIfFalse "Missing required transfer script" $
-                                            (directoryNodeDatumFTransferLogicScript #== cachedTransferScript)
-                                                #|| ( directoryNodeDatumFTransferLogicScript
-                                                        #== pmatch (phead # (pdropList # pfromData (phead # wdrlIdxs) # withdrawalEntries)) (\(PBuiltinPair wdrlCredD _) -> wdrlCredD)
-                                                    )
+                                            pif
+                                                (directoryNodeDatumFTransferLogicScript #== cachedTransferScript)
+                                                (pconstant True)
+                                                ( directoryNodeDatumFTransferLogicScript
+                                                    #== pmatch (phead # (pdropList # pfromData (phead # wdrlIdxs) # withdrawalEntries)) (\(PBuiltinPair wdrlCredD _) -> wdrlCredD)
+                                                )
                                         , ptraceInfoIfFalse "directory proof mismatch" (nodeKey #== currCS)
                                         , ptraceInfoIfFalse "invalid dir node" (phasCSH # directoryNodeCS # directoryNodeUTxOFValue)
                                         ]
@@ -1030,7 +1047,7 @@ pcheckMintLogicAndGetProgrammableValue directoryNodeCS refInputs proofList total
                                         let nodeKey = pfromData directoryNodeDatumFkey
                                             nodeNext = pfromData directoryNodeDatumFNext
                                             checks =
-                                                pand'List
+                                                pcondsAll
                                                     [ ptraceInfoIfFalse "dir mint neg-proof node must cover" (nodeKey #< currCS)
                                                     , ptraceInfoIfFalse "dir mint neg-proof node must cover" (currCS #< nodeNext)
                                                     , ptraceInfoIfFalse "invalid dir node n" (phasCSH # directoryNodeCS # directoryNodeUTxOFValue)
@@ -1290,7 +1307,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                                 )
                         )
 
-            pvalidateConditions
+            pvalidateConditions'
                 [ ptraceInfoIfFalse "prog tokens escape" $
                     poutputsContainExpectedValueAtCred
                         progLogicCred
@@ -1368,7 +1385,7 @@ mkProgrammableSeize = plam $ \protocolParamsCS ctx -> P.do
                             #== pmatch (phead # (pdropList # pfromData pissuerWdrlIdx # withdrawalEntries)) (\(PBuiltinPair credD _) -> credD)
                     , ptraceInfoIfFalse "directory node is not valid" $ phasCSH # pfromData pdirectoryNodeCS # seizeDirectoryNodeValue
                     ]
-            pvalidateConditions conditions
+            pvalidateConditions' conditions
 
 {- | Extract the token-name map for one currency symbol from a sorted value.
 
@@ -1800,10 +1817,13 @@ pvalueEqualsDeltaCurrencySymbol progCSAsData inputUTxOValue outputUTxOValue =
         -- sorts first and can only ever be the leading diff entry; the delta is
         -- `input - output`, so "topped up" is a non-positive quantity.
         adaToppedUp entryCsD entryMapD =
-            (pasByteStr # entryCsD #== pconstant "")
-                #&& pmatch
+            pif
+                (pasByteStr # entryCsD #== pconstant "")
+                ( pmatch
                     (phead # (pasMap # entryMapD))
                     (\(PBuiltinPair _ adaQtyD) -> pasInt # adaQtyD #<= pconstantInteger 0)
+                )
+                (pconstant False)
 
         -- The seized policy's delta, given its diff entry and everything after it.
         -- Bound once so the two call sites below share one copy in the UPLC.
