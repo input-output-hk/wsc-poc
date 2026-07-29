@@ -71,18 +71,25 @@ allow-newer:
   , *:plutus-ledger-api
   , servant-multipart-client:random
 
--- Upstream Plutarch 1.14.0 (c3b47719), consumed from a LOCAL checkout while two
--- one-line upstream fixes are pending:
+-- Upstream Plutarch 1.14.0 (c3b47719) plus two fixes that belong upstream, on a
+-- fork branch until they land there:
 --   * Plutarch/Internal/Parse.hs carries a stray {-# LANGUAGE TypeAbstractions #-}
 --     (GHC 9.8+) though upstream declares tested-with GHC ==9.6.4 and every @a in
 --     that file is a type APPLICATION, not an abstraction.
 --   * plutarch-orphanage defines `instance Arbitrary1 NonEmptyList`, which newer
 --     QuickCheck now provides itself, making it a duplicate.
+-- Each is a separate commit on that branch so it maps to its own upstream PR;
+-- once both merge, repoint this at upstream and drop the fork.
+--
 -- 1.14 is what brings UPLC casing: pif is punsafeCase-based, ~6.9x cheaper CPU
 -- and ~4.5x cheaper memory per conditional than the pif'/ifThenElse idiom.
-packages:
-  /home/gumbo/iohk/plutarch-1.14-patched
-  /home/gumbo/iohk/plutarch-1.14-patched/plutarch-ledger-api
+source-repository-package
+  type: git
+  location: https://github.com/colll78/plutarch-plutus
+  tag: eac4bf1c36bced4e7174e51680122c1f88f6405f
+  subdir:
+    .
+    plutarch-ledger-api
 
 source-repository-package
   type: git
@@ -99,8 +106,12 @@ source-repository-package
     src/blockfrost
     src/tx-mod
 
--- plutarch-onchain-lib ported to Plutarch 1.14 on branch wsc/plutarch-1.14.
--- Consumed locally until that branch is pushed; no catalyst branch upstream
--- targets anything newer than Plutarch 1.10.1.
-packages:
-  /home/gumbo/iohk/catalyst-onchain-libs/src/plutarch-onchain-lib
+-- plutarch-onchain-lib ported to Plutarch 1.14 on branch wsc/plutarch-1.14; no
+-- catalyst branch upstream targets anything newer than Plutarch 1.10.1, so this
+-- tracks the port branch until it merges.
+source-repository-package
+  type: git
+  location: https://github.com/input-output-hk/catalyst-onchain-libs
+  tag: b2488a298b7e15525bef512a884f2905968afb4b
+  subdir:
+    src/plutarch-onchain-lib
