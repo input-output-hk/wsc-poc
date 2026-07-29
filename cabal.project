@@ -15,10 +15,20 @@ repository cardano-haskell-packages
     d4a35cd3121aa00d18544bb0ac01c3e1691d618f462c46129271bccf39f7e8ee
 
 -- Van Rossem (PV11) stack on plutus 1.65 via cardano-api 11 / cardano-node 11.
--- cardano-api 11.0.0.0 bounds plutus at ^>=1.63, but sc-tools itself declares NO
--- plutus bounds, and cardano-api 11.0 compiles cleanly against 1.65 -- so the
--- allow-newer below lifts that bound rather than forcing cardano-api 11.3, which
--- drops PoolId and breaks convex-base.
+--
+-- Van Rossem support does NOT come from cardano-api: it has no builtin code at
+-- all, and its Plutus-facing modules are byte-identical between 11.0.0.0 and
+-- 11.3.0.0. The builtins are implemented in plutus-core 1.65 and gated on
+-- `vanRossemPV = MajorProtocolVersion 11` in plutus-ledger-api 1.65, enforced at
+-- script deserialisation. cardano-api 11.3's entire changelog is one entry --
+-- widening its plutus bound from ^>=1.61 to ^>=1.65, "No ledger API changes".
+--
+-- So we take the equivalent plutus stack on 11.0 and lift the bound with the
+-- allow-newer below. Staying on 11.0 avoids two unrelated sc-tools breakages:
+-- convex-optics is built with -Werror and is written against the TxBodyContent
+-- lenses that 11.2+ deprecates at the type level, and convex-base imports from
+-- the Cardano.Api.Certificate wrapper module that 11.2 deleted. (PoolId itself
+-- still exists in 11.3 -- an earlier note here claiming otherwise was wrong.)
 index-state:
   , hackage.haskell.org 2026-05-31T00:00:00Z
   , cardano-haskell-packages 2026-05-31T00:00:00Z
