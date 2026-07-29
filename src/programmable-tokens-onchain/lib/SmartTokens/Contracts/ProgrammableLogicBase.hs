@@ -46,6 +46,7 @@ import Plutarch.Core.Utils
 import Plutarch.Core.ValidationLogic hiding (pemptyLedgerValue, pvalueFromCred, pvalueToCred)
 import Plutarch.Core.Value (pledgerValueCsPairs, pmkSortedValue, ptokenPairs,
                             punsortedMapPairs, pvalueCsPairs)
+import Plutarch.Internal.Case (punsafeCase)
 import Plutarch.Internal.Lift
 import Plutarch.LedgerApi.AssocMap qualified as AssocMap
 import Plutarch.LedgerApi.V3
@@ -375,30 +376,37 @@ pvalueFromCred cred sigs withdrawalEntries ownerWdrlIdxs inputs =
                                 pmatch (pasConstr # (phead # stakingFields)) $ \(PBuiltinPair _ stakingHashFields) ->
                                     plet (phead # stakingHashFields) $ \ownerCredData ->
                                      pmatch (pasConstr # ownerCredData) $ \(PBuiltinPair ownerCredTag ownerCredFields) ->
-                                        pif
-                                            (ownerCredTag #== pconstantInteger 0)
-                                            ( pif
-                                                (ptxSignedByPkh # punsafeCoerce (phead # ownerCredFields) # sigs)
-                                                (k resolvedOutValueData idxs)
-                                                (ptraceInfoError "Missing required pk witness")
-                                            )
-                                            -- Scan-proof: the redeemer witnesses
-                                            -- where this owner's withdrawal sits,
-                                            -- so the check is one comparison at a
-                                            -- known position rather than a search.
-                                            -- Self-validating: a wrong index
-                                            -- resolves to some other credential and
-                                            -- fails this equality, and a misaligned
-                                            -- list fails the same way at the next
-                                            -- script-owned input.
-                                            ( pif
-                                                ( ownerCredData
-                                                    #== pforgetData
-                                                        (pmatch (phead # (pdropList # pfromData (phead # idxs) # withdrawalEntries)) (\(PBuiltinPair wCredD _) -> wCredD))
+                                        -- Integer Case on the credential tag
+                                        -- (0 = PubKeyCredential, 1 = ScriptCredential;
+                                        -- ledger-validated addresses admit no other
+                                        -- tag, and the Case errors if one appears).
+                                        punsafeCase
+                                            ownerCredTag
+                                            [ popaque
+                                                ( pif
+                                                    (ptxSignedByPkh # punsafeCoerce (phead # ownerCredFields) # sigs)
+                                                    (k resolvedOutValueData idxs)
+                                                    (ptraceInfoError "Missing required pk witness")
                                                 )
-                                                (k resolvedOutValueData (ptail # idxs))
-                                                (ptraceInfoError "Missing required script witness")
-                                            )
+                                            , -- Scan-proof: the redeemer witnesses
+                                              -- where this owner's withdrawal sits,
+                                              -- so the check is one comparison at a
+                                              -- known position rather than a search.
+                                              -- Self-validating: a wrong index
+                                              -- resolves to some other credential and
+                                              -- fails this equality, and a misaligned
+                                              -- list fails the same way at the next
+                                              -- script-owned input.
+                                              popaque
+                                                ( pif
+                                                    ( ownerCredData
+                                                        #== pforgetData
+                                                            (pmatch (phead # (pdropList # pfromData (phead # idxs) # withdrawalEntries)) (\(PBuiltinPair wCredD _) -> wCredD))
+                                                    )
+                                                    (k resolvedOutValueData (ptail # idxs))
+                                                    (ptraceInfoError "Missing required script witness")
+                                                )
+                                            ]
                             )
                             (skip idxs)
 
@@ -727,18 +735,26 @@ mkProgrammableLogicBase = plam $ \globalCred seizeCred ctx -> P.do
     -- single builtin call. Both shared subterms are 'plet'-bound: without that
     -- the context's 'unConstrData' is duplicated and the hand-rolled walk is
     -- SLOWER than 'pmatch', not faster.
-    ctxFields <- plet $ psndBuiltin # (pasConstr # pforgetData (punsafeCoerce @(PAsData PScriptContext) ctx))
-    witness <- plet $ pasConstr # (phead # (ptail # ctxFields))
-    -- Field 6 of the Plutus V3 'TxInfo' constructor is 'wdrl' (inputs, refInputs,
-    -- outputs, fee, mint, txCerts, wdrl, ...). This index is part of the V3
-    -- ledger ABI and changes only with a new script language version, which would
-    -- require a new script anyway. A wrong index is not a silent weakening: it
-    -- resolves to a field of the wrong shape and 'pasMap' errors.
-    let wdrls = pasMap # (phead # (pdropList # pconstantInteger 6 # (psndBuiltin # (pasConstr # (phead # ctxFields)))))
-        claimed = pif (pfstBuiltin # witness #== pconstantInteger 0) (pforgetData globalCred) (pforgetData seizeCred)
-        witnessed = pfstBuiltin # (phead # (pdropList # (pasInt # (phead # (psndBuiltin # witness))) # wdrls))
-     in pvalidateConditions
-            [ptraceInfoIfFalse "programmable global/seize not invoked at the witnessed index" (witnessed #== claimed)]
+    PBuiltinPair _ ctxFields <- pmatch $ pasConstr # pforgetData (punsafeCoerce @(PAsData PScriptContext) ctx)
+    pheadTailBuiltin ctxFields $ \txInfoData ctxFieldsRest -> P.do
+        PBuiltinPair witnessTag witnessFields <- pmatch $ pasConstr # (phead # ctxFieldsRest)
+        -- Field 6 of the Plutus V3 'TxInfo' constructor is 'wdrl' (inputs, refInputs,
+        -- outputs, fee, mint, txCerts, wdrl, ...). This index is part of the V3
+        -- ledger ABI and changes only with a new script language version, which would
+        -- require a new script anyway. A wrong index is not a silent weakening: it
+        -- resolves to a field of the wrong shape and 'pasMap' errors.
+        let wdrls = pasMap # (phead # (pdropList # pconstantInteger 6 # pmatch (pasConstr # txInfoData) (\(PBuiltinPair _ txInfoFields) -> txInfoFields)))
+            -- Integer Case on the redeemer's constructor tag: branch 0 is
+            -- SpendViaGlobal, branch 1 SpendViaSeize. Strictly tighter than the
+            -- pif (#== 0) it replaces: that sent EVERY nonzero tag down the
+            -- seize arm, so a malformed tag (2+) could ride along whenever a
+            -- genuine seize was witnessed; the Case errors on any tag outside
+            -- 0..1. Anything this validator accepts still requires the claimed
+            -- arm's withdrawal at the witnessed index below.
+            claimed = punsafeCase witnessTag [popaque (pforgetData globalCred), popaque (pforgetData seizeCred)]
+            witnessed = pmatch (phead # (pdropList # (pasInt # (phead # witnessFields)) # wdrls)) (\(PBuiltinPair wCredD _) -> wCredD)
+         in pvalidateConditions
+                [ptraceInfoIfFalse "programmable global/seize not invoked at the witnessed index" (witnessed #== claimed)]
 
 {- | Check that the first non-Ada policy in a ledger value matches a state-token
 currency symbol.
