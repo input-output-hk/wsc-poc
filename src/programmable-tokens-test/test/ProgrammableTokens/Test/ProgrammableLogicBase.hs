@@ -64,6 +64,7 @@ tests =
         , testCase "unit_baseSpend_seize_arm_witnessing_global_rejected" unit_baseSpend_seize_arm_witnessing_global_rejected
         , testCase "unit_baseSpend_stale_index_after_map_reorder_rejected" unit_baseSpend_stale_index_after_map_reorder_rejected
         , testCase "unit_baseSpend_index_past_end_rejected" unit_baseSpend_index_past_end_rejected
+        , testCase "unit_baseSpend_raw_tag2_redeemer_rejected" unit_baseSpend_raw_tag2_redeemer_rejected
         ]
 
 -- ---------------------------------------------------------------------------
@@ -234,6 +235,21 @@ mkBaseSpendCtx redeemer wdrlCreds =
             <> withSigner ownerPkh
         )
 
+-- | 'mkBaseSpendCtx' with the redeemer supplied as raw Data, for shapes the
+-- typed 'BaseSpendRedeemer' cannot express (out-of-range constructor tags).
+mkBaseSpendCtxRawRedeemer :: Data -> [Credential] -> ScriptContext
+mkBaseSpendCtxRawRedeemer redeemerData wdrlCreds =
+    buildLedgerShapedScriptContext
+        ( withSpendingScript
+            (PlutusTx.dataToBuiltinData redeemerData)
+            ( withOutRef baseInputRef
+                <> withAddress baseWalletAddr
+                <> withValue (mkAdaValue 10_000_000 <> mkValue [(programmableCS, TokenName "0c", 7)])
+            )
+            <> foldMap (`withWithdrawal` 0) wdrlCreds
+            <> withSigner ownerPkh
+        )
+
 -- | Position of a credential in the withdrawal map as the LEDGER orders it.
 -- Never write these out by hand: the map is credential-sorted, so a position is
 -- a function of every participating script hash.
@@ -274,6 +290,21 @@ evalBase ctx =
 assertBaseSucceeds :: ScriptContext -> Assertion
 assertBaseSucceeds ctx =
     assertBool "expected the base spend to validate" (isRight (evalBase ctx))
+
+{- | A redeemer whose constructor tag is outside BaseSpendRedeemer's range
+(0 = SpendViaGlobal, 1 = SpendViaSeize), in an otherwise fully valid SEIZE
+transaction: the seize validator's withdrawal is present and correctly
+witnessed. Under the old dispatch (pif tag == 0 -> global, ELSE seize) every
+nonzero tag rode the seize arm, so this context validated. The integer Case
+errors on any tag outside 0..1, and this test pins that tightening; it also
+kills the accept-any-tag mutation of the dispatch.
+-}
+unit_baseSpend_raw_tag2_redeemer_rejected :: Assertion
+unit_baseSpend_raw_tag2_redeemer_rejected =
+    assertBaseFails $
+        mkBaseSpendCtxRawRedeemer
+            (Constr 2 [I (wdrlIndexOf seizeWdrls seizeCred)])
+            seizeWdrls
 
 assertBaseFails :: ScriptContext -> Assertion
 assertBaseFails ctx =

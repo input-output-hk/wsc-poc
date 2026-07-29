@@ -46,6 +46,7 @@ import Plutarch.Core.Utils
 import Plutarch.Core.ValidationLogic hiding (pemptyLedgerValue, pvalueFromCred, pvalueToCred)
 import Plutarch.Core.Value (pledgerValueCsPairs, pmkSortedValue, ptokenPairs,
                             punsortedMapPairs, pvalueCsPairs)
+import Plutarch.Internal.Case (punsafeCase)
 import Plutarch.Internal.Lift
 import Plutarch.LedgerApi.AssocMap qualified as AssocMap
 import Plutarch.LedgerApi.V3
@@ -159,23 +160,26 @@ ptokenPairsUnionFast = phoistAcyclic $
             ( \tokenPairA tokensARest ->
                 pelimList
                     ( \tokenPairB tokensBRest ->
-                        let tokenNameA = pfstBuiltin # tokenPairA
-                            tokenNameB = pfstBuiltin # tokenPairB
-                            tokenNameABytes = pasByteStr # pforgetData tokenNameA
-                            tokenNameBBytes = pasByteStr # pforgetData tokenNameB
-                         in pif
-                                (tokenNameABytes #== tokenNameBBytes)
-                                ( let quantityA = pfromData (psndBuiltin # tokenPairA)
-                                      quantityB = pfromData (psndBuiltin # tokenPairB)
-                                   in pcons
-                                        # (ppairDataBuiltin # tokenNameA # pdata (quantityA + quantityB))
-                                        # (self # tokensARest # tokensBRest)
-                                )
-                                ( pif
-                                    (tokenNameABytes #< tokenNameBBytes)
-                                    (pcons # tokenPairA # (self # tokensARest # tokensB))
-                                    (pcons # tokenPairB # (self # tokensA # tokensBRest))
-                                )
+                        -- Case-destructure each pair once (PV11): one Case
+                        -- binding both components replaces FstPair+SndPair
+                        -- builtin calls, and unlike a Haskell-level `let` of
+                        -- `pfstBuiltin # p` the binding cannot be re-evaluated
+                        -- at each use site.
+                        pmatch tokenPairA $ \(PBuiltinPair tokenNameA quantityAD) ->
+                            pmatch tokenPairB $ \(PBuiltinPair tokenNameB quantityBD) ->
+                                let tokenNameABytes = pasByteStr # pforgetData tokenNameA
+                                    tokenNameBBytes = pasByteStr # pforgetData tokenNameB
+                                 in pif
+                                        (tokenNameABytes #== tokenNameBBytes)
+                                        ( pcons
+                                            # (ppairDataBuiltin # tokenNameA # pdata (pfromData quantityAD + pfromData quantityBD))
+                                            # (self # tokensARest # tokensBRest)
+                                        )
+                                        ( pif
+                                            (tokenNameABytes #< tokenNameBBytes)
+                                            (pcons # tokenPairA # (self # tokensARest # tokensB))
+                                            (pcons # tokenPairB # (self # tokensA # tokensBRest))
+                                        )
                     )
                     tokensA
                     tokensB
@@ -210,29 +214,33 @@ pcurrencyPairsUnionFast = phoistAcyclic $
             ( \csPairA csPairsARest ->
                 pelimList
                     ( \csPairB csPairsBRest ->
-                        let currencySymbolA = pfstBuiltin # csPairA
-                            currencySymbolB = pfstBuiltin # csPairB
-                            currencySymbolABytes = pasByteStr # pforgetData currencySymbolA
-                            currencySymbolBBytes = pasByteStr # pforgetData currencySymbolB
-                         in pif
-                                (currencySymbolABytes #== currencySymbolBBytes)
-                                ( let tokenPairsA = ptokenPairs (pfromData (psndBuiltin # csPairA))
-                                      tokenPairsB = ptokenPairs (pfromData (psndBuiltin # csPairB))
-                                      mergedTokenPairs = ptokenPairsUnionFast # tokenPairsA # tokenPairsB
-                                      mergedPair =
-                                        punsafeCoerce $
-                                            ppairDataBuiltinRaw
-                                                # pforgetData currencySymbolA
-                                                # (pmapData # punsafeCoerce mergedTokenPairs)
-                                   in pcons
-                                        # mergedPair
-                                        # (self # csPairsARest # csPairsBRest)
-                                )
-                                ( pif
-                                    (currencySymbolABytes #< currencySymbolBBytes)
-                                    (pcons # csPairA # (self # csPairsARest # csPairsB))
-                                    (pcons # csPairB # (self # csPairsA # csPairsBRest))
-                                )
+                        -- One Case per pair instead of FstPair (+ SndPair on
+                        -- the merge path); see the note in
+                        -- ptokenPairsUnionFast.
+                        pmatch csPairA $ \(PBuiltinPair currencySymbolA tokenMapAD) ->
+                            pmatch csPairB $ \(PBuiltinPair currencySymbolB tokenMapBD) ->
+                                let currencySymbolABytes = pasByteStr # pforgetData currencySymbolA
+                                    currencySymbolBBytes = pasByteStr # pforgetData currencySymbolB
+                                 in pif
+                                        (currencySymbolABytes #== currencySymbolBBytes)
+                                        ( let mergedTokenPairs =
+                                                ptokenPairsUnionFast
+                                                    # ptokenPairs (pfromData tokenMapAD)
+                                                    # ptokenPairs (pfromData tokenMapBD)
+                                              mergedPair =
+                                                punsafeCoerce $
+                                                    ppairDataBuiltinRaw
+                                                        # pforgetData currencySymbolA
+                                                        # (pmapData # punsafeCoerce mergedTokenPairs)
+                                           in pcons
+                                                # mergedPair
+                                                # (self # csPairsARest # csPairsBRest)
+                                        )
+                                        ( pif
+                                            (currencySymbolABytes #< currencySymbolBBytes)
+                                            (pcons # csPairA # (self # csPairsARest # csPairsB))
+                                            (pcons # csPairB # (self # csPairsA # csPairsBRest))
+                                        )
                     )
                     csPairsA
                     csPairsB
@@ -343,9 +351,10 @@ pvalueFromCred cred sigs withdrawalEntries ownerWdrlIdxs inputs =
         -- carries.
         withContributing txIn idxs k skip =
             plet (pdata (ptxInInfoResolved $ pfromData txIn)) $ \resolvedOutData ->
-                plet (psndBuiltin # (pasConstr # pforgetData resolvedOutData)) $ \resolvedOutFields ->
-                  plet (psndBuiltin # (pasConstr # (phead # resolvedOutFields))) $ \resolvedOutAddressFields ->
-                    let resolvedOutValueData = phead # (ptail # resolvedOutFields)
+                pmatch (pasConstr # pforgetData resolvedOutData) $ \(PBuiltinPair _ resolvedOutFields) ->
+                  pheadTailBuiltin resolvedOutFields $ \resolvedOutAddrData resolvedOutFieldsRest ->
+                   pmatch (pasConstr # resolvedOutAddrData) $ \(PBuiltinPair _ resolvedOutAddressFields) ->
+                    let resolvedOutValueData = phead # resolvedOutFieldsRest
                         paymentCredData = phead # resolvedOutAddressFields
                      in pif
                             (paymentCredData #== credData)
@@ -363,33 +372,41 @@ pvalueFromCred cred sigs withdrawalEntries ownerWdrlIdxs inputs =
                             -- the following 'pasConstr' errors. An unstaked or
                             -- pointer-staked mini-ledger UTxO has no owner to
                             -- witness and must not be spendable.
-                            ( plet (phead # (psndBuiltin # (pasConstr # (phead # (ptail # resolvedOutAddressFields))))) $ \stakingHashData ->
-                                plet (phead # (psndBuiltin # (pasConstr # stakingHashData))) $ \ownerCredData ->
-                                    plet (pasConstr # ownerCredData) $ \ownerCred ->
-                                        pif
-                                            (pfstBuiltin # ownerCred #== pconstantInteger 0)
-                                            ( pif
-                                                (ptxSignedByPkh # punsafeCoerce (phead # (psndBuiltin # ownerCred)) # sigs)
-                                                (k resolvedOutValueData idxs)
-                                                (ptraceInfoError "Missing required pk witness")
-                                            )
-                                            -- Scan-proof: the redeemer witnesses
-                                            -- where this owner's withdrawal sits,
-                                            -- so the check is one comparison at a
-                                            -- known position rather than a search.
-                                            -- Self-validating: a wrong index
-                                            -- resolves to some other credential and
-                                            -- fails this equality, and a misaligned
-                                            -- list fails the same way at the next
-                                            -- script-owned input.
-                                            ( pif
-                                                ( ownerCredData
-                                                    #== pforgetData
-                                                        (pfstBuiltin # (phead # (pdropList # pfromData (phead # idxs) # withdrawalEntries)))
+                            ( pmatch (pasConstr # (phead # (ptail # resolvedOutAddressFields))) $ \(PBuiltinPair _ stakingFields) ->
+                                pmatch (pasConstr # (phead # stakingFields)) $ \(PBuiltinPair _ stakingHashFields) ->
+                                    plet (phead # stakingHashFields) $ \ownerCredData ->
+                                     pmatch (pasConstr # ownerCredData) $ \(PBuiltinPair ownerCredTag ownerCredFields) ->
+                                        -- Integer Case on the credential tag
+                                        -- (0 = PubKeyCredential, 1 = ScriptCredential;
+                                        -- ledger-validated addresses admit no other
+                                        -- tag, and the Case errors if one appears).
+                                        punsafeCase
+                                            ownerCredTag
+                                            [ popaque
+                                                ( pif
+                                                    (ptxSignedByPkh # punsafeCoerce (phead # ownerCredFields) # sigs)
+                                                    (k resolvedOutValueData idxs)
+                                                    (ptraceInfoError "Missing required pk witness")
                                                 )
-                                                (k resolvedOutValueData (ptail # idxs))
-                                                (ptraceInfoError "Missing required script witness")
-                                            )
+                                            , -- Scan-proof: the redeemer witnesses
+                                              -- where this owner's withdrawal sits,
+                                              -- so the check is one comparison at a
+                                              -- known position rather than a search.
+                                              -- Self-validating: a wrong index
+                                              -- resolves to some other credential and
+                                              -- fails this equality, and a misaligned
+                                              -- list fails the same way at the next
+                                              -- script-owned input.
+                                              popaque
+                                                ( pif
+                                                    ( ownerCredData
+                                                        #== pforgetData
+                                                            (pmatch (phead # (pdropList # pfromData (phead # idxs) # withdrawalEntries)) (\(PBuiltinPair wCredD _) -> wCredD))
+                                                    )
+                                                    (k resolvedOutValueData (ptail # idxs))
+                                                    (ptraceInfoError "Missing required script witness")
+                                                )
+                                            ]
                             )
                             (skip idxs)
 
@@ -458,14 +475,13 @@ pvalueToCred cred inputs =
      in ( pfixHoisted #$ plam $ \self acc ->
             pelimList
                 ( \txOut xs ->
-                    plet (psndBuiltin # (pasConstr # pforgetData txOut)) $ \txOutFields ->
-                        let txOutAddress = phead # txOutFields
-                            txOutFieldsRest = ptail # txOutFields
-                            txOutValue = punsafeCoerce @(PAsData PLedgerValue) (phead # txOutFieldsRest)
-                            paymentCredData = phead # (psndBuiltin # (pasConstr # txOutAddress))
-                         in self
-                                # pif (paymentCredData #== credData) (pvalueUnionFast # acc # pstripAdaH (pfromData txOutValue)) acc
-                                # xs
+                    pmatch (pasConstr # pforgetData txOut) $ \(PBuiltinPair _ txOutFields) ->
+                        pheadTailBuiltin txOutFields $ \txOutAddress txOutFieldsRest ->
+                            let txOutValue = punsafeCoerce @(PAsData PLedgerValue) (phead # txOutFieldsRest)
+                                paymentCredData = pmatch (pasConstr # txOutAddress) (\(PBuiltinPair _ addrFields) -> phead # addrFields)
+                             in self
+                                    # pif (paymentCredData #== credData) (pvalueUnionFast # acc # pstripAdaH (pfromData txOutValue)) acc
+                                    # xs
                 )
                 acc
         )
@@ -533,13 +549,14 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
             let tokenQtyInTokenPairs = pfixHoisted #$ plam $ \self remainingTokenPairs ->
                     pelimList
                         ( \tokenPair tokenPairsRest ->
-                            let tokenName = pfromData (pfstBuiltin # tokenPair)
-                                tokenQty = pfromData (psndBuiltin # tokenPair)
-                             in pif
-                                    (tokenName #== tn)
-                                    tokenQty
+                            -- One Case for both components; cheaper than even a
+                            -- single FstPair call, so the mismatch path wins too.
+                            pmatch tokenPair $ \(PBuiltinPair tokenNameD tokenQtyD) ->
+                                pif
+                                    (pfromData tokenNameD #== tn)
+                                    (pfromData tokenQtyD)
                                     ( pif
-                                        (tn #< tokenName)
+                                        (tn #< pfromData tokenNameD)
                                         0
                                         (self # tokenPairsRest)
                                     )
@@ -549,13 +566,12 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
                 tokenQtyInCurrencyPairs = pfixHoisted #$ plam $ \self remainingCurrencyPairs ->
                     pelimList
                         ( \currencyPair currencyPairsRest ->
-                            let currencySymbol = pfromData (pfstBuiltin # currencyPair)
-                                tokenPairs = ptokenPairs (pfromData (psndBuiltin # currencyPair))
-                             in pif
-                                    (currencySymbol #== cs)
-                                    (tokenQtyInTokenPairs # tokenPairs)
+                            pmatch currencyPair $ \(PBuiltinPair currencySymbolD tokenMapD) ->
+                                pif
+                                    (pfromData currencySymbolD #== cs)
+                                    (tokenQtyInTokenPairs # ptokenPairs (pfromData tokenMapD))
                                     ( pif
-                                        (cs #< currencySymbol)
+                                        (cs #< pfromData currencySymbolD)
                                         0
                                         (self # currencyPairsRest)
                                     )
@@ -575,13 +591,14 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
                         -- sides plus a tag comparison; one 'equalsData' is cheaper on
                         -- every input shape (see decision.f.cred.* and
                         -- decision.g.contain.* in the function benchmark).
-                        plet (psndBuiltin # (pasConstr # pforgetData txOut)) $ \txOutFields ->
-                            let paymentCredData = phead # (psndBuiltin # (pasConstr # (phead # txOutFields)))
-                                txOutValueData = phead # (ptail # txOutFields)
-                             in pif
-                                    (paymentCredData #== progLogicCredData)
-                                    (self # requiredQty # (currentQty + (passetQtyInPairs # punsafeCoerce (pasMap # txOutValueData) # cs # tn)) # cs # tn # outputsRest)
-                                    (self # requiredQty # currentQty # cs # tn # outputsRest)
+                        pmatch (pasConstr # pforgetData txOut) $ \(PBuiltinPair _ txOutFields) ->
+                            pheadTailBuiltin txOutFields $ \txOutAddress txOutFieldsRest ->
+                                let paymentCredData = pmatch (pasConstr # txOutAddress) (\(PBuiltinPair _ addrFields) -> phead # addrFields)
+                                    txOutValueData = phead # txOutFieldsRest
+                                 in pif
+                                        (paymentCredData #== progLogicCredData)
+                                        (self # requiredQty # (currentQty + (passetQtyInPairs # punsafeCoerce (pasMap # txOutValueData) # cs # tn)) # cs # tn # outputsRest)
+                                        (self # requiredQty # currentQty # cs # tn # outputsRest)
                     )
                     (currentQty #>= requiredQty)
                     remainingOutputs
@@ -598,16 +615,16 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
         accumulateOutputsAtCred = pfixHoisted #$ plam $ \self acc remainingOutputs ->
             pelimList
                 ( \txOut outputsRest ->
-                    plet (psndBuiltin # (pasConstr # pforgetData txOut)) $ \txOutFields ->
-                        let txOutAddress = phead # txOutFields
-                            txOutValueData = phead # (ptail # txOutFields)
-                            paymentCredData = phead # (psndBuiltin # (pasConstr # txOutAddress))
-                         in self
-                                # pif
-                                    (paymentCredData #== progLogicCredData)
-                                    (punionValue # acc # (punValueData # txOutValueData))
-                                    acc
-                                # outputsRest
+                    pmatch (pasConstr # pforgetData txOut) $ \(PBuiltinPair _ txOutFields) ->
+                        pheadTailBuiltin txOutFields $ \txOutAddress txOutFieldsRest ->
+                            let txOutValueData = phead # txOutFieldsRest
+                                paymentCredData = pmatch (pasConstr # txOutAddress) (\(PBuiltinPair _ addrFields) -> phead # addrFields)
+                             in self
+                                    # pif
+                                        (paymentCredData #== progLogicCredData)
+                                        (punionValue # acc # (punValueData # txOutValueData))
+                                        acc
+                                    # outputsRest
                 )
                 acc
                 remainingOutputs
@@ -627,18 +644,18 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
         checkWholesaleThenBuiltin = pfixHoisted #$ plam $ \self remainingOutputs ->
             pelimList
                 ( \txOut outputsRest ->
-                    plet (psndBuiltin # (pasConstr # pforgetData txOut)) $ \txOutFields ->
-                        let txOutAddress = phead # txOutFields
-                            txOutValueData = phead # (ptail # txOutFields)
-                            paymentCredData = phead # (psndBuiltin # (pasConstr # txOutAddress))
-                         in pif
-                                (paymentCredData #== progLogicCredData)
-                                ( pif
-                                    ((pmapData # (ptail # (pasMap # txOutValueData))) #== expectedMapData)
-                                    (pconstant True)
-                                    checkByBuiltinContains
-                                )
-                                (self # outputsRest)
+                    pmatch (pasConstr # pforgetData txOut) $ \(PBuiltinPair _ txOutFields) ->
+                        pheadTailBuiltin txOutFields $ \txOutAddress txOutFieldsRest ->
+                            let txOutValueData = phead # txOutFieldsRest
+                                paymentCredData = pmatch (pasConstr # txOutAddress) (\(PBuiltinPair _ addrFields) -> phead # addrFields)
+                             in pif
+                                    (paymentCredData #== progLogicCredData)
+                                    ( pif
+                                        ((pmapData # (ptail # (pasMap # txOutValueData))) #== expectedMapData)
+                                        (pconstant True)
+                                        checkByBuiltinContains
+                                    )
+                                    (self # outputsRest)
                 )
                 checkByBuiltinContains
                 remainingOutputs
@@ -648,22 +665,24 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
         -- fast path; everything else takes the single-pass subtract walk.
         pelimList
             ( \csPair csPairsRest ->
-                plet (ptokenPairs (pfromData (psndBuiltin # csPair))) $ \tnPairs ->
-                    pif
-                        ((pnull # csPairsRest) #&& (pelimList (\_ tnRest -> pnull # tnRest) (pconstant False) tnPairs))
-                        ( pelimList
-                            ( \tnPair _ ->
-                                hasAtLeastAssetInProgOutputs
-                                    # pfromData (psndBuiltin # tnPair)
-                                    # 0
-                                    # pfromData (pfstBuiltin # csPair)
-                                    # pfromData (pfstBuiltin # tnPair)
-                                    # txOutputs
+                pmatch csPair $ \(PBuiltinPair csD tokenMapD) ->
+                    plet (ptokenPairs (pfromData tokenMapD)) $ \tnPairs ->
+                        pif
+                            ((pnull # csPairsRest) #&& (pelimList (\_ tnRest -> pnull # tnRest) (pconstant False) tnPairs))
+                            ( pelimList
+                                ( \tnPair _ ->
+                                    pmatch tnPair $ \(PBuiltinPair tnD tnQtyD) ->
+                                        hasAtLeastAssetInProgOutputs
+                                            # pfromData tnQtyD
+                                            # 0
+                                            # pfromData csD
+                                            # pfromData tnD
+                                            # txOutputs
+                                )
+                                (pconstant True)
+                                tnPairs
                             )
-                            (pconstant True)
-                            tnPairs
-                        )
-                        (checkWholesaleThenBuiltin # txOutputs)
+                            (checkWholesaleThenBuiltin # txOutputs)
             )
             (pconstant True)
             expectedCsPairs
@@ -716,18 +735,26 @@ mkProgrammableLogicBase = plam $ \globalCred seizeCred ctx -> P.do
     -- single builtin call. Both shared subterms are 'plet'-bound: without that
     -- the context's 'unConstrData' is duplicated and the hand-rolled walk is
     -- SLOWER than 'pmatch', not faster.
-    ctxFields <- plet $ psndBuiltin # (pasConstr # pforgetData (punsafeCoerce @(PAsData PScriptContext) ctx))
-    witness <- plet $ pasConstr # (phead # (ptail # ctxFields))
-    -- Field 6 of the Plutus V3 'TxInfo' constructor is 'wdrl' (inputs, refInputs,
-    -- outputs, fee, mint, txCerts, wdrl, ...). This index is part of the V3
-    -- ledger ABI and changes only with a new script language version, which would
-    -- require a new script anyway. A wrong index is not a silent weakening: it
-    -- resolves to a field of the wrong shape and 'pasMap' errors.
-    let wdrls = pasMap # (phead # (pdropList # pconstantInteger 6 # (psndBuiltin # (pasConstr # (phead # ctxFields)))))
-        claimed = pif (pfstBuiltin # witness #== pconstantInteger 0) (pforgetData globalCred) (pforgetData seizeCred)
-        witnessed = pfstBuiltin # (phead # (pdropList # (pasInt # (phead # (psndBuiltin # witness))) # wdrls))
-     in pvalidateConditions
-            [ptraceInfoIfFalse "programmable global/seize not invoked at the witnessed index" (witnessed #== claimed)]
+    PBuiltinPair _ ctxFields <- pmatch $ pasConstr # pforgetData (punsafeCoerce @(PAsData PScriptContext) ctx)
+    pheadTailBuiltin ctxFields $ \txInfoData ctxFieldsRest -> P.do
+        PBuiltinPair witnessTag witnessFields <- pmatch $ pasConstr # (phead # ctxFieldsRest)
+        -- Field 6 of the Plutus V3 'TxInfo' constructor is 'wdrl' (inputs, refInputs,
+        -- outputs, fee, mint, txCerts, wdrl, ...). This index is part of the V3
+        -- ledger ABI and changes only with a new script language version, which would
+        -- require a new script anyway. A wrong index is not a silent weakening: it
+        -- resolves to a field of the wrong shape and 'pasMap' errors.
+        let wdrls = pasMap # (phead # (pdropList # pconstantInteger 6 # pmatch (pasConstr # txInfoData) (\(PBuiltinPair _ txInfoFields) -> txInfoFields)))
+            -- Integer Case on the redeemer's constructor tag: branch 0 is
+            -- SpendViaGlobal, branch 1 SpendViaSeize. Strictly tighter than the
+            -- pif (#== 0) it replaces: that sent EVERY nonzero tag down the
+            -- seize arm, so a malformed tag (2+) could ride along whenever a
+            -- genuine seize was witnessed; the Case errors on any tag outside
+            -- 0..1. Anything this validator accepts still requires the claimed
+            -- arm's withdrawal at the witnessed index below.
+            claimed = punsafeCase witnessTag [popaque (pforgetData globalCred), popaque (pforgetData seizeCred)]
+            witnessed = pmatch (phead # (pdropList # (pasInt # (phead # witnessFields)) # wdrls)) (\(PBuiltinPair wCredD _) -> wCredD)
+         in pvalidateConditions
+                [ptraceInfoIfFalse "programmable global/seize not invoked at the witnessed index" (witnessed #== claimed)]
 
 {- | Check that the first non-Ada policy in a ledger value matches a state-token
 currency symbol.
@@ -749,7 +776,10 @@ Security invariants:
 phasCSH :: Term s (PCurrencySymbol :--> PAsData PLedgerValue :--> PBool)
 phasCSH = phoistAcyclic $ plam $ \directoryNodeCS value ->
     let value' = pledgerValueCsPairs (pfromData value)
-     in pfromData (pfstBuiltin # (phead # (ptail # value'))) #== directoryNodeCS
+     in pheadTailBuiltin value' $ \_ rest ->
+            pheadTailBuiltin rest $ \secondEntry _ ->
+                pmatch secondEntry $ \(PBuiltinPair csD _) ->
+                    pfromData csD #== directoryNodeCS
 
 {- | Safe variant of `phasCSH` that returns `False` instead of crashing on missing
 non-Ada entries.
@@ -770,7 +800,7 @@ phasCSHOrFalse :: Term s PCurrencySymbol -> Term s (PAsData PLedgerValue) -> Ter
 phasCSHOrFalse directoryNodeCS value =
     let nonAdaEntries = ptail # pledgerValueCsPairs (pfromData value)
      in pelimList
-            (\currencyPair _ -> pfromData (pfstBuiltin # currencyPair) #== directoryNodeCS)
+            (\currencyPair _ -> pmatch currencyPair $ \(PBuiltinPair csD _) -> pfromData csD #== directoryNodeCS)
             (pcon PFalse)
             nonAdaEntries
 
@@ -883,7 +913,8 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
                             , ptransferLogicScript = directoryNodeDatumFTransferLogicScript
                             } <-
                             pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto directoryNodeDatum'))
-                        let currCS = pfromData (pfstBuiltin # csPair)
+                        PBuiltinPair currCSD _ <- pmatch csPair
+                        let currCS = pfromData currCSD
                             nodeKey = pfromData directoryNodeDatumFkey
                             nodeNext = pfromData directoryNodeDatumFNext
                         pif
@@ -908,7 +939,7 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
                                         [ ptraceInfoIfFalse "Missing required transfer script" $
                                             (directoryNodeDatumFTransferLogicScript #== cachedTransferScript)
                                                 #|| ( directoryNodeDatumFTransferLogicScript
-                                                        #== (pfstBuiltin # (phead # (pdropList # pfromData (phead # wdrlIdxs) # withdrawalEntries)))
+                                                        #== pmatch (phead # (pdropList # pfromData (phead # wdrlIdxs) # withdrawalEntries)) (\(PBuiltinPair wdrlCredD _) -> wdrlCredD)
                                                     )
                                         , ptraceInfoIfFalse "directory proof mismatch" (nodeKey #== currCS)
                                         , ptraceInfoIfFalse "invalid dir node" (phasCSH # directoryNodeCS # directoryNodeUTxOFValue)
@@ -983,8 +1014,9 @@ pcheckMintLogicAndGetProgrammableValue directoryNodeCS refInputs proofList total
                 ( \mintCsPair mintCsPairs ->
                     pelimList
                         ( \mintProofData proofsRest ->
-                            let currCS = pfromData (pfstBuiltin # mintCsPair)
-                             in pmatch (pfromData mintProofData) $ \case
+                            pmatch mintCsPair $ \(PBuiltinPair mintCsD _) ->
+                             let currCS = pfromData mintCsD
+                              in pmatch (pfromData mintProofData) $ \case
                                     -- Member: count the entry, touch no node.
                                     PMember ->
                                         pcons # mintCsPair #$ self # proofsRest # mintCsPairs
@@ -1201,7 +1233,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                 pmatch $
                     pparamsAtRefIdx (pfromData protocolParamsCS) referenceInputs (pfromData paramsRefIdx)
             progLogicCred <- plet $ pfromData pprogLogicCred
-            cachedTransferScript0 <- plet $ pfstBuiltin # (phead @PBuiltinList # withdrawalEntries)
+            cachedTransferScript0 <- plet $ pmatch (phead @PBuiltinList # withdrawalEntries) (\(PBuiltinPair credD _) -> credD)
             totalProgTokenValue <-
                 plet $
                     pvalueFromCred
@@ -1336,7 +1368,7 @@ mkProgrammableSeize = plam $ \protocolParamsCS ctx -> P.do
                       -- fails the equality.
                       ptraceInfoIfFalse "issuer logic script must be invoked" $
                         directoryNodeDatumFIssuerLogicScript
-                            #== (pfstBuiltin # (phead # (pdropList # pfromData pissuerWdrlIdx # withdrawalEntries)))
+                            #== pmatch (phead # (pdropList # pfromData pissuerWdrlIdx # withdrawalEntries)) (\(PBuiltinPair credD _) -> credD)
                     , ptraceInfoIfFalse "directory node is not valid" $ phasCSH # pfromData pdirectoryNodeCS # seizeDirectoryNodeValue
                     ]
             pvalidateConditions conditions
@@ -1372,11 +1404,12 @@ ptokensForCurrencyPairs =
             let go = pfixHoisted #$ plam $ \self remainingMintEntries ->
                     pelimList
                         ( \mintCsPair mintCsPairs ->
-                            let mintCs = pfromData (pfstBuiltin # mintCsPair)
-                             in pif
-                                    (mintCs #== targetCs)
-                                    (ptokenPairs (pfromData (psndBuiltin # mintCsPair)))
-                                    (pif (targetCs #< mintCs) pnil (self # mintCsPairs))
+                            pmatch mintCsPair $ \(PBuiltinPair mintCsD tokenMapD) ->
+                                let mintCs = pfromData mintCsD
+                                 in pif
+                                        (mintCs #== targetCs)
+                                        (ptokenPairs (pfromData tokenMapD))
+                                        (pif (targetCs #< mintCs) pnil (self # mintCsPairs))
                         )
                         pnil
                         remainingMintEntries
@@ -1408,13 +1441,15 @@ ptokenPairsContain = phoistAcyclic $
     pfixHoisted #$ plam $ \self actualTokens requiredTokens ->
         pelimList
             ( \requiredPair requiredRest ->
-                let requiredTokenName = pfromData (pfstBuiltin # requiredPair)
-                    requiredQty = pfromData (psndBuiltin # requiredPair)
-                 in pelimList
+                pmatch requiredPair $ \(PBuiltinPair requiredTokenNameD requiredQtyD) ->
+                 let requiredTokenName = pfromData requiredTokenNameD
+                     requiredQty = pfromData requiredQtyD
+                  in pelimList
                         ( \actualPair actualRest ->
-                            let actualTokenName = pfromData (pfstBuiltin # actualPair)
-                                actualQty = pfromData (psndBuiltin # actualPair)
-                             in pif
+                            pmatch actualPair $ \(PBuiltinPair actualTokenNameD actualQtyD) ->
+                             let actualTokenName = pfromData actualTokenNameD
+                                 actualQty = pfromData actualQtyD
+                              in pif
                                     (actualTokenName #== requiredTokenName)
                                     (pif (actualQty #>= requiredQty) (self # actualRest # requiredRest) (pconstant False))
                                     ( pif
@@ -1459,14 +1494,14 @@ pcheckCorrespondingThirdPartyTransferInputsAndOutputs programmableCS progLogicCr
     -- (more expensive) output pairing and value extraction is deferred into the
     -- base-credential branch. This keeps the per-input skip cost minimal — critical
     -- now that every transaction input is walked (e.g. many fee/pubkey inputs).
-    plet (psndBuiltin # (pasConstr # programmableInputResolvedData)) $ \inputTxOutFields ->
+    pmatch (pasConstr # programmableInputResolvedData) $ \(PBuiltinPair _ inputTxOutFields) ->
         plet (phead # inputTxOutFields) $ \inputTxOutAddress ->
-            let inputCredentialData = phead # (psndBuiltin # (pasConstr # inputTxOutAddress))
+            let inputCredentialData = pmatch (pasConstr # inputTxOutAddress) (\(PBuiltinPair _ addrFields) -> phead # addrFields)
              in pif
                     (inputCredentialData #== progLogicCredData)
                     -- Programmable (base-credential) input: pair it with the next
                     -- remaining output and accumulate the seized-policy delta.
-                    ( plet (psndBuiltin # (pasConstr # pforgetData (phead # programmableOutputs))) $ \outputTxOutFields ->
+                    ( pmatch (pasConstr # pforgetData (phead # programmableOutputs)) $ \(PBuiltinPair _ outputTxOutFields) ->
                         plet (ptail # inputTxOutFields) $ \inputTxOutFieldsRest ->
                             plet (ptail # outputTxOutFields) $ \outputTxOutFieldsRest ->
                                 let outputTxOutAddress = phead # outputTxOutFields
@@ -1537,13 +1572,14 @@ processThirdPartyTransfer programmableCS progLogicCred inputs progOutputs minted
         go2 = pfixHoisted #$ plam $ \self programmableOutputs ->
             pelimList
                 ( \programmableOutput programmableOutputsRest ->
-                    plet (psndBuiltin # (pasConstr # pforgetData programmableOutput)) $ \outFields ->
-                        let paymentCredData = phead # (psndBuiltin # (pasConstr # (phead # outFields)))
-                            outValueData = phead # (ptail # outFields)
-                         in pif
-                                (paymentCredData #== progLogicCredData)
-                                (ptokenPairsUnionFast # (ptokensForCurrencyPairs # programmableCS' # punsafeCoerce (pasMap # outValueData)) # (self # programmableOutputsRest))
-                                (self # programmableOutputsRest)
+                    pmatch (pasConstr # pforgetData programmableOutput) $ \(PBuiltinPair _ outFields) ->
+                        pheadTailBuiltin outFields $ \outAddrData outFieldsRest ->
+                            let paymentCredData = pmatch (pasConstr # outAddrData) (\(PBuiltinPair _ addrFields) -> phead # addrFields)
+                                outValueData = phead # outFieldsRest
+                             in pif
+                                    (paymentCredData #== progLogicCredData)
+                                    (ptokenPairsUnionFast # (ptokensForCurrencyPairs # programmableCS' # punsafeCoerce (pasMap # outValueData)) # (self # programmableOutputsRest))
+                                    (self # programmableOutputsRest)
                 )
                 pnil
                 programmableOutputs
@@ -1672,8 +1708,9 @@ pcurrencyListHasCS = phoistAcyclic $ plam $ \targetCS ->
     pfixHoisted #$ plam $ \self entries ->
         pelimList
             ( \entry rest ->
-                plet (pfromData (pfstBuiltin # entry)) $ \cs ->
-                    pif (cs #== targetCS) (pconstant True) (pif (targetCS #< cs) (pconstant False) (self # rest))
+                pmatch entry $ \(PBuiltinPair csD _) ->
+                    plet (pfromData csD) $ \cs ->
+                        pif (cs #== targetCS) (pconstant True) (pif (targetCS #< cs) (pconstant False) (self # rest))
             )
             (pconstant False)
             entries
@@ -1761,22 +1798,22 @@ pvalueEqualsDeltaCurrencySymbol progCSAsData inputUTxOValue outputUTxOValue =
         -- this validator allowed. Ada's policy id is the empty bytestring, so it
         -- sorts first and can only ever be the leading diff entry; the delta is
         -- `input - output`, so "topped up" is a non-positive quantity.
-        adaToppedUp entry =
-            (pasByteStr # (pfstBuiltin # entry) #== pconstant "")
-                #&& ( pasInt # (psndBuiltin # (phead # (pasMap # (psndBuiltin # entry))))
-                        #<= pconstantInteger 0
-                    )
+        adaToppedUp entryCsD entryMapD =
+            (pasByteStr # entryCsD #== pconstant "")
+                #&& pmatch
+                    (phead # (pasMap # entryMapD))
+                    (\(PBuiltinPair _ adaQtyD) -> pasInt # adaQtyD #<= pconstantInteger 0)
 
         -- The seized policy's delta, given its diff entry and everything after it.
         -- Bound once so the two call sites below share one copy in the UPLC.
-        progCSDelta = plam $ \entry rest ->
+        progCSDelta = plam $ \entryMapD rest ->
             pelimList
                 -- A further differing policy is value moved outside the seize.
                 (\_ _ -> movedOtherPolicy)
                 ( plet
                     ( punsafeCoerce
                         @(PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
-                        (pasMap # (psndBuiltin # entry))
+                        (pasMap # entryMapD)
                     )
                     $ \delta ->
                         -- A positive quantity anywhere in the delta is itself the
@@ -1788,7 +1825,7 @@ pvalueEqualsDeltaCurrencySymbol progCSAsData inputUTxOValue outputUTxOValue =
                         -- non-positive quantity is sound but inconclusive, and
                         -- falls back to the explicit scan.
                         pif
-                            (pconstantInteger 0 #< pfromData (psndBuiltin # (phead # delta)))
+                            (pmatch (phead # delta) $ \(PBuiltinPair _ qtyD) -> pconstantInteger 0 #< pfromData qtyD)
                             delta
                             (pif inputHoldsProgCS delta notHeld)
                 )
@@ -1800,25 +1837,27 @@ pvalueEqualsDeltaCurrencySymbol progCSAsData inputUTxOValue outputUTxOValue =
      in plet progCSDelta $ \onProgCS ->
             pelimList
                 ( \entry rest ->
-                    pif
-                        (pfstBuiltin # entry #== progCSData)
-                        (onProgCS # entry # rest)
-                        -- Not the seized policy: tolerated only as an ada top-up,
-                        -- after which the seized policy may still follow.
-                        ( pif
-                            (adaToppedUp entry)
-                            ( pelimList
-                                ( \nextEntry nextRest ->
-                                    pif
-                                        (pfstBuiltin # nextEntry #== progCSData)
-                                        (onProgCS # nextEntry # nextRest)
-                                        movedOtherPolicy
+                    pmatch entry $ \(PBuiltinPair entryCsD entryMapD) ->
+                        pif
+                            (entryCsD #== progCSData)
+                            (onProgCS # entryMapD # rest)
+                            -- Not the seized policy: tolerated only as an ada top-up,
+                            -- after which the seized policy may still follow.
+                            ( pif
+                                (adaToppedUp entryCsD entryMapD)
+                                ( pelimList
+                                    ( \nextEntry nextRest ->
+                                        pmatch nextEntry $ \(PBuiltinPair nextCsD nextMapD) ->
+                                            pif
+                                                (nextCsD #== progCSData)
+                                                (onProgCS # nextMapD # nextRest)
+                                                movedOtherPolicy
+                                    )
+                                    purePassThrough
+                                    rest
                                 )
-                                purePassThrough
-                                rest
+                                movedOtherPolicy
                             )
-                            movedOtherPolicy
-                        )
                 )
                 purePassThrough
                 diffEntries
