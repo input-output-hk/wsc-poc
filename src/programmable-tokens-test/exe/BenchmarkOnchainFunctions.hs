@@ -17,7 +17,10 @@ import Plutarch.Core.Internal.Builtins (pmapData, ppairDataBuiltinRaw)
 import SmartTokens.Core.Builtins (pdropList)
 import Plutarch.Core.List (pdropFast)
 import Plutarch.Core.Utils
+import Plutarch.Core.Value (pledgerValueCsPairs, pmkSortedValue, pvalueCsPairs)
+import Plutarch.LedgerApi.AssocMap qualified as AssocMap
 import Plutarch.LedgerApi.V3
+import Plutarch.LedgerApi.Value qualified as Value
 import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V1 qualified as PV1
@@ -120,19 +123,19 @@ isBaseCredByteStringTerm = pisBaseCred # pconstant baseCredHashRaw
 isBaseCredEqualsDataTerm :: Term s (PAsData PCredential :--> PBool)
 isBaseCredEqualsDataTerm = pisBaseCredCurr # pdata (pconstant baseCredential)
 
-pemptyLedgerValue :: Term s (PValue 'Sorted 'Positive)
-pemptyLedgerValue = punsafeCoerce $ pconstant @(PValue 'Unsorted 'NoGuarantees) (mempty :: Value)
+pemptyLedgerValue :: Term s PSortedValue
+pemptyLedgerValue = Value.pemptySortedValue
 
 pjustData :: Term s (PMaybeData a) -> Term s a
 pjustData term =
     punsafeCoerce $ phead # (psndBuiltin # (pasConstr # pforgetData (pdata term)))
 
 pstripAdaHBench ::
-    forall (v :: AmountGuarantees) (s :: S).
-    Term s (PValue 'Sorted v) -> Term s (PValue 'Sorted v)
+    forall (s :: S).
+    Term s PLedgerValue -> Term s PSortedValue
 pstripAdaHBench value =
-    let nonAdaValueMapInner = ptail # pto (pto value)
-     in pcon (PValue $ pcon $ PMap nonAdaValueMapInner)
+    let nonAdaValueMapInner = ptail # pledgerValueCsPairs value
+     in pmkSortedValue nonAdaValueMapInner
 
 ptokenPairsUnionFastBench ::
     Term
@@ -174,9 +177,9 @@ ptokenPairsUnionFastBench = phoistAcyclic $
 pcurrencyPairsUnionFastBench ::
     Term
         s
-        ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
-            :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
-            :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
+        ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger)))
+            :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger)))
+            :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger)))
         )
 pcurrencyPairsUnionFastBench = phoistAcyclic $
     pfixHoisted #$ plam $ \self csPairsA csPairsB ->
@@ -215,18 +218,15 @@ pcurrencyPairsUnionFastBench = phoistAcyclic $
             csPairsA
 
 pvalueUnionFastBench ::
-    Term s (PValue 'Sorted 'Positive :--> PValue 'Sorted 'Positive :--> PValue 'Sorted 'Positive)
+    Term s (PSortedValue :--> PSortedValue :--> PSortedValue)
 pvalueUnionFastBench = phoistAcyclic $ plam $ \valueA valueB ->
-    pcon $
-        PValue $
-            pcon $
-                PMap $
-                    pcurrencyPairsUnionFastBench
-                        # pto (pto valueA)
-                        # pto (pto valueB)
+    pmkSortedValue $
+        pcurrencyPairsUnionFastBench
+            # pvalueCsPairs valueA
+            # pvalueCsPairs valueB
 
 passetQtyInValueBench ::
-    Term s (PValue 'Sorted 'Positive :--> PCurrencySymbol :--> PTokenName :--> PInteger)
+    Term s (PSortedValue :--> PCurrencySymbol :--> PTokenName :--> PInteger)
 passetQtyInValueBench = phoistAcyclic $ plam $ \value cs tn ->
     let csBytes = pasByteStr # pforgetData (pdata cs)
         tnBytes = pasByteStr # pforgetData (pdata tn)
@@ -264,12 +264,12 @@ passetQtyInValueBench = phoistAcyclic $ plam $ \value cs tn ->
                 )
                 0
                 remainingCurrencyPairs
-     in tokenQtyInCurrencyPairs # pto (pto value)
+     in tokenQtyInCurrencyPairs # pvalueCsPairs value
 
 pvalueToCredBench ::
     Term s PCredential ->
     Term s (PBuiltinList (PAsData PTxOut)) ->
-    Term s (PValue 'Sorted 'Positive)
+    Term s PSortedValue
 pvalueToCredBench cred outputs =
     let credData = pforgetData (pdata cred)
      in ( pfixHoisted #$ plam $ \self acc ->
@@ -278,7 +278,7 @@ pvalueToCredBench cred outputs =
                     plet (psndBuiltin # (pasConstr # pforgetData txOut)) $ \txOutFields ->
                         let txOutAddress = phead # txOutFields
                             txOutFieldsRest = ptail # txOutFields
-                            txOutValue = punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # txOutFieldsRest)
+                            txOutValue = punsafeCoerce @(PAsData PLedgerValue) (phead # txOutFieldsRest)
                             paymentCredData = phead # (psndBuiltin # (pasConstr # txOutAddress))
                          in self
                                 # (pif (paymentCredData #== credData) (pvalueUnionFastBench # acc # pstripAdaHBench (pfromData txOutValue)) acc)
@@ -294,7 +294,7 @@ pvalueFromCredBench ::
     Term s (PBuiltinList (PAsData PPubKeyHash)) ->
     Term s (PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace))) ->
     Term s (PBuiltinList (PAsData PTxInInfo)) ->
-    Term s (PValue 'Sorted 'Positive)
+    Term s PSortedValue
 pvalueFromCredBench cred sigs withdrawalEntries inputs =
     let credData = pforgetData (pdata cred)
      in ( pfixHoisted #$ plam $ \self acc ->
@@ -304,7 +304,7 @@ pvalueFromCredBench cred sigs withdrawalEntries inputs =
                         let resolvedOutFields = psndBuiltin # (pasConstr # pforgetData resolvedOutData)
                             resolvedOutAddressData = phead # resolvedOutFields
                             resolvedOutFieldsRest = ptail # resolvedOutFields
-                            resolvedOutValue = punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # resolvedOutFieldsRest)
+                            resolvedOutValue = punsafeCoerce @(PAsData PLedgerValue) (phead # resolvedOutFieldsRest)
                             paymentCredData = phead # (psndBuiltin # (pasConstr # resolvedOutAddressData))
                             stakingCredMaybe = punsafeCoerce @(PMaybeData PStakingCredential) (phead # (ptail # (psndBuiltin # (pasConstr # resolvedOutAddressData))))
                          in self
@@ -338,7 +338,7 @@ pvalueFromCredBench cred sigs withdrawalEntries inputs =
 poutputsContainExpectedValueAtCredBench ::
     Term s PCredential ->
     Term s (PBuiltinList (PAsData PTxOut)) ->
-    Term s (PValue 'Sorted 'Positive) ->
+    Term s PSortedValue ->
     Term s PBool
 poutputsContainExpectedValueAtCredBench progLogicCred txOutputs expectedValue =
     let progLogicCredData = pforgetData (pdata progLogicCred)
@@ -351,7 +351,7 @@ poutputsContainExpectedValueAtCredBench progLogicCred txOutputs expectedValue =
                         let txOutFields = psndBuiltin # (pasConstr # pforgetData txOut)
                             txOutAddressData = phead # txOutFields
                             txOutFieldsRest = ptail # txOutFields
-                            txOutValue = punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # txOutFieldsRest)
+                            txOutValue = punsafeCoerce @(PAsData PLedgerValue) (phead # txOutFieldsRest)
                             paymentCredData = phead # (psndBuiltin # (pasConstr # txOutAddressData))
                          in pif
                                 (paymentCredData #== progLogicCredData)
@@ -389,7 +389,7 @@ poutputsContainExpectedValueAtCredBench progLogicCred txOutputs expectedValue =
                 )
                 (pconstant True)
                 remainingExpectedCurrencyPairs
-        expectedCsPairs = pto (pto expectedValue)
+        expectedCsPairs = pvalueCsPairs expectedValue
         actualValueAtCred = pvalueToCredBench progLogicCred txOutputs
      in pelimList
             ( \firstExpectedCsPair expectedCsPairsRest ->
@@ -559,7 +559,7 @@ mkOutputsContainExpectedValueTerm cred expectedValue = plam $ \ctx ->
     pmatch (pscriptContextTxInfo ctx) $ \txInfo ->
         let expectedValueTerm =
                 punsafeCoerce $
-                    pconstant @(PValue 'Unsorted 'NoGuarantees) expectedValue
+                    pconstant @PRawValue expectedValue
          in poutputsContainExpectedValueAtCredBench
                 (pconstant cred)
                 (pfromData $ ptxInfo'outputs txInfo)
@@ -594,7 +594,7 @@ mkActualOutputsContainExpectedValueTerm cred expectedValue = plam $ \ctx ->
     pmatch (pscriptContextTxInfo ctx) $ \txInfo ->
         let expectedValueTerm =
                 punsafeCoerce $
-                    pconstant @(PValue 'Unsorted 'NoGuarantees) expectedValue
+                    pconstant @PRawValue expectedValue
          in Actual.poutputsContainExpectedValueAtCred
                 (pconstant cred)
                 (pfromData $ ptxInfo'outputs txInfo)
@@ -935,12 +935,12 @@ pLockstepEqExcept = phoistAcyclic $
             (pelimList (\b bs' -> pif (pforgetData (pfstBuiltin # b) #== target) (self # target # pnil # bs') (pconstant False)) (pconstant True) bs)
             as
 
-type CsPairs = PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
+type CsPairs = PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger)))
 
 type TokPairs = PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))
 
 -- | Lovelace quantity out of the leading (ada) currency pair.
-pAdaQty :: Term s (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)) :--> PInteger)
+pAdaQty :: Term s (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger)) :--> PInteger)
 pAdaQty = phoistAcyclic $ plam $ \pair ->
     pfromData (psndBuiltin # (phead # pto (pfromData (psndBuiltin # pair))))
 
@@ -1069,7 +1069,7 @@ scanArgs matching padding =
 pScanAssetQty ::
     Term
         s
-        ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
+        ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger)))
             :--> PCurrencySymbol
             :--> PTokenName
             :--> PInteger
@@ -1114,7 +1114,7 @@ pContainScanTyped = plam $ \credD outsD csD tnD reqD ->
                                         pmatch (pfromData txOut) $ \(PTxOut{ptxOut'address, ptxOut'value}) ->
                                             pif
                                                 (paddressCredential ptxOut'address #== progLogicCred)
-                                                (self # requiredQty # (currentQty + (pScanAssetQty # pto (pto (pfromData ptxOut'value)) # cs # tn)) # cs # tn # outputsRest)
+                                                (self # requiredQty # (currentQty + (pScanAssetQty # pledgerValueCsPairs (pfromData ptxOut'value) # cs # tn)) # cs # tn # outputsRest)
                                                 (self # requiredQty # currentQty # cs # tn # outputsRest)
                                     )
                                     (currentQty #>= requiredQty)
@@ -1328,7 +1328,7 @@ pparamsLookupDatum :: Term s (PData :--> PData :--> PBool)
 pparamsLookupDatum = plam $ \idxData refInputsData ->
     plet (psndBuiltin # (pasConstr # pforgetData (phead # (pdropFast # (pasInt # idxData) # punsafeCoerce @(PBuiltinList (PAsData PTxInInfo)) (pasList # refInputsData))))) $ \txInFields ->
         plet (psndBuiltin # (pasConstr # (phead # (ptail # txInFields)))) $ \outFields ->
-            let valuePairs = pto (pto (pfromData (punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # (ptail # outFields)))))
+            let valuePairs = pledgerValueCsPairs (pfromData (punsafeCoerce @(PAsData PLedgerValue) (phead # (ptail # outFields))))
                 firstNonAdaCS = pforgetData (pfstBuiltin # (phead # (ptail # valuePairs)))
                 datumField = phead # (ptail # (ptail # outFields))
                 payload = phead # (psndBuiltin # (pasConstr # datumField))
@@ -1365,7 +1365,7 @@ localTn = tokenNameAt 0
 
 pownCSAbsent ::
     Term s PByteString ->
-    Term s (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))) ->
+    Term s (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger)))) ->
     Term s PBool
 pownCSAbsent ownCSBytes pairs =
     ( pfixHoisted #$ plam $ \self remaining ->
@@ -1393,7 +1393,7 @@ mkFullScanTerm ownCS = plam $ \ctx ->
                                 plet (psndBuiltin # (pasConstr # pforgetData txOut)) $ \fields ->
                                     let addrData = phead # fields
                                         credData = phead # (psndBuiltin # (pasConstr # addrData))
-                                        valuePairs = pto (pto (pfromData (punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # (ptail # fields)))))
+                                        valuePairs = pledgerValueCsPairs (pfromData (punsafeCoerce @(PAsData PLedgerValue) (phead # (ptail # fields))))
                                      in ((credData #== baseCredData) #|| pownCSAbsent ownCSBytes valuePairs)
                                             #&& (self # rest)
                             )
@@ -1413,7 +1413,7 @@ mkLocalIndexedTerm ownCS tn mintedTotal = plam $ \destIdxsData ctx ->
                             pelimList
                                 ( \txIn rest ->
                                     plet (psndBuiltin # (pasConstr # (phead # (ptail # (psndBuiltin # (pasConstr # pforgetData txIn)))))) $ \outFields ->
-                                        let valuePairs = pto (pto (pfromData (punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # (ptail # outFields)))))
+                                        let valuePairs = pledgerValueCsPairs (pfromData (punsafeCoerce @(PAsData PLedgerValue) (phead # (ptail # outFields))))
                                          in pownCSAbsent ownCSBytes valuePairs #&& (self # rest)
                                 )
                                 (pconstant True)
@@ -1430,7 +1430,7 @@ mkLocalIndexedTerm ownCS tn mintedTotal = plam $ \destIdxsData ctx ->
                                                 plet (psndBuiltin # (pasConstr # pforgetData (phead # remAtIdx))) $ \fields ->
                                                     let addrData = phead # fields
                                                         credData = phead # (psndBuiltin # (pasConstr # addrData))
-                                                        outValue = pfromData (punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # (ptail # fields)))
+                                                        outValue = pfromData (punsafeCoerce @(PAsData PLedgerValue) (phead # (ptail # fields)))
                                                         qty = passetQtyInValueBench # outValue # pconstant ownCS # pconstant tn
                                                      in pif
                                                             (credData #== baseCredData)

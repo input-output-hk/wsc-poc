@@ -27,16 +27,15 @@ import GHC.Generics (Generic)
 import Plutarch.Core.Context (paddressCredential, ptxInInfoResolved)
 import SmartTokens.Core.Builtins (pdropList)
 import Plutarch.Core.ValidationLogic (pvalidateConditions)
-import Plutarch.Core.Value (phasCS, ptryLookupValue)
-import Plutarch.LedgerApi.AssocMap (KeyGuarantees (Sorted))
-import Plutarch.LedgerApi.V3 (AmountGuarantees (Positive), PCredential (..),
+import Plutarch.Core.Value (phasCS, ptryLookupValue, punsortedMapPairs)
+import Plutarch.LedgerApi.V3 (PCredential (..),
                               PCurrencySymbol, PScriptContext (..),
                               PScriptHash, PScriptInfo (PMintingScript),
                               PScriptPurpose (PRewarding),
                               PTokenName (PTokenName),
                               PTxInfo (PTxInfo, ptxInfo'mint, ptxInfo'outputs, ptxInfo'referenceInputs, ptxInfo'wdrl, ptxInfo'redeemers),
                               PTxOut (PTxOut, ptxOut'address, ptxOut'value),
-                              PValue)
+                              PLedgerValue)
 import Plutarch.LedgerApi.Value (pvalueOf)
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
@@ -139,7 +138,7 @@ mkProgrammableLogicMinting = plam $ \protocolParamsCS mintingLogicHash' ctx -> P
   PMintingScript ownCS' <- pmatch pscriptContext'scriptInfo
   ownCS <- plet $ pfromData ownCS'
   ownAsTokenName <- plet $ pcon $ PTokenName (pto ownCS)
-  withdrawalEntries <- plet $ pto (pfromData ptxInfo'wdrl)
+  withdrawalEntries <- plet $ punsortedMapPairs (pfromData ptxInfo'wdrl)
   referenceInputs <- plet $ pfromData ptxInfo'referenceInputs
   outputs <- plet $ pfromData ptxInfo'outputs
   red <- plet $ pfromData (punsafeCoerce @(PAsData PMintRedeemer) (pto pscriptContext'redeemer))
@@ -154,7 +153,7 @@ mkProgrammableLogicMinting = plam $ \protocolParamsCS mintingLogicHash' ctx -> P
   -- directory currency symbol at the resolved value. No datum decode (§7) — the
   -- directory policy already binds NFT name == node key at mint time.
   hasNodeNFT <- plet $ plam $ \directoryNodeCS value ->
-    pvalueOf # value # directoryNodeCS # ownAsTokenName #== 1
+    pvalueOf # pto value # directoryNodeCS # ownAsTokenName #== 1
 
   pmatch red $ \case
     -- ===== Local: the policy proves custody itself (§8). =====
@@ -189,7 +188,7 @@ mkProgrammableLogicMinting = plam $ \protocolParamsCS mintingLogicHash' ctx -> P
              in pif
                   (paymentCredData #== progLogicCredData)
                   (pconstant True)
-                  (pnot # (phasCS # pfromData (punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) valueData) # ownCS))
+                  (pnot # (phasCS # pto (pfromData (punsafeCoerce @(PAsData PLedgerValue) valueData)) # ownCS))
         ) # outputs
       pvalidateConditions
         [ mintingLogicInvokedAt # wdrlIdx
@@ -228,7 +227,7 @@ mkProgrammableLogicMinting = plam $ \protocolParamsCS mintingLogicHash' ctx -> P
       -- The seize redeemer at the witnessed index must be a SeizeAct of the params
       -- seize credential whose directoryNodeIdx names the SAME node we proved is
       -- keyed ownCS — binding the (single-policy) seize scope to ownCS.
-      seizeEntry <- plet $ phead # (pcheckedDrop # pfromData seizeRedeemerIdx # pto (pfromData ptxInfo'redeemers))
+      seizeEntry <- plet $ phead # (pcheckedDrop # pfromData seizeRedeemerIdx # punsortedMapPairs (pfromData ptxInfo'redeemers))
       seizeScopeOk <- plet $
         pmatch (pfromData (punsafeCoerce @(PAsData PScriptPurpose) (pfstBuiltin # seizeEntry))) $ \case
           PRewarding seizeCred ->
@@ -248,7 +247,7 @@ mkProgrammableLogicMinting = plam $ \protocolParamsCS mintingLogicHash' ctx -> P
     PBurnOnly wdrlIdx -> P.do
       -- Scan the WHOLE ownCS mint token-map: any positive entry means this is not a
       -- pure burn and must use a custody arm. (Head-only would smuggle a mint.)
-      ownTkPairs <- plet $ ptryLookupValue # ownCS' # pfromData ptxInfo'mint
+      ownTkPairs <- plet $ ptryLookupValue # ownCS' # pto (pfromData ptxInfo'mint)
       pvalidateConditions
         [ mintingLogicInvokedAt # wdrlIdx
         , pall # plam (\pair -> pfromData (psndBuiltin # pair) #<= 0) # ownTkPairs

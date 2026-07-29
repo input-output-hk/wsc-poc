@@ -34,6 +34,11 @@ packages:
 
 constraints:
   cardano-node == 11.0.0
+  -- Must be pinned, not merely intended: `allow-newer: *:cardano-api` below
+  -- lifts every upper bound on it, so without this the solver takes 11.3.0.0,
+  -- which deprecates the TxBodyContent lenses convex-optics builds with
+  -- -Werror and removes PoolId from convex-base.
+  , cardano-api == 11.0.0.0
   , plutus-core == 1.65.0.0
   , plutus-ledger-api == 1.65.0.0
   , plutus-tx == 1.65.0.0

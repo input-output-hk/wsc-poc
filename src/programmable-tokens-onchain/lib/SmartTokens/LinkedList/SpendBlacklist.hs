@@ -18,7 +18,7 @@ import Plutarch.LedgerApi.V3 (PCurrencySymbol,
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude (PAsData, PBool, PEq ((#==)), PUnit, Term, pasConstr,
                          pdata, pforgetData, pfromData, pfstBuiltin, plam,
-                         pmatch, ptraceInfoIfFalse, type (:-->), (#))
+                         pmatch, ptraceInfoIfFalse, pto, type (:-->), (#))
 
 pisSpendingPurpose :: Term s (PAsData PScriptInfo) -> Term s PBool
 pisSpendingPurpose term = (pfstBuiltin # (pasConstr # pforgetData term)) #== 1
@@ -29,6 +29,6 @@ pmkBlacklistSpending = plam $ \blacklistMP ctx -> P.do
   PTxInfo {ptxInfo'mint} <- pmatch pscriptContext'txInfo
 
   pvalidateConditions
-    [ ptraceInfoIfFalse "Must mint blacklist cs" $ phasDataCS # blacklistMP # pfromData ptxInfo'mint
+    [ ptraceInfoIfFalse "Must mint blacklist cs" $ phasDataCS # blacklistMP # pto (pfromData ptxInfo'mint)
     , ptraceInfoIfFalse "Expects spending purpose" $ pisSpendingPurpose (pdata pscriptContext'scriptInfo)
     ]

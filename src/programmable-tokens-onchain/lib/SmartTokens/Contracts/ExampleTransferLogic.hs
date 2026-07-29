@@ -116,7 +116,7 @@ pvalidateWitnesses = phoistAcyclic $ plam $ \blacklistNodeCS proofs refInputs wi
                       , ptraceInfoIfFalse "witness is blacklisted" $ witnessKey #< nodeNext
                       -- directory entries are legitimate, this is proven by the
                       -- presence of the directory node currency symbol.
-                      , ptraceInfoIfFalse "indexed invalid blacklist node" $ phasDataCS # blacklistNodeCS # pfromData prevNodeVal
+                      , ptraceInfoIfFalse "indexed invalid blacklist node" $ phasDataCS # blacklistNodeCS # pto (pfromData prevNodeVal)
                       ]
               pif checks
                   (self # (ptail # remainingProofs) # remainWits)

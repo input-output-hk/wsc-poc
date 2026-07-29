@@ -44,8 +44,12 @@ import Plutarch.Builtin.Value (pinsertCoin, pscaleValue, punValueData, punionVal
 import Plutarch.Builtin.Value qualified as BuiltinValue
 import Plutarch.Core.Utils
 import Plutarch.Core.ValidationLogic hiding (pemptyLedgerValue, pvalueFromCred, pvalueToCred)
+import Plutarch.Core.Value (pledgerValueCsPairs, pmkSortedValue, ptokenPairs,
+                            punsortedMapPairs, pvalueCsPairs)
 import Plutarch.Internal.Lift
+import Plutarch.LedgerApi.AssocMap qualified as AssocMap
 import Plutarch.LedgerApi.V3
+import Plutarch.LedgerApi.Value qualified as Value
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
@@ -72,7 +76,7 @@ pjustData term =
 -- TODO: Replace current corresponding input / output comparison (which compares address, reference script and datum) for multi-seize
 -- with constructing the expected output from the input with this function and comparing it to the actual output.
 -- Further optimize this with the optimization in the "Everything is possible" UPLC fest presentation.
--- pconstructExpectedOutputWithOutputDatum :: Term s PAddress -> Term s (PAsData (PValue 'Sorted 'Positive)) -> Term s POutputDatum -> Term s (PAsData PTxOut)
+-- pconstructExpectedOutputWithOutputDatum :: Term s PAddress -> Term s (PAsData PLedgerValue) -> Term s POutputDatum -> Term s (PAsData PTxOut)
 -- pconstructExpectedOutputWithOutputDatum address value datum =
 --   pdata $ pcon $
 --     PTxOut
@@ -106,11 +110,9 @@ High-level purpose:
 
 Security invariants:
 - The value must stay empty for all policies and token names.
-- It is only sound to coerce emptiness to a positive sorted value because emptiness
-  trivially satisfies both properties.
 -}
-pemptyLedgerValue :: Term s (PValue 'Sorted 'Positive)
-pemptyLedgerValue = punsafeCoerce $ pconstant @(PValue 'Unsorted 'NoGuarantees) emptyValue
+pemptyProgValue :: Term s PSortedValue
+pemptyProgValue = Value.pemptySortedValue
 
 {- | Strip Ada from a ledger-provided value while preserving the remaining order.
 
@@ -125,11 +127,11 @@ Security invariants:
   conventions.
 -}
 pstripAdaH ::
-    forall (v :: AmountGuarantees) (s :: S).
-    Term s (PValue 'Sorted v) -> Term s (PValue 'Sorted v)
+    forall (s :: S).
+    Term s PLedgerValue -> Term s PSortedValue
 pstripAdaH value =
-    let nonAdaValueMapInner = ptail # pto (pto value)
-     in pcon (PValue $ pcon $ PMap nonAdaValueMapInner)
+    let nonAdaValueMapInner = ptail # pledgerValueCsPairs value
+     in pmkSortedValue nonAdaValueMapInner
 
 {- | Merge two sorted token-name maps by asset-wise addition.
 
@@ -198,9 +200,9 @@ Security invariants:
 pcurrencyPairsUnionFast ::
     Term
         s
-        ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
-            :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
-            :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
+        ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger)))
+            :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger)))
+            :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger)))
         )
 pcurrencyPairsUnionFast = phoistAcyclic $
     pfixHoisted #$ plam $ \self csPairsA csPairsB ->
@@ -214,8 +216,8 @@ pcurrencyPairsUnionFast = phoistAcyclic $
                             currencySymbolBBytes = pasByteStr # pforgetData currencySymbolB
                          in pif
                                 (currencySymbolABytes #== currencySymbolBBytes)
-                                ( let tokenPairsA = pto (pfromData (psndBuiltin # csPairA))
-                                      tokenPairsB = pto (pfromData (psndBuiltin # csPairB))
+                                ( let tokenPairsA = ptokenPairs (pfromData (psndBuiltin # csPairA))
+                                      tokenPairsB = ptokenPairs (pfromData (psndBuiltin # csPairB))
                                       mergedTokenPairs = ptokenPairsUnionFast # tokenPairsA # tokenPairsB
                                       mergedPair =
                                         punsafeCoerce $
@@ -249,15 +251,12 @@ Security invariants:
 - No asset may be dropped, duplicated, or reordered outside the merge rules.
 - The output must remain a valid sorted positive value.
 -}
-pvalueUnionFast :: Term s (PValue 'Sorted 'Positive :--> PValue 'Sorted 'Positive :--> PValue 'Sorted 'Positive)
+pvalueUnionFast :: Term s (PSortedValue :--> PSortedValue :--> PSortedValue)
 pvalueUnionFast = phoistAcyclic $ plam $ \valueA valueB ->
-    pcon $
-        PValue $
-            pcon $
-                PMap $
-                    pcurrencyPairsUnionFast
-                        # pto (pto valueA)
-                        # pto (pto valueB)
+    pmkSortedValue $
+        pcurrencyPairsUnionFast
+            # pvalueCsPairs valueA
+            # pvalueCsPairs valueB
 
 {- | Check whether a specific stake-script credential appears in withdrawals.
 
@@ -324,7 +323,7 @@ pvalueFromCred ::
     -- memory unionValue merges — which removes the quadratic sorted-merge
     -- component on the inputs axis, then bridges back to pairs once
     -- (insertCoin amount 0 deletes the ada entry).
-    Term s (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
+    Term s (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger))))
 pvalueFromCred cred sigs withdrawalEntries ownerWdrlIdxs inputs =
     let credData = pforgetData (pdata cred)
 
@@ -405,7 +404,7 @@ pvalueFromCred cred sigs withdrawalEntries ownerWdrlIdxs inputs =
                         (\idxs' -> self # acc # idxs' # xs)
                 )
                 ( punsafeCoerce
-                    @(PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
+                    @(PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger))))
                     (pasMap # (pvalueData # (pinsertCoin # pconstant "" # pconstant "" # 0 # acc)))
                 )
                 remaining
@@ -420,7 +419,7 @@ pvalueFromCred cred sigs withdrawalEntries ownerWdrlIdxs inputs =
                         (\idxs' -> self # firstVd # idxs' # xs)
                 )
                 ( punsafeCoerce
-                    @(PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
+                    @(PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger))))
                     (ptail # (pasMap # firstVd))
                 )
                 remaining
@@ -453,7 +452,7 @@ Security invariants:
 pvalueToCred ::
     Term s PCredential ->
     Term s (PBuiltinList (PAsData PTxOut)) ->
-    Term s (PValue 'Sorted 'Positive)
+    Term s PSortedValue
 pvalueToCred cred inputs =
     let credData = pforgetData (pdata cred)
      in ( pfixHoisted #$ plam $ \self acc ->
@@ -462,7 +461,7 @@ pvalueToCred cred inputs =
                     plet (psndBuiltin # (pasConstr # pforgetData txOut)) $ \txOutFields ->
                         let txOutAddress = phead # txOutFields
                             txOutFieldsRest = ptail # txOutFields
-                            txOutValue = punsafeCoerce @(PAsData (PValue 'Sorted 'Positive)) (phead # txOutFieldsRest)
+                            txOutValue = punsafeCoerce @(PAsData PLedgerValue) (phead # txOutFieldsRest)
                             paymentCredData = phead # (psndBuiltin # (pasConstr # txOutAddress))
                          in self
                                 # pif (paymentCredData #== credData) (pvalueUnionFast # acc # pstripAdaH (pfromData txOutValue)) acc
@@ -470,7 +469,7 @@ pvalueToCred cred inputs =
                 )
                 acc
         )
-            # pemptyLedgerValue
+            # pemptyProgValue
             # inputs
 
 {- | Check that outputs whose payment credential equals `progLogicCred` contain at
@@ -518,14 +517,14 @@ Security invariants:
 poutputsContainExpectedValueAtCred ::
     Term s PCredential ->
     Term s (PBuiltinList (PAsData PTxOut)) ->
-    Term s (PValue 'Sorted 'Positive) ->
+    Term s PSortedValue ->
     Term s PBool
 poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
     let
         passetQtyInPairs ::
             Term
                 _
-                ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))
+                ( PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger)))
                     :--> PCurrencySymbol
                     :--> PTokenName
                     :--> PInteger
@@ -551,7 +550,7 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
                     pelimList
                         ( \currencyPair currencyPairsRest ->
                             let currencySymbol = pfromData (pfstBuiltin # currencyPair)
-                                tokenPairs = pto (pfromData (psndBuiltin # currencyPair))
+                                tokenPairs = ptokenPairs (pfromData (psndBuiltin # currencyPair))
                              in pif
                                     (currencySymbol #== cs)
                                     (tokenQtyInTokenPairs # tokenPairs)
@@ -643,13 +642,13 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
                 )
                 checkByBuiltinContains
                 remainingOutputs
-        expectedCsPairs = pto (pto expectedValue)
+        expectedCsPairs = pvalueCsPairs expectedValue
      in -- Dispatch: exactly one expected asset (one currency symbol with one
         -- token name — the dominant transfer shape) takes the accumulate-scan
         -- fast path; everything else takes the single-pass subtract walk.
         pelimList
             ( \csPair csPairsRest ->
-                plet (pto (pfromData (psndBuiltin # csPair))) $ \tnPairs ->
+                plet (ptokenPairs (pfromData (psndBuiltin # csPair))) $ \tnPairs ->
                     pif
                         ((pnull # csPairsRest) #&& (pelimList (\_ tnRest -> pnull # tnRest) (pconstant False) tnPairs))
                         ( pelimList
@@ -747,9 +746,9 @@ Security invariants:
 - Values with no non-Ada entries are malformed for this use case and may cause
   evaluation to fail.
 -}
-phasCSH :: Term s (PCurrencySymbol :--> PAsData (PValue 'Sorted 'Positive) :--> PBool)
+phasCSH :: Term s (PCurrencySymbol :--> PAsData PLedgerValue :--> PBool)
 phasCSH = phoistAcyclic $ plam $ \directoryNodeCS value ->
-    let value' = pto (pto (pfromData value))
+    let value' = pledgerValueCsPairs (pfromData value)
      in pfromData (pfstBuiltin # (phead # (ptail # value'))) #== directoryNodeCS
 
 {- | Safe variant of `phasCSH` that returns `False` instead of crashing on missing
@@ -767,9 +766,9 @@ Security invariants:
 - It must not mask malformed data at call sites where the identified reference
   UTxO is mandatory for validation.
 -}
-phasCSHOrFalse :: Term s PCurrencySymbol -> Term s (PAsData (PValue 'Sorted 'Positive)) -> Term s PBool
+phasCSHOrFalse :: Term s PCurrencySymbol -> Term s (PAsData PLedgerValue) -> Term s PBool
 phasCSHOrFalse directoryNodeCS value =
-    let nonAdaEntries = ptail # pto (pto (pfromData value))
+    let nonAdaEntries = ptail # pledgerValueCsPairs (pfromData value)
      in pelimList
             (\currencyPair _ -> pfromData (pfstBuiltin # currencyPair) #== directoryNodeCS)
             (pcon PFalse)
@@ -861,8 +860,8 @@ pcheckTransferLogicAndGetProgrammableValue ::
     Term s (PAsData PCredential) ->
     -- Accepts the aggregated non-Ada currency-pair list directly (as produced by
     -- `pvalueFromCred`), avoiding an unwrap of a re-wrapped PValue.
-    Term s (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger)))) ->
-    Term s (PValue 'Sorted 'Positive)
+    Term s (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger)))) ->
+    Term s PSortedValue
 pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList wdrlIdxList withdrawalEntries initialCachedTransferScript mapInnerList =
     let -- Cache transfer-script invocation checks across adjacent positive proofs;
         -- on a cache miss, verify the redeemer-witnessed withdrawal index instead
@@ -929,7 +928,7 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
                 )
                 pnil
                 inputInnerValue
-     in pcon . PValue . pcon . PMap $
+     in pmkSortedValue $
             go
                 # proofList
                 # wdrlIdxList
@@ -972,11 +971,11 @@ pcheckMintLogicAndGetProgrammableValue ::
     Term s PCurrencySymbol ->
     Term s (PBuiltinList (PAsData PTxInInfo)) ->
     Term s (PBuiltinList (PAsData PMintProof)) ->
-    Term s (PValue 'Sorted 'NoGuarantees) ->
-    Term s (PValue 'Sorted 'NoGuarantees)
+    Term s PSortedValue ->
+    Term s PSortedValue
 pcheckMintLogicAndGetProgrammableValue directoryNodeCS refInputs proofList totalMintValue =
-    let mintedEntries :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
-        mintedEntries = pto (pto totalMintValue)
+    let mintedEntries :: Term _ (PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger))))
+        mintedEntries = pvalueCsPairs totalMintValue
         -- Same shape as the transfer walk: cons onto the recursive result so the
         -- entries come back ascending without a reversing pass.
         go = pfixHoisted #$ plam $ \self proofs remainingMintEntries ->
@@ -1017,7 +1016,7 @@ pcheckMintLogicAndGetProgrammableValue directoryNodeCS refInputs proofList total
                 )
                 (pelimList (\_ _ -> ptraceInfoError "extra mint proof") pnil proofs)
                 remainingMintEntries
-     in pcon . PValue . pcon . PMap $ go # proofList # mintedEntries
+     in pmkSortedValue $ go # proofList # mintedEntries
 
 -- | Classification of a single minted currency symbol against the directory
 -- (spec §11.3). A @Member@ proof carries no node index: the mint entry is simply
@@ -1182,7 +1181,7 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
     PScriptContext{pscriptContext'txInfo, pscriptContext'redeemer, pscriptContext'scriptInfo} <- pmatch ctx
     PTxInfo{ptxInfo'inputs, ptxInfo'referenceInputs, ptxInfo'outputs, ptxInfo'signatories, ptxInfo'wdrl, ptxInfo'mint, ptxInfo'redeemers} <- pmatch pscriptContext'txInfo
     let red = pfromData $ punsafeCoerce @(PAsData PProgrammableLogicGlobalRedeemer) (pto pscriptContext'redeemer)
-    withdrawalEntries <- plet $ pto (pfromData ptxInfo'wdrl)
+    withdrawalEntries <- plet $ punsortedMapPairs (pfromData ptxInfo'wdrl)
 
     pmatch red $ \case
         -- `TransferAct` invariants:
@@ -1221,11 +1220,11 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                         withdrawalEntries
                         cachedTransferScript0
                         totalProgTokenValue
-            mintValueNoGuarantees <- plet $ punsafeCoerce @(PValue 'Sorted 'NoGuarantees) (pfromData ptxInfo'mint)
+            mintValueNoGuarantees <- plet $ punsafeCoerce @PSortedValue (pfromData ptxInfo'mint)
             expectedProgrammableOutputValue <-
                 plet $
                     pif
-                        (pnull # pto (pto mintValueNoGuarantees))
+                        (pnull # pvalueCsPairs mintValueNoGuarantees)
                         totalProgTokenValue_
                         -- Merge the validated programmable mint/burn delta into the
                         -- transfer value with the CIP-153 builtin union rather than
@@ -1242,29 +1241,24 @@ mkProgrammableLogicGlobal = plam $ \protocolParamsCS ctx -> P.do
                         -- it, programmable assets live only at the base credential,
                         -- so every burned unit is already counted in the transfer
                         -- value and the sum cannot go below zero.
-                        ( pcon $
-                            PValue $
-                                pcon $
-                                    PMap $
-                                        punsafeCoerce
-                                            ( pasMap
-                                                #$ pvalueData
-                                                #$ punionValue
-                                                # (punValueData # (pmapData # punsafeCoerce (pto (pto totalProgTokenValue_))))
-                                                # ( punValueData
-                                                        #$ pmapData
-                                                        #$ punsafeCoerce
-                                                        $ pto
-                                                            ( pto
-                                                                ( pcheckMintLogicAndGetProgrammableValue
-                                                                    (pfromData pdirectoryNodeCS)
-                                                                    referenceInputs
-                                                                    (pfromData mintProofs)
-                                                                    mintValueNoGuarantees
-                                                                )
-                                                            )
-                                                  )
-                                            )
+                        ( pmkSortedValue $
+                            punsafeCoerce
+                                ( pasMap
+                                    #$ pvalueData
+                                    #$ punionValue
+                                    # (punValueData # (pmapData # punsafeCoerce (pvalueCsPairs totalProgTokenValue_)))
+                                    # ( punValueData
+                                            #$ pmapData
+                                            #$ punsafeCoerce
+                                            $ pvalueCsPairs
+                                                ( pcheckMintLogicAndGetProgrammableValue
+                                                    (pfromData pdirectoryNodeCS)
+                                                    referenceInputs
+                                                    (pfromData mintProofs)
+                                                    mintValueNoGuarantees
+                                                )
+                                      )
+                                )
                         )
 
             pvalidateConditions
@@ -1310,7 +1304,7 @@ mkProgrammableSeize = plam $ \protocolParamsCS ctx -> P.do
     PTxInfo{ptxInfo'inputs, ptxInfo'referenceInputs, ptxInfo'outputs, ptxInfo'wdrl, ptxInfo'mint, ptxInfo'redeemers} <- pmatch pscriptContext'txInfo
     let red = pfromData $ punsafeCoerce @(PAsData PProgrammableLogicGlobalRedeemer) (pto pscriptContext'redeemer)
     referenceInputs <- plet $ pfromData ptxInfo'referenceInputs
-    withdrawalEntries <- plet $ pto (pfromData ptxInfo'wdrl)
+    withdrawalEntries <- plet $ punsortedMapPairs (pfromData ptxInfo'wdrl)
     pmatch red $ \case
         PTransferAct{} -> ptraceInfoError "seize validator invoked with TransferAct"
         -- `pinputIdxs`/`plengthInputIdxs` are no longer read: the seize validator
@@ -1332,7 +1326,7 @@ mkProgrammableSeize = plam $ \protocolParamsCS ctx -> P.do
                 , pissuerLogicScript = directoryNodeDatumFIssuerLogicScript
                 } <-
                 pmatch (pfromData $ punsafeCoerce @(PAsData PDirectorySetNode) (pto seizeDat'))
-            mintValueNoGuarantees <- plet $ punsafeCoerce @(PValue 'Sorted 'NoGuarantees) (pfromData ptxInfo'mint)
+            mintValueNoGuarantees <- plet $ punsafeCoerce @PSortedValue (pfromData ptxInfo'mint)
             seizeMintedTokens <- plet $ ptokensForCurrencySymbol # pfromData directoryNodeDatumFKey # mintValueNoGuarantees
             let conditions =
                     [ pisRewardingScript (pdata pscriptContext'scriptInfo)
@@ -1360,18 +1354,18 @@ Security invariants:
   fabricated zero entry.
 -}
 ptokensForCurrencySymbol ::
-    forall anyAmount s.
-    Term s (PCurrencySymbol :--> PValue 'Sorted anyAmount :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
+    forall s.
+    Term s (PCurrencySymbol :--> PSortedValue :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
 ptokensForCurrencySymbol =
     phoistAcyclic $
         plam $ \targetCs mintValue ->
-            ptokensForCurrencyPairs # targetCs # pto (pto mintValue)
+            ptokensForCurrencyPairs # targetCs # pvalueCsPairs mintValue
 
 -- | 'ptokensForCurrencySymbol' over a raw currency-pair list, for callers that
 -- already hold the value as Data and would otherwise pay a typed decode.
 ptokensForCurrencyPairs ::
     forall s.
-    Term s (PCurrencySymbol :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))) :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
+    Term s (PCurrencySymbol :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger))) :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
 ptokensForCurrencyPairs =
     phoistAcyclic $
         plam $ \targetCs mintedEntries ->
@@ -1381,7 +1375,7 @@ ptokensForCurrencyPairs =
                             let mintCs = pfromData (pfstBuiltin # mintCsPair)
                              in pif
                                     (mintCs #== targetCs)
-                                    (pto (pfromData (psndBuiltin # mintCsPair)))
+                                    (ptokenPairs (pfromData (psndBuiltin # mintCsPair)))
                                     (pif (targetCs #< mintCs) pnil (self # mintCsPairs))
                         )
                         pnil
@@ -1672,8 +1666,8 @@ that actually happen instead of paying it once at script start-up. Threading
 `SeizeAct1` and +2 script bytes for exactly that reason.
 -}
 pcurrencyListHasCS ::
-    forall anyOrder s.
-    Term s (PCurrencySymbol :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap anyOrder PTokenName PInteger))) :--> PBool)
+    forall s.
+    Term s (PCurrencySymbol :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger))) :--> PBool)
 pcurrencyListHasCS = phoistAcyclic $ plam $ \targetCS ->
     pfixHoisted #$ plam $ \self entries ->
         pelimList
@@ -1750,7 +1744,7 @@ pvalueEqualsDeltaCurrencySymbol progCSAsData inputUTxOValue outputUTxOValue =
             pcurrencyListHasCS
                 # pfromData progCSAsData
                 # punsafeCoerce
-                    @(PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (PMap 'Sorted PTokenName PInteger))))
+                    @(PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger))))
                     (pasMap # inputUTxOValue)
 
         notHeld :: forall a. Term s a

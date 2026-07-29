@@ -30,7 +30,7 @@ pfindReferenceInputByCS currencySymbol referenceInputs =
         let txIn = phead # remainingRefInputs
             resolvedIn = ptxInInfoResolved $ pfromData txIn
          in pif
-                (phasDataCS # currencySymbol # pfromData (ptxOutValue resolvedIn))
+                (phasDataCS # currencySymbol # pto (pfromData (ptxOutValue resolvedIn)))
                 txIn
                 (self # (ptail # remainingRefInputs))
     )
@@ -48,7 +48,7 @@ pmkDirectoryGlobalLogic = plam $ \protocolParamsCS ctx -> P.do
                             pfindReferenceInputByCS protocolParamsCS (pfromData ptxInfo'referenceInputs)
             (POutputDatum paramDat') <- pmatch $ ptxOutDatum paramUTxO
             PProgrammableLogicGlobalParams{pdirectoryNodeCS} <- pmatch (pfromData $ punsafeCoerce @(PAsData PProgrammableLogicGlobalParams) (pto paramDat'))
-            pvalidateConditions [phasDataCS # pdirectoryNodeCS # pfromData ptxInfo'mint]
+            pvalidateConditions [phasDataCS # pdirectoryNodeCS # pto (pfromData ptxInfo'mint)]
         _ -> perror
 
 pmkDirectorySpendingYielding :: Term s (PAsData PCredential :--> PScriptContext :--> PUnit)
@@ -57,7 +57,12 @@ pmkDirectorySpendingYielding = plam $ \globalCred ctx -> P.do
     PTxInfo{ptxInfo'wdrl} <- pmatch pscriptContext'txInfo
     let stakeCerts = pfromData ptxInfo'wdrl
         stakeScript = pfromData globalCred
-    pmatch (AssocMap.plookup # stakeScript # stakeCerts) $ \case
+    -- plutarch-ledger-api types wdrl as unsorted, but the ledger serialises the
+    -- withdrawal map sorted by credential -- an ordering this protocol already
+    -- relies on for its witnessed withdrawal indices. The coercion also fails
+    -- closed: were the map ever unsorted, the ordered lookup could only miss a
+    -- present key and fall through to `perror`, never manufacture a match.
+    pmatch (AssocMap.plookup # stakeScript # AssocMap.punsafeCoerceToSortedMap stakeCerts) $ \case
         PJust _ -> (pconstant ())
         PNothing -> perror
 
@@ -65,7 +70,7 @@ pmkDirectorySpending :: Term s (PAsData PCurrencySymbol :--> PScriptContext :-->
 pmkDirectorySpending = plam $ \protocolParamsCS ctx -> P.do
     PScriptContext{pscriptContext'txInfo, pscriptContext'scriptInfo} <- pmatch ctx
     PTxInfo{ptxInfo'referenceInputs, ptxInfo'mint} <- pmatch pscriptContext'txInfo
-    mint <- plet $ pfromData ptxInfo'mint
+    mint <- plet $ pto (pfromData ptxInfo'mint)
     let paramUTxO =
             ptxInInfoResolved $
                 pfromData $

@@ -25,7 +25,7 @@ import Plutarch.Core.Value
 import Plutarch.Internal.Term
 import Plutarch.LedgerApi.AssocMap qualified as AssocMap
 import Plutarch.LedgerApi.V3
-import Plutarch.LedgerApi.Value (pnormalize)
+import Plutarch.LedgerApi.Value qualified as Value
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
 import SmartTokens.Types.PTokenDirectory (PBlacklistNode (..),
@@ -45,7 +45,7 @@ correctNodeTokenMinted ::
     ( PCurrencySymbol
         :--> PTokenName
         :--> PInteger
-        :--> PValue 'Sorted 'NonZero
+        :--> PSortedValue
         :--> PBool
     )
 correctNodeTokenMinted = phoistAcyclic $
@@ -59,7 +59,7 @@ correctNodeTokenMinted = phoistAcyclic $
 nodeInputUtxoDatumUnsafePair ::
   forall s. Term s
     ( PAsData PTxOut
-        :--> PPair (PValue 'Sorted 'Positive) (PAsData PBlacklistNode)
+        :--> PPair PLedgerValue (PAsData PBlacklistNode)
     )
 nodeInputUtxoDatumUnsafePair = phoistAcyclic $ plam $ \out ->
   pmatch (pfromData out) $ \(PTxOut {ptxOut'value, ptxOut'datum}) ->
@@ -83,7 +83,7 @@ parseNodeOutputUtxo ::
 parseNodeOutputUtxo = phoistAcyclic $
   plam $ \nodeCS out -> P.do
     PTxOut {ptxOut'value, ptxOut'datum} <- pmatch $ pfromData out
-    value <- plet $ pfromData ptxOut'value
+    value <- plet $ pto (pfromData ptxOut'value)
     csPair <- plet $ ptrySingleTokenCS # nodeCS # value
     let nodeTokenName = pfstBuiltin # csPair
         amount = pfromData $ psndBuiltin # csPair
@@ -118,12 +118,16 @@ makeCommon ctx' = do
     PMintingScript mintRecord <- pmatch pscriptContext'scriptInfo
     mintRecord
 
-  mint <- tcont . plet $ pnormalize #$ pfromData ptxInfo'mint
+  -- Stands in for the removed pnormalize. Note this is now a no-op: PMintValue
+  -- is by definition free of an ada entry and of zero quantities, which is
+  -- exactly what this prunes. Kept for now so the migration does not change
+  -- ex-units; it is a free deletion once the upgrade has been measured.
+  mint <- tcont . plet $ Value.pnormalizeNoAdaNonZeroTokens #$ pto (pfromData ptxInfo'mint)
   hasNodeTk <- tcont . plet $ phasDataCS # ownCS
   txInputs <- tcont . plet $ pfromData ptxInfo'inputs
   let txOutputs = pfromData ptxInfo'outputs
-  fromNodeValidator <- tcont . plet $ pmapFilter @PBuiltinList # plam (\txo -> hasNodeTk # pfromData (ptxOutValue txo)) # plam (ptxInInfoResolved . pfromData) # txInputs
-  toNodeValidator <- tcont . plet $ pfilter @PBuiltinList # plam (\txo -> hasNodeTk # pfromData (ptxOutValue $ pfromData txo)) # txOutputs
+  fromNodeValidator <- tcont . plet $ pmapFilter @PBuiltinList # plam (\txo -> hasNodeTk # pto (pfromData (ptxOutValue txo))) # plam (ptxInInfoResolved . pfromData) # txInputs
+  toNodeValidator <- tcont . plet $ pfilter @PBuiltinList # plam (\txo -> hasNodeTk # pto (pfromData (ptxOutValue $ pfromData txo))) # txOutputs
   ------------------------------
 
   let atNodeValidator =
@@ -268,7 +272,7 @@ pRemove common = plam $ \pkToRemove -> P.do
 data PBlacklistCommon (s :: S) = MkCommon
   { ownCS :: Term s PCurrencySymbol
   -- ^ state token (own) CS
-  , mint :: Term s (PValue 'Sorted 'NonZero)
+  , mint :: Term s (PSortedValue)
   -- ^ value minted in current Tx
   , nodeInputs :: Term s (PBuiltinList (PAsData PBlacklistNode))
   -- ^ node inputs in the tx
