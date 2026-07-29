@@ -776,10 +776,7 @@ Security invariants:
 phasCSH :: Term s (PCurrencySymbol :--> PAsData PLedgerValue :--> PBool)
 phasCSH = phoistAcyclic $ plam $ \directoryNodeCS value ->
     let value' = pledgerValueCsPairs (pfromData value)
-     in pheadTailBuiltin value' $ \_ rest ->
-            pheadTailBuiltin rest $ \secondEntry _ ->
-                pmatch secondEntry $ \(PBuiltinPair csD _) ->
-                    pfromData csD #== directoryNodeCS
+     in pfromData (pfstBuiltin # (phead # (ptail # value'))) #== directoryNodeCS
 
 {- | Safe variant of `phasCSH` that returns `False` instead of crashing on missing
 non-Ada entries.
