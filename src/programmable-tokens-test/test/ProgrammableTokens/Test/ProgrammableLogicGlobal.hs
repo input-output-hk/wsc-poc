@@ -78,6 +78,7 @@ tests =
         , testCase "unit_transferAct_burn_without_mint_proof_rejected" unit_transferAct_burn_without_mint_proof_rejected
         , testCase "unit_transferAct_wrong_transfer_wdrl_index_rejected" unit_transferAct_wrong_transfer_wdrl_index_rejected
         , testCase "unit_transferAct_escape_to_pubkey_rejected" unit_transferAct_escape_to_pubkey_rejected
+        , testCase "unit_transferAct_pubkey_owner_empty_signatories_rejected" unit_transferAct_pubkey_owner_empty_signatories_rejected
         , testCase "unit_transferAct_two_policies_wholesale_succeeds" unit_transferAct_two_policies_wholesale_succeeds
         , testCase "unit_transferAct_two_policies_partial_escape_rejected" unit_transferAct_two_policies_partial_escape_rejected
         , testCase "unit_transferAct_two_policies_mint_containment_succeeds" unit_transferAct_two_policies_mint_containment_succeeds
@@ -306,6 +307,21 @@ unit_transferAct_escape_to_pubkey_rejected =
 -- Regression guard: the transfer-proof walk cons-builds its multi-policy
 -- accumulator, which once left the expected value in DESCENDING order and made
 -- the (order-sensitive) containment walk reject valid two-policy transfers.
+{- | A pubkey-owned mini-ledger input in a transaction carrying NO signatories.
+The owner check walks the signatory list and must reject an empty one; the
+otherwise-identical signed transaction is
+'unit_transferAct_two_policies_wholesale_succeeds'. Without this, forcing the
+empty-list branch of the owner check to accept survives every suite.
+-}
+unit_transferAct_pubkey_owner_empty_signatories_rejected :: Assertion
+unit_transferAct_pubkey_owner_empty_signatories_rejected =
+    assertScriptFails $
+        mkGlobalTransferTwoPoliciesCtx'
+            False
+            (TransferAct [1, 2] [1, 1] [] [] 0)
+            []
+            (mkValue [(programmableTransferCS, TokenName "0c", 3), (programmableTransferCS2, TokenName "1c", 5)])
+
 unit_transferAct_two_policies_wholesale_succeeds :: Assertion
 unit_transferAct_two_policies_wholesale_succeeds =
     assertScriptSucceeds $
@@ -825,13 +841,21 @@ mkGlobalTransferMintCtx globalRedeemer mintedQty transferOutputQty =
 -- the mint-delta union, and the multi-asset containment walk END TO END —
 -- the paths a single-policy fixture cannot reach.
 mkGlobalTransferTwoPoliciesCtx :: ProgrammableLogicGlobalRedeemer -> [(CurrencySymbol, TokenName, Integer)] -> Value -> ScriptContext
-mkGlobalTransferTwoPoliciesCtx globalRedeemer mintEntries progOutputVal =
+mkGlobalTransferTwoPoliciesCtx = mkGlobalTransferTwoPoliciesCtx' True
+
+-- | As 'mkGlobalTransferTwoPoliciesCtx', but the signatory list can be omitted
+-- entirely. A mini-ledger input whose stake credential is a PUBKEY is
+-- authorised only by that key's signature, so with no signatories at all the
+-- spend must be rejected -- including when the signatory list is EMPTY rather
+-- than merely wrong.
+mkGlobalTransferTwoPoliciesCtx' :: Bool -> ProgrammableLogicGlobalRedeemer -> [(CurrencySymbol, TokenName, Integer)] -> Value -> ScriptContext
+mkGlobalTransferTwoPoliciesCtx' signed globalRedeemer mintEntries progOutputVal =
     buildBalancedScriptContext
         ( withRewardingScript
             (PlutusTx.toBuiltinData globalRedeemer)
             globalCred
             0
-            <> withSigner signerPkh
+            <> (if signed then withSigner signerPkh else mempty)
             <> withWithdrawal transferCred 0
             <> withScriptInput
                 (PlutusTx.toBuiltinData ())
