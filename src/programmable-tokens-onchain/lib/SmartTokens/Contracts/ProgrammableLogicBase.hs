@@ -170,7 +170,7 @@ ptokenPairsUnionFast ::
             :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger))
         )
 ptokenPairsUnionFast = phoistAcyclic $
-    pfixHoisted #$ plam $ \self tokensA tokensB ->
+    pfix $ \self -> plam $ \tokensA tokensB ->
         pelimList
             ( \tokenPairA tokensARest ->
                 pelimList
@@ -224,7 +224,7 @@ pcurrencyPairsUnionFast ::
             :--> PBuiltinList (PBuiltinPair (PAsData PCurrencySymbol) (PAsData (AssocMap.PSortedMap PTokenName PInteger)))
         )
 pcurrencyPairsUnionFast = phoistAcyclic $
-    pfixHoisted #$ plam $ \self csPairsA csPairsB ->
+    pfix $ \self -> plam $ \csPairsA csPairsB ->
         pelimList
             ( \csPairA csPairsARest ->
                 pelimList
@@ -303,7 +303,7 @@ benchmark), which is what justifies that redeemer field.
 -}
 pisScriptInvokedEntries :: Term s (PAsData PCredential :--> PBuiltinList (PBuiltinPair (PAsData PCredential) (PAsData PLovelace)) :--> PBool)
 pisScriptInvokedEntries = phoistAcyclic $ plam $ \scriptCredData withdrawalEntries ->
-    let go = pfixHoisted #$ plam $ \self entries ->
+    let go = pfix $ \self -> plam $ \entries ->
             let entry = phead # entries
              in (pfstBuiltin # entry)
                     #== scriptCredData
@@ -426,7 +426,7 @@ pvalueFromCred cred sigs withdrawalEntries ownerWdrlIdxs inputs =
                             (skip idxs)
 
         -- Phase 3: two or more contributing inputs seen; accumulate builtin.
-        goBuiltin = pfixHoisted #$ plam $ \self acc idxs remaining ->
+        goBuiltin = pfix $ \self -> plam $ \acc idxs remaining ->
             pelimList
                 ( \txIn xs ->
                     withContributing
@@ -441,7 +441,7 @@ pvalueFromCred cred sigs withdrawalEntries ownerWdrlIdxs inputs =
                 )
                 remaining
         -- Phase 2: exactly one contributing input so far (raw value Data held).
-        goRest = pfixHoisted #$ plam $ \self firstVd idxs remaining ->
+        goRest = pfix $ \self -> plam $ \firstVd idxs remaining ->
             pelimList
                 ( \txIn xs ->
                     withContributing
@@ -456,7 +456,7 @@ pvalueFromCred cred sigs withdrawalEntries ownerWdrlIdxs inputs =
                 )
                 remaining
         -- Phase 1: no contributing input seen yet.
-        goFind = pfixHoisted #$ plam $ \self idxs remaining ->
+        goFind = pfix $ \self -> plam $ \idxs remaining ->
             pelimList
                 ( \txIn xs ->
                     withContributing
@@ -487,7 +487,7 @@ pvalueToCred ::
     Term s PSortedValue
 pvalueToCred cred inputs =
     let credData = pforgetData (pdata cred)
-     in ( pfixHoisted #$ plam $ \self acc ->
+     in ( pfix $ \self -> plam $ \acc ->
             pelimList
                 ( \txOut xs ->
                     pmatch (pasConstr # pforgetData txOut) $ \(PBuiltinPair _ txOutFields) ->
@@ -561,7 +561,7 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
                     :--> PInteger
                 )
         passetQtyInPairs = phoistAcyclic $ plam $ \csPairs cs tn ->
-            let tokenQtyInTokenPairs = pfixHoisted #$ plam $ \self remainingTokenPairs ->
+            let tokenQtyInTokenPairs = pfix $ \self -> plam $ \remainingTokenPairs ->
                     pelimList
                         ( \tokenPair tokenPairsRest ->
                             -- One Case for both components; cheaper than even a
@@ -578,7 +578,7 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
                         )
                         0
                         remainingTokenPairs
-                tokenQtyInCurrencyPairs = pfixHoisted #$ plam $ \self remainingCurrencyPairs ->
+                tokenQtyInCurrencyPairs = pfix $ \self -> plam $ \remainingCurrencyPairs ->
                     pelimList
                         ( \currencyPair currencyPairsRest ->
                             pmatch currencyPair $ \(PBuiltinPair currencySymbolD tokenMapD) ->
@@ -594,7 +594,7 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
                         0
                         remainingCurrencyPairs
              in tokenQtyInCurrencyPairs # csPairs
-        hasAtLeastAssetInProgOutputs = pfixHoisted #$ plam $ \self requiredQty currentQty cs tn remainingOutputs ->
+        hasAtLeastAssetInProgOutputs = pfix $ \self -> plam $ \requiredQty currentQty cs tn remainingOutputs ->
             pif
                 (currentQty #>= requiredQty)
                 (pconstant True)
@@ -627,7 +627,7 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
         -- its entries are strictly positive by this function's precondition,
         -- which valueContains requires of both arguments.
         progLogicCredData = pforgetData (pdata progLogicCred)
-        accumulateOutputsAtCred = pfixHoisted #$ plam $ \self acc remainingOutputs ->
+        accumulateOutputsAtCred = pfix $ \self -> plam $ \acc remainingOutputs ->
             pelimList
                 ( \txOut outputsRest ->
                     pmatch (pasConstr # pforgetData txOut) $ \(PBuiltinPair _ txOutFields) ->
@@ -656,7 +656,7 @@ poutputsContainExpectedValueAtCred progLogicCred txOutputs expectedValue =
         -- much larger constant than equalsData). On mismatch we fall through to
         -- the full builtin containment over all outputs.
         expectedMapData = pmapData # punsafeCoerce expectedCsPairs
-        checkWholesaleThenBuiltin = pfixHoisted #$ plam $ \self remainingOutputs ->
+        checkWholesaleThenBuiltin = pfix $ \self -> plam $ \remainingOutputs ->
             pelimList
                 ( \txOut outputsRest ->
                     pmatch (pasConstr # pforgetData txOut) $ \(PBuiltinPair _ txOutFields) ->
@@ -841,7 +841,7 @@ pfindReferenceInputByCS currencySymbol referenceInputs =
                 POutputDatum paramDat' ->
                     pfromData $ punsafeCoerce @(PAsData PProgrammableLogicGlobalParams) (pto paramDat')
                 _ -> ptraceInfoError "protocol params datum missing"
-        go = pfixHoisted #$ plam $ \self remainingRefInputs ->
+        go = pfix $ \self -> plam $ \remainingRefInputs ->
             let txIn = phead # remainingRefInputs
              in plet (ptxInInfoResolved $ pfromData txIn) $ \resolvedOut ->
                     pif
@@ -912,7 +912,7 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
         -- Matches are consed onto the RESULT of the recursive call rather than
         -- onto a forward accumulator, so the list comes back in canonical
         -- ascending order without a reversing pass.
-        go = pfixHoisted #$ plam $ \self proofs wdrlIdxs inputInnerValue cachedTransferScript ->
+        go = pfix $ \self -> plam $ \proofs wdrlIdxs inputInnerValue cachedTransferScript ->
             pelimList
                 ( \csPair csPairs ->
                     P.do
@@ -1023,7 +1023,7 @@ pcheckMintLogicAndGetProgrammableValue directoryNodeCS refInputs proofList total
         mintedEntries = pvalueCsPairs totalMintValue
         -- Same shape as the transfer walk: cons onto the recursive result so the
         -- entries come back ascending without a reversing pass.
-        go = pfixHoisted #$ plam $ \self proofs remainingMintEntries ->
+        go = pfix $ \self -> plam $ \proofs remainingMintEntries ->
             pelimList
                 ( \mintCsPair mintCsPairs ->
                     pelimList
@@ -1415,7 +1415,7 @@ ptokensForCurrencyPairs ::
 ptokensForCurrencyPairs =
     phoistAcyclic $
         plam $ \targetCs mintedEntries ->
-            let go = pfixHoisted #$ plam $ \self remainingMintEntries ->
+            let go = pfix $ \self -> plam $ \remainingMintEntries ->
                     pelimList
                         ( \mintCsPair mintCsPairs ->
                             pmatch mintCsPair $ \(PBuiltinPair mintCsD tokenMapD) ->
@@ -1452,7 +1452,7 @@ ptokenPairsContain ::
             :--> PBool
         )
 ptokenPairsContain = phoistAcyclic $
-    pfixHoisted #$ plam $ \self actualTokens requiredTokens ->
+    pfix $ \self -> plam $ \actualTokens requiredTokens ->
         pelimList
             ( \requiredPair requiredRest ->
                 pmatch requiredPair $ \(PBuiltinPair requiredTokenNameD requiredQtyD) ->
@@ -1583,7 +1583,7 @@ processThirdPartyTransfer programmableCS progLogicCred inputs progOutputs minted
                     perror
 
         go2 :: Term _ (PBuiltinList (PAsData PTxOut) :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)))
-        go2 = pfixHoisted #$ plam $ \self programmableOutputs ->
+        go2 = pfix $ \self -> plam $ \programmableOutputs ->
             pelimList
                 ( \programmableOutput programmableOutputsRest ->
                     pmatch (pasConstr # pforgetData programmableOutput) $ \(PBuiltinPair _ outFields) ->
@@ -1604,7 +1604,7 @@ processThirdPartyTransfer programmableCS progLogicCred inputs progOutputs minted
         -- spend-redeemer-count check) entirely: coverage of all programmable inputs
         -- is now structural rather than trusted.
         go :: Term _ (PBuiltinList (PAsData PTxInInfo) :--> PBuiltinList (PAsData PTxOut) :--> PBuiltinList (PBuiltinPair (PAsData PTokenName) (PAsData PInteger)) :--> PBool)
-        go = pfixHoisted #$ plam $ \self remainingInputs programmableOutputs deltaAccumulator ->
+        go = pfix $ \self -> plam $ \remainingInputs programmableOutputs deltaAccumulator ->
             pelimList
                 ( \txIn remainingInputsRest ->
                     -- The base credential arrives as a decoded 'PCredential' but is
