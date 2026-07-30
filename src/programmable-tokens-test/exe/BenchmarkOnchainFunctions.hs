@@ -490,6 +490,43 @@ inputCtxPubKeyOwners inputCount =
                 )
                 [0 .. inputCount - 1]
 
+-- | N pk-owned inputs, ONE signer owning all of them: isolates the owner
+-- walk's per-input cost from the signatory-scan quadratic in
+-- 'inputCtxPubKeyOwners' (N inputs x N signers). The wide variant carries a
+-- 3-entry non-ada value per input to expose the unValueData/unionValue
+-- size dependence.
+inputCtxOneSigner :: Int -> ScriptContext
+inputCtxOneSigner inputCount =
+    buildScriptContext $
+        withSigners [pubKeyHashAt 0]
+            <> foldMap
+                ( \idx ->
+                    withScriptInput
+                        (PlutusTx.toBuiltinData ())
+                        ( withAddress (progWalletPubKeyOwnerAddress (pubKeyHashAt 0))
+                            <> withValue (mkAdaValue 2_000_000 <> targetAssetValue (fromIntegral idx + 1))
+                        )
+                )
+                [0 .. inputCount - 1]
+
+inputCtxOneSignerWide :: Int -> ScriptContext
+inputCtxOneSignerWide inputCount =
+    buildScriptContext $
+        withSigners [pubKeyHashAt 0]
+            <> foldMap
+                ( \idx ->
+                    withScriptInput
+                        (PlutusTx.toBuiltinData ())
+                        ( withAddress (progWalletPubKeyOwnerAddress (pubKeyHashAt 0))
+                            <> withValue
+                                ( mkAdaValue 2_000_000
+                                    <> targetAssetValue (fromIntegral idx + 1)
+                                    <> mkValue [(currencySymbolAt 7, TokenName "n1", 1), (currencySymbolAt 8, TokenName "n2", 1)]
+                                )
+                        )
+                )
+                [0 .. inputCount - 1]
+
 inputCtxScriptOwners :: Int -> ScriptContext
 inputCtxScriptOwners inputCount =
     buildScriptContext $
@@ -659,6 +696,10 @@ benchCases =
     , mkValueFromCredCase "local.valueFromCred.scriptOwners.inputs.n050" (inputCtxScriptOwners 50) 50
     , mkValueFromCredCase "local.valueFromCred.mixedOwners.inputs.n020" (inputCtxMixedOwners 20) 20
     , mkValueFromCredCase "local.valueFromCred.sparse.total.n100.matching.n020" (inputCtxSparse 100 20) 20
+    , mkActualValueFromCredCase "decision.perInput.oneSigner.n010" (inputCtxOneSigner 10) 55
+    , mkActualValueFromCredCase "decision.perInput.oneSigner.n050" (inputCtxOneSigner 50) 1275
+    , mkActualValueFromCredCase "decision.perInput.oneSignerWide.n010" (inputCtxOneSignerWide 10) 55
+    , mkActualValueFromCredCase "decision.perInput.oneSignerWide.n050" (inputCtxOneSignerWide 50) 1275
     , mkActualValueFromCredCase "actual.valueFromCred.pubKeyOwners.inputs.n010" (inputCtxPubKeyOwners 10) 10
     , mkActualValueFromCredCase "actual.valueFromCred.pubKeyOwners.inputs.n050" (inputCtxPubKeyOwners 50) 50
     , mkActualValueFromCredCaseIdx "actual.valueFromCred.scriptOwners.inputs.n010" (inputCtxScriptOwners 10) 10 (scriptOwnerIdxsFor [0 .. 9])
