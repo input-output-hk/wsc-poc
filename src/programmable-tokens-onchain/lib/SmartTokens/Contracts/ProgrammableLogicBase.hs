@@ -1550,22 +1550,22 @@ pcheckCorrespondingThirdPartyTransferInputsAndOutputs programmableCS progLogicCr
     -- (more expensive) output pairing and value extraction is deferred into the
     -- base-credential branch. This keeps the per-input skip cost minimal — critical
     -- now that every transaction input is walked (e.g. many fee/pubkey inputs).
+    -- Every field access below takes head AND tail of the same list, so each is
+    -- one Case ('pheadTailBuiltin') rather than a headList plus a tailList --
+    -- and the Case's own binding replaces the 'plet' these sites used to need,
+    -- so it is cheaper on the skip path too, not only on the paired path.
     pmatch (pasConstr # programmableInputResolvedData) $ \(PBuiltinPair _ inputTxOutFields) ->
-        plet (phead # inputTxOutFields) $ \inputTxOutAddress ->
+        pheadTailBuiltin inputTxOutFields $ \inputTxOutAddress inputTxOutFieldsRest ->
             let inputCredentialData = pmatch (pasConstr # inputTxOutAddress) (\(PBuiltinPair _ addrFields) -> phead # addrFields)
              in pif
                     (inputCredentialData #== progLogicCredData)
                     -- Programmable (base-credential) input: pair it with the next
                     -- remaining output and accumulate the seized-policy delta.
                     ( pmatch (pasConstr # pforgetData (phead # programmableOutputs)) $ \(PBuiltinPair _ outputTxOutFields) ->
-                        plet (ptail # inputTxOutFields) $ \inputTxOutFieldsRest ->
-                            plet (ptail # outputTxOutFields) $ \outputTxOutFieldsRest ->
-                                let outputTxOutAddress = phead # outputTxOutFields
-                                    programmableInputValue = phead # inputTxOutFieldsRest
-                                    programmableOutputValue = phead # outputTxOutFieldsRest
-                                    programmableInputRest = ptail # inputTxOutFieldsRest
-                                    programmableOutputRest = ptail # outputTxOutFieldsRest
-                                 in pif
+                        pheadTailBuiltin outputTxOutFields $ \outputTxOutAddress outputTxOutFieldsRest ->
+                            pheadTailBuiltin inputTxOutFieldsRest $ \programmableInputValue programmableInputRest ->
+                                pheadTailBuiltin outputTxOutFieldsRest $ \programmableOutputValue programmableOutputRest ->
+                                 pif
                                         -- Address, datum and reference script must all be preserved.
                                         -- Re-consing the address in front of the (datum, refScript)
                                         -- suffix and comparing the two `listData`s costs one
