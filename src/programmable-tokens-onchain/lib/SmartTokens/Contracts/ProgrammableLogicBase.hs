@@ -455,13 +455,20 @@ pvalueFromCred cred sigs withdrawalEntries ownerWdrlIdxs inputs =
                                               -- list fails the same way at the next
                                               -- script-owned input.
                                               popaque
-                                                ( pif
-                                                    ( ownerCredData
-                                                        #== pforgetData
-                                                            (pmatch (phead # (pdropList # pfromData (phead # idxs) # withdrawalEntries)) (\(PBuiltinPair wCredD _) -> wCredD))
-                                                    )
-                                                    (k resolvedOutValueData (ptail # idxs))
-                                                    (ptraceInfoError "Missing required script witness")
+                                                ( pheadTailBuiltin idxs $ \idxHead idxsRest ->
+                                                    -- Both the witnessed index and the
+                                                    -- remaining list are consumed on THIS
+                                                    -- arm only (a pubkey owner takes no
+                                                    -- index), so the Case is placed inside
+                                                    -- the arm rather than above the
+                                                    -- credential-tag dispatch.
+                                                    pif
+                                                        ( ownerCredData
+                                                            #== pforgetData
+                                                                (pmatch (phead # (pdropList # pfromData idxHead # withdrawalEntries)) (\(PBuiltinPair wCredD _) -> wCredD))
+                                                        )
+                                                        (k resolvedOutValueData idxsRest)
+                                                        (ptraceInfoError "Missing required script witness")
                                                 )
                                             ]
                             )
@@ -883,13 +890,15 @@ pfindReferenceInputByCS currencySymbol referenceInputs =
                 POutputDatum paramDat' ->
                     pfromData $ punsafeCoerce @(PAsData PProgrammableLogicGlobalParams) (pto paramDat')
                 _ -> ptraceInfoError "protocol params datum missing"
+        -- Head and tail are both consumed on every iteration (candidate now, rest
+        -- on a miss), so one Case replaces a headList plus a tailList.
         go = pfix $ \self -> plam $ \remainingRefInputs ->
-            let txIn = phead # remainingRefInputs
-             in plet (ptxInInfoResolved $ pfromData txIn) $ \resolvedOut ->
+            pheadTailBuiltin remainingRefInputs $ \txIn refInputsRest ->
+                plet (ptxInInfoResolved $ pfromData txIn) $ \resolvedOut ->
                     pif
                         (phasCSHOrFalse currencySymbol (ptxOutValue resolvedOut))
                         (extractParams resolvedOut)
-                        (self # (ptail # remainingRefInputs))
+                        (self # refInputsRest)
      in go # referenceInputs
 
 {- | Indexed variant of 'pfindReferenceInputByCS' (spec §11.3/§11.4): resolve the
@@ -1568,7 +1577,11 @@ pcheckCorrespondingThirdPartyTransferInputsAndOutputs programmableCS progLogicCr
                     (inputCredentialData #== progLogicCredData)
                     -- Programmable (base-credential) input: pair it with the next
                     -- remaining output and accumulate the seized-policy delta.
-                    ( pmatch (pasConstr # pforgetData (phead # programmableOutputs)) $ \(PBuiltinPair _ outputTxOutFields) ->
+                    -- Both the paired output and the remaining tail are needed on
+                    -- THIS branch only, so the Case sits inside it: the skip branch
+                    -- keeps passing programmableOutputs along untouched.
+                    ( pheadTailBuiltin programmableOutputs $ \pairedOutput programmableOutputsRest ->
+                      pmatch (pasConstr # pforgetData pairedOutput) $ \(PBuiltinPair _ outputTxOutFields) ->
                         pheadTailBuiltin outputTxOutFields $ \outputTxOutAddress outputTxOutFieldsRest ->
                             pheadTailBuiltin inputTxOutFieldsRest $ \programmableInputValue programmableInputRest ->
                                 pheadTailBuiltin outputTxOutFieldsRest $ \programmableOutputValue programmableOutputRest ->
@@ -1587,7 +1600,7 @@ pcheckCorrespondingThirdPartyTransferInputsAndOutputs programmableCS progLogicCr
                                                 #== pdata (pcons # outputTxOutAddress # programmableOutputRest)
                                         )
                                         ( let delta = pvalueEqualsDeltaCurrencySymbol programmableCS programmableInputValue programmableOutputValue
-                                           in self # remainingInputs # (ptail # programmableOutputs) # (ptokenPairsUnionFast # delta # deltaAccumulator)
+                                           in self # remainingInputs # programmableOutputsRest # (ptokenPairsUnionFast # delta # deltaAccumulator)
                                         )
                                         perror
                     )
