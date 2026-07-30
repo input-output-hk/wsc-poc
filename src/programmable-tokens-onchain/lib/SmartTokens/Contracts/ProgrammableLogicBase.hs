@@ -70,6 +70,48 @@ Security invariants:
 - This helper must not be used to bypass missing-datum or missing-stake checks.
 - The extracted payload must be interpreted at the same type it was encoded with.
 -}
+{- | Signatory membership, replacing catalyst's 'ptxSignedByPkh' (which is
+'pelem' -> 'pany' -> '#||') on this validator's hot input walk. '#||' costs a
+delay, a force and an application of the hoisted 'por' for EVERY element on top
+of the comparison itself; measured (decision.sig.*) that is ~2,500 memory units
+to test a ONE-element signatory list.
+
+Two deliberate choices, both measured:
+
+* Unrolled, not recursive. A fixpoint would be built at script start-up whether
+  or not any pubkey-owned input exists, costing +600 memory units on
+  transactions whose mini-ledger inputs are all script-owned (the DEX
+  fixtures). Real signatory lists are one to three entries, so two inline
+  checks cover them and the cold tail falls back to 'pelem'.
+* A Haskell-level function, not a hoisted 'plam'. Hoisting reintroduced half
+  that start-up cost (+300) on the same transactions, because the binding is
+  evaluated whether or not it is reached; inlining costs nothing when the
+  pubkey arm is never taken.
+
+'equalsData' is kept over a payload-byte compare: ~301 memory units per element
+against ~602 for pasByteStr + equalsByteString, and memory is the axis that
+binds transaction capacity (bytes win on CPU, which does not bind).
+-}
+psignedByInline ::
+    forall s.
+    Term s (PAsData PPubKeyHash) ->
+    Term s (PBuiltinList (PAsData PPubKeyHash)) ->
+    Term s PBool
+psignedByInline pkh sigs =
+    pelimList
+        ( \s0 r0 ->
+            pif
+                (s0 #== pkh)
+                (pconstant True)
+                ( pelimList
+                    (\s1 r1 -> pif (s1 #== pkh) (pconstant True) (ptxSignedByPkh # pkh # r1))
+                    (pconstant False)
+                    r0
+                )
+        )
+        (pconstant False)
+        sigs
+
 pjustData :: Term s (PMaybeData a) -> Term s a
 pjustData term =
     punsafeCoerce $ phead # (psndBuiltin # (pasConstr # pforgetData (pdata term)))
@@ -399,7 +441,7 @@ pvalueFromCred cred sigs withdrawalEntries ownerWdrlIdxs inputs =
                                             ownerCredTag
                                             [ popaque
                                                 ( pif
-                                                    (ptxSignedByPkh # punsafeCoerce (phead # ownerCredFields) # sigs)
+                                                    (plet (punsafeCoerce @(PAsData PPubKeyHash) (phead # ownerCredFields)) $ \ownerPkh -> psignedByInline ownerPkh sigs)
                                                     (k resolvedOutValueData idxs)
                                                     (ptraceInfoError "Missing required pk witness")
                                                 )
