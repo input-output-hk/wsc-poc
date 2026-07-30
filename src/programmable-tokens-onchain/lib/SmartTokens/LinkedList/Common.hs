@@ -56,12 +56,32 @@ correctNodeTokenMinted ::
             :--> PBool
         )
 correctNodeTokenMinted = phoistAcyclic $
-    plam $ \nodeCS tokenName amount mint -> P.do
-        PJust nodeMint <- pmatch $ AssocMap.plookup # nodeCS # pto mint
-        tokenPair <- plet $ pheadSingleton # ptokenPairs nodeMint
-        let mintedTokenName = pfromData $ pfstBuiltin # tokenPair
-            mintedAmount = pfromData $ psndBuiltin # tokenPair
-        (mintedTokenName #== tokenName) #&& (mintedAmount #== amount)
+    plam $ \nodeCS tokenName amount mint ->
+        -- Byte-keyed scan; see the note on the blacklist variant.
+        plet (pto nodeCS) $ \csBytes ->
+            ( pfixHoisted #$ plam $ \self pairs ->
+                pelimList
+                    ( \csPair rest -> pmatch csPair $ \(PBuiltinPair csD tokenMapD) ->
+                        pif
+                            ((pasByteStr # pforgetData csD) #== csBytes)
+                            ( pelimList
+                                ( \tkPair tkRest -> pmatch tkPair $ \(PBuiltinPair tnD qtyD) ->
+                                    pif
+                                        (pnull # tkRest)
+                                        ( ((pasByteStr # pforgetData tnD) #== pto tokenName)
+                                            #&& (pfromData qtyD #== amount)
+                                        )
+                                        (pconstant False)
+                                )
+                                (pconstant False)
+                                (ptokenPairs (pfromData tokenMapD))
+                            )
+                            (self # rest)
+                    )
+                    (pconstant False)
+                    pairs
+            )
+                # pvalueCsPairs mint
 
 -- Potentially use this in the future if we plan to manage additional
 -- value in the directory nodes.

@@ -490,6 +490,43 @@ inputCtxPubKeyOwners inputCount =
                 )
                 [0 .. inputCount - 1]
 
+-- | N pk-owned inputs, ONE signer owning all of them: isolates the owner
+-- walk's per-input cost from the signatory-scan quadratic in
+-- 'inputCtxPubKeyOwners' (N inputs x N signers). The wide variant carries a
+-- 3-entry non-ada value per input to expose the unValueData/unionValue
+-- size dependence.
+inputCtxOneSigner :: Int -> ScriptContext
+inputCtxOneSigner inputCount =
+    buildScriptContext $
+        withSigners [pubKeyHashAt 0]
+            <> foldMap
+                ( \idx ->
+                    withScriptInput
+                        (PlutusTx.toBuiltinData ())
+                        ( withAddress (progWalletPubKeyOwnerAddress (pubKeyHashAt 0))
+                            <> withValue (mkAdaValue 2_000_000 <> targetAssetValue (fromIntegral idx + 1))
+                        )
+                )
+                [0 .. inputCount - 1]
+
+inputCtxOneSignerWide :: Int -> ScriptContext
+inputCtxOneSignerWide inputCount =
+    buildScriptContext $
+        withSigners [pubKeyHashAt 0]
+            <> foldMap
+                ( \idx ->
+                    withScriptInput
+                        (PlutusTx.toBuiltinData ())
+                        ( withAddress (progWalletPubKeyOwnerAddress (pubKeyHashAt 0))
+                            <> withValue
+                                ( mkAdaValue 2_000_000
+                                    <> targetAssetValue (fromIntegral idx + 1)
+                                    <> mkValue [(currencySymbolAt 7, TokenName "n1", 1), (currencySymbolAt 8, TokenName "n2", 1)]
+                                )
+                        )
+                )
+                [0 .. inputCount - 1]
+
 inputCtxScriptOwners :: Int -> ScriptContext
 inputCtxScriptOwners inputCount =
     buildScriptContext $
@@ -659,6 +696,10 @@ benchCases =
     , mkValueFromCredCase "local.valueFromCred.scriptOwners.inputs.n050" (inputCtxScriptOwners 50) 50
     , mkValueFromCredCase "local.valueFromCred.mixedOwners.inputs.n020" (inputCtxMixedOwners 20) 20
     , mkValueFromCredCase "local.valueFromCred.sparse.total.n100.matching.n020" (inputCtxSparse 100 20) 20
+    , mkActualValueFromCredCase "decision.perInput.oneSigner.n010" (inputCtxOneSigner 10) 55
+    , mkActualValueFromCredCase "decision.perInput.oneSigner.n050" (inputCtxOneSigner 50) 1275
+    , mkActualValueFromCredCase "decision.perInput.oneSignerWide.n010" (inputCtxOneSignerWide 10) 55
+    , mkActualValueFromCredCase "decision.perInput.oneSignerWide.n050" (inputCtxOneSignerWide 50) 1275
     , mkActualValueFromCredCase "actual.valueFromCred.pubKeyOwners.inputs.n010" (inputCtxPubKeyOwners 10) 10
     , mkActualValueFromCredCase "actual.valueFromCred.pubKeyOwners.inputs.n050" (inputCtxPubKeyOwners 50) 50
     , mkActualValueFromCredCaseIdx "actual.valueFromCred.scriptOwners.inputs.n010" (inputCtxScriptOwners 10) 10 (scriptOwnerIdxsFor [0 .. 9])
@@ -668,6 +709,9 @@ benchCases =
     ]
         <> decisionBenchCases
         <> casingDecisionCases
+        <> casingDecision2Cases
+        <> casingDecision3Cases
+        <> casingSigDecisionCases
 
 -- =====================================================================
 -- Decision benchmarks for design-issuance-dual-arm-custody.md pending
@@ -1657,4 +1701,166 @@ casingDecisionCases =
     , mkCase "decision.case.field2.case" casingField2Case []
     , mkCase "decision.case.intDispatch.pif" casingIntDispatchPif []
     , mkCase "decision.case.intDispatch.case" casingIntDispatchCase []
+    ]
+
+-- =====================================================================
+-- Second round of casing decision benchmarks, shaped after the ACTUAL usage
+-- contexts in the converted walks, with every head-to-head computing the same
+-- result (the first round's pairBoth vs pairFst comparison differed by an
+-- AddInteger, so only within-group deltas were fair):
+--   * matchWalk.none — sorted-walk mismatch path: compare fst every
+--     iteration, never touch snd. The builtin variant pays one FstPair; the
+--     Case variant binds both components eagerly and discards snd.
+--   * matchWalk.all — the same walk with every comparison succeeding, so snd
+--     is consumed each iteration (builtin pays FstPair+SndPair).
+-- Together with decision.case.field2.* these cover shapes B (fst-compare,
+-- snd-on-match), C (fst only), A (both, = matchWalk.all) and D (field
+-- chains).
+
+casingMatchWalkNoneBuiltins :: forall s. Term s PInteger
+casingMatchWalkNoneBuiltins = casingWalk (casingPairs @s) $ \acc p ->
+    pif ((pfstBuiltin # p) #== pconstantInteger (-1)) (acc + (psndBuiltin # p)) (acc + pconstantInteger 1)
+
+casingMatchWalkNoneCase :: forall s. Term s PInteger
+casingMatchWalkNoneCase = casingWalk (casingPairs @s) $ \acc p ->
+    pmatch p $ \(PBuiltinPair x y) ->
+        pif (x #== pconstantInteger (-1)) (acc + y) (acc + pconstantInteger 1)
+
+casingMatchWalkAllBuiltins :: forall s. Term s PInteger
+casingMatchWalkAllBuiltins = casingWalk (casingPairs @s) $ \acc p ->
+    pif ((pfstBuiltin # p) #< pconstantInteger 1000000) (acc + (psndBuiltin # p)) (acc + pconstantInteger 1)
+
+casingMatchWalkAllCase :: forall s. Term s PInteger
+casingMatchWalkAllCase = casingWalk (casingPairs @s) $ \acc p ->
+    pmatch p $ \(PBuiltinPair x y) ->
+        pif (x #< pconstantInteger 1000000) (acc + y) (acc + pconstantInteger 1)
+
+casingDecision2Cases :: [BenchCase]
+casingDecision2Cases =
+    [ mkCase "decision.case2.matchWalk.none.builtins" casingMatchWalkNoneBuiltins []
+    , mkCase "decision.case2.matchWalk.none.case" casingMatchWalkNoneCase []
+    , mkCase "decision.case2.matchWalk.all.builtins" casingMatchWalkAllBuiltins []
+    , mkCase "decision.case2.matchWalk.all.case" casingMatchWalkAllCase []
+    ]
+
+-- The two real field-chain shapes, each with every variant computing the same
+-- result:
+--   * fieldPrelude — walk preamble: head (address) AND second field (value)
+--     both consumed. Old form pays phead + ptail + phead (3 builtins); the
+--     Case form one list Case + one phead.
+--   * skipSecond — phasCSH shape: only the SECOND element's fst is consumed,
+--     everything bound on the way is discarded. Variants: 3 builtins; nested
+--     Case (binds 4, discards 3); and a hybrid (builtin ptail, then one list
+--     Case and one pair Case).
+casingFieldPreludeBuiltins :: forall s. Term s PInteger
+casingFieldPreludeBuiltins = casingWalk (casingTags @s) $ \acc _ ->
+    plet casingFieldFixture $ \fields ->
+        acc + (phead # fields) + (phead # (ptail # fields))
+
+casingFieldPreludeCase :: forall s. Term s PInteger
+casingFieldPreludeCase = casingWalk (casingTags @s) $ \acc _ ->
+    pheadTailBuiltin casingFieldFixture $ \h rest ->
+        acc + h + (phead # rest)
+
+casingSkipSecondBuiltins :: forall s. Term s PInteger
+casingSkipSecondBuiltins = casingWalk (casingPairs @s) $ \acc _ ->
+    acc + (pfstBuiltin # (phead # (ptail # casingPairFixtureList)))
+
+casingSkipSecondAllCase :: forall s. Term s PInteger
+casingSkipSecondAllCase = casingWalk (casingPairs @s) $ \acc _ ->
+    pheadTailBuiltin casingPairFixtureList $ \_ rest ->
+        pheadTailBuiltin rest $ \secondEntry _ ->
+            pmatch secondEntry $ \(PBuiltinPair x _) -> acc + x
+
+casingSkipSecondHybrid :: forall s. Term s PInteger
+casingSkipSecondHybrid = casingWalk (casingPairs @s) $ \acc _ ->
+    pheadTailBuiltin (ptail # casingPairFixtureList) $ \secondEntry _ ->
+        pmatch secondEntry $ \(PBuiltinPair x _) -> acc + x
+
+casingPairFixtureList :: forall s. Term s (PBuiltinList (PBuiltinPair PInteger PInteger))
+casingPairFixtureList = pconstant [(i, i) | i <- [1 .. 4 :: Integer]]
+
+casingDecision3Cases :: [BenchCase]
+casingDecision3Cases =
+    [ mkCase "decision.eqData.cred.equalsData" casingEqDataCred []
+    , mkCase "decision.eqData.cred.decomposed" casingEqDataDecomposed []
+    , mkCase "decision.case3.fieldPrelude.builtins" casingFieldPreludeBuiltins []
+    , mkCase "decision.case3.fieldPrelude.case" casingFieldPreludeCase []
+    , mkCase "decision.case3.skipSecond.builtins" casingSkipSecondBuiltins []
+    , mkCase "decision.case3.skipSecond.allCase" casingSkipSecondAllCase []
+    , mkCase "decision.case3.skipSecond.hybrid" casingSkipSecondHybrid []
+    ]
+
+-- =====================================================================
+-- Decision benchmarks for Data equality on credentials. equalsData carries a
+-- ~898k CPU intercept (variant E), so every `#==` on a credential-as-Data in
+-- a per-item walk is a candidate for decomposition into a constructor-tag
+-- comparison plus an equalsByteString on the payload — IF the extra machine
+-- steps (100 mem each) don't eat the win. Same-result variants:
+--   * eqData.cred.equalsData — the current idiom
+--   * eqData.cred.decomposed — tag + payload bytes against a pre-split
+--     constant side
+-- Fixtures exercise the mismatch-heavy walk shape (the common case in
+-- address filters) plus an all-match control.
+
+casingCredFixture :: forall s. Term s (PBuiltinList PData)
+casingCredFixture =
+    pconstant
+        ( take 200 . cycle $
+            [ PlutusTx.toData (ScriptCredential (ScriptHash (bs28 w)))
+            | w <- [0x41 .. 0x48]
+            ]
+        )
+
+casingCredTarget :: Data
+casingCredTarget = PlutusTx.toData (ScriptCredential (ScriptHash (bs28 0x44)))
+
+casingEqDataCred :: forall s. Term s PInteger
+casingEqDataCred = casingWalk (casingCredFixture @s) $ \acc d ->
+    pif (d #== pconstant casingCredTarget) (acc + 1) acc
+
+casingEqDataDecomposed :: forall s. Term s PInteger
+casingEqDataDecomposed = casingWalk (casingCredFixture @s) $ \acc d ->
+    pmatch (pasConstr # d) $ \(PBuiltinPair tag fields) ->
+        pif
+            ((tag #== pconstantInteger 1) #&& (pasByteStr # (phead # fields) #== pconstant (BS.replicate 28 0x44)))
+            (acc + 1)
+            acc
+
+-- Signature-scan decision probes: pelem/equalsData vs the tight byte scan,
+-- over the realistic 1-signatory and 3-signatory shapes.
+casingSigs1 :: forall s. Term s (PBuiltinList (PAsData PPubKeyHash))
+casingSigs1 = pconstant [PubKeyHash (bs28 0x51)]
+
+casingSigs3 :: forall s. Term s (PBuiltinList (PAsData PPubKeyHash))
+casingSigs3 = pconstant [PubKeyHash (bs28 w) | w <- [0x51, 0x52, 0x53]]
+
+casingSigTarget :: forall s. Term s (PAsData PPubKeyHash)
+casingSigTarget = pconstant (PubKeyHash (bs28 0x53))
+
+casingSigElem :: forall s. Term s (PBuiltinList (PAsData PPubKeyHash)) -> Term s PInteger
+casingSigElem sigs = casingWalk (casingTags @s) $ \acc _ ->
+    pif (pelem # casingSigTarget # sigs) (acc + 1) acc
+
+casingSigBytes :: forall s. Term s (PBuiltinList (PAsData PPubKeyHash)) -> Term s PInteger
+casingSigBytes sigs = casingWalk (casingTags @s) $ \acc _ ->
+    plet (pasByteStr # pforgetData (casingSigTarget @s)) $ \target ->
+        pif
+            ( ( pfixHoisted #$ plam $ \self rest ->
+                    pelimList
+                        (\sig ss -> pif ((pasByteStr # pforgetData sig) #== target) (pconstant True) (self # ss))
+                        (pconstant False)
+                        rest
+              )
+                # sigs
+            )
+            (acc + 1)
+            acc
+
+casingSigDecisionCases :: [BenchCase]
+casingSigDecisionCases =
+    [ mkCase "decision.sig.n1.equalsData" (casingSigElem casingSigs1) []
+    , mkCase "decision.sig.n1.bytes" (casingSigBytes casingSigs1) []
+    , mkCase "decision.sig.n3.equalsData" (casingSigElem casingSigs3) []
+    , mkCase "decision.sig.n3.bytes" (casingSigBytes casingSigs3) []
     ]

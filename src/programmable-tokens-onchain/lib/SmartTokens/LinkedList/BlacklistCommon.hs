@@ -53,6 +53,13 @@ correctNodeTokenMinted = phoistAcyclic $
     PJust nodeMint <- pmatch $ AssocMap.plookup # nodeCS # pto mint
     let tokenMap = AssocMap.psingleton # tokenName # amount
     tokenMap #== nodeMint
+-- ^ Deliberately NOT the byte-keyed scan its directory sibling uses: mutation
+-- testing showed no test in any suite catches this equality being forced to
+-- true (a pre-existing coverage gap), and the blacklist mint path is in no
+-- benchmark scenario, so the rewrite had no measured benefit to justify an
+-- unverifiable change. Close the coverage gap first (a blacklist Insert whose
+-- mint carries the wrong CS, name, or amount must be rejected), then this can
+-- follow the directory variant.
 
 -- Potentially use this in the future if we plan to manage additional
 -- value in the directory nodes.

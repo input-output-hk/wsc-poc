@@ -48,7 +48,29 @@ module BenchmarkOnchain.PlutarchFixtureIds (
 ) where
 
 import BenchmarkOnchain.CardanoScriptHelpers (cardanoStakeCredential, cardanoTxIn, policyIdCurrencySymbol, scriptHashFromCardanoScript)
-import BenchmarkOnchain.ScriptFixtureIds (initRef, issuanceInitRef, mintingLogicHash, programmableTransferMintingLogicHash, programmableTransferMintingLogicHash2, programmableTransferMintingLogicHash3, protocolParamsInitRef)
+import BenchmarkOnchain.ScriptFixtureIds (
+    initRef,
+    issuanceInitRef,
+    mintingLogicHash,
+    pinnedDirectoryNodeCS,
+    pinnedDirectorySpendHash,
+    pinnedGlobalScriptHash,
+    pinnedIssuanceAlwaysFailHash,
+    pinnedIssuancePolicyCS,
+    pinnedMintingPolicyCS,
+    pinnedProgLogicBaseHash,
+    pinnedProgrammableTransferCS,
+    pinnedProgrammableTransferCS2,
+    pinnedProgrammableTransferCS3,
+    pinnedProtocolParamsAlwaysFailHash,
+    pinnedProtocolParamsCS,
+    pinnedSeizeScriptHash,
+    programmableTransferMintingLogicHash,
+    programmableTransferMintingLogicHash2,
+    programmableTransferMintingLogicHash3,
+    protocolParamsInitRef,
+    useDerivedDeploymentIds,
+ )
 import Cardano.Api qualified as C
 import PlutusLedgerApi.V3
 import ProgrammableTokens.OffChain.Scripts qualified as OffchainScripts
@@ -62,27 +84,27 @@ protocolParamsPolicyId =
     OffchainScripts.scriptPolicyIdV3
         (OffchainScripts.protocolParamsMintingScript Production (cardanoTxIn protocolParamsInitRef))
 
-protocolParamsCS :: CurrencySymbol
-protocolParamsCS = policyIdCurrencySymbol protocolParamsPolicyId
+derivedProtocolParamsCS :: CurrencySymbol
+derivedProtocolParamsCS = policyIdCurrencySymbol protocolParamsPolicyId
 
-protocolParamsAlwaysFailHash :: ScriptHash
-protocolParamsAlwaysFailHash =
+derivedProtocolParamsAlwaysFailHash :: ScriptHash
+derivedProtocolParamsAlwaysFailHash =
     scriptHashFromCardanoScript (OffchainScripts.protocolParamsSpendingScript Production)
 
 -- (2) Issuance-cbor-hex NFT: one-shot mint pinned to 'issuanceInitRef'.
-issuancePolicyCS :: CurrencySymbol
-issuancePolicyCS =
+derivedIssuancePolicyCS :: CurrencySymbol
+derivedIssuancePolicyCS =
     policyIdCurrencySymbol
         (OffchainScripts.scriptPolicyIdV3 (OffchainScripts.issuanceCborHexMintingScript Production (cardanoTxIn issuanceInitRef)))
 
-issuanceAlwaysFailHash :: ScriptHash
-issuanceAlwaysFailHash =
+derivedIssuanceAlwaysFailHash :: ScriptHash
+derivedIssuanceAlwaysFailHash =
     scriptHashFromCardanoScript (OffchainScripts.issuanceCborHexSpendingScript Production)
 
 -- (3) Directory (registry) node policy: parameterised by its own one-shot init
 -- ref and the issuance policy id.
-directoryNodeCS :: CurrencySymbol
-directoryNodeCS =
+derivedDirectoryNodeCS :: CurrencySymbol
+derivedDirectoryNodeCS =
     policyIdCurrencySymbol
         ( OffchainScripts.scriptPolicyIdV3
             (OffchainScripts.directoryNodeMintingScript Production (cardanoTxIn initRef) (cardanoTxIn issuanceInitRef))
@@ -97,41 +119,32 @@ directoryPolicyCS :: CurrencySymbol
 directoryPolicyCS = directoryNodeCS
 
 -- | Directory node SPENDING script, parameterised by the protocol-params policy.
-directorySpendHash :: ScriptHash
-directorySpendHash =
+derivedDirectorySpendHash :: ScriptHash
+derivedDirectorySpendHash =
     scriptHashFromCardanoScript (OffchainScripts.directoryNodeSpendingScript Production protocolParamsPolicyId)
 
 -- (4) Global transfer validator and standalone seize validator: both
 -- parameterised by the protocol-params policy id alone.
-globalScriptHash :: ScriptHash
-globalScriptHash =
+derivedGlobalScriptHash :: ScriptHash
+derivedGlobalScriptHash =
     scriptHashFromCardanoScript (OffchainScripts.programmableLogicGlobalScript Production protocolParamsPolicyId)
 
-globalCred :: Credential
-globalCred = ScriptCredential globalScriptHash
-
-seizeScriptHash :: ScriptHash
-seizeScriptHash =
+derivedSeizeScriptHash :: ScriptHash
+derivedSeizeScriptHash =
     scriptHashFromCardanoScript (OffchainScripts.programmableSeizeScript Production protocolParamsPolicyId)
-
-seizeCred :: Credential
-seizeCred = ScriptCredential seizeScriptHash
 
 -- (5) Programmable-logic base (the mini-ledger payment credential): takes the
 -- global validator's stake credential and the protocol-params policy id, from
 -- which it re-derives the seize credential internally — so 'progLogicBaseHash'
 -- and 'seizeScriptHash' cannot drift apart.
-progLogicBaseHash :: ScriptHash
-progLogicBaseHash =
+derivedProgLogicBaseHash :: ScriptHash
+derivedProgLogicBaseHash =
     scriptHashFromCardanoScript
         ( OffchainScripts.programmableLogicBaseScript
             Production
-            (cardanoStakeCredential globalScriptHash)
+            (cardanoStakeCredential derivedGlobalScriptHash)
             protocolParamsPolicyId
         )
-
-progLogicBaseCred :: Credential
-progLogicBaseCred = ScriptCredential progLogicBaseHash
 
 -- (6) Programmable token policies: the shared issuance policy applied to the
 -- protocol-params currency symbol and to THAT token's minting-logic hash.
@@ -141,26 +154,84 @@ programmableTokenPolicyCS tokenMintingLogicHash =
         ( OffchainScripts.scriptPolicyIdV3
             ( OffchainScripts.programmableLogicMintingScript
                 Production
-                protocolParamsCS
+                derivedProtocolParamsCS
                 (cardanoStakeCredential tokenMintingLogicHash)
             )
         )
 
 -- | The token whose mint/burn scenarios are benchmarked.
-mintingPolicyCS :: CurrencySymbol
-mintingPolicyCS = programmableTokenPolicyCS mintingLogicHash
+derivedMintingPolicyCS :: CurrencySymbol
+derivedMintingPolicyCS = programmableTokenPolicyCS mintingLogicHash
 
 -- | The tokens the transfer / seize scenarios move.
+derivedProgrammableTransferCS :: CurrencySymbol
+derivedProgrammableTransferCS = programmableTokenPolicyCS programmableTransferMintingLogicHash
+
+derivedProgrammableTransferCS2 :: CurrencySymbol
+derivedProgrammableTransferCS2 = programmableTokenPolicyCS programmableTransferMintingLogicHash2
+
+derivedProgrammableTransferCS3 :: CurrencySymbol
+derivedProgrammableTransferCS3 = programmableTokenPolicyCS programmableTransferMintingLogicHash3
+
+-- Mode switch ---------------------------------------------------------------
+--
+-- The exported names resolve to the PINNED shared constants by default so
+-- benchmark contexts are invariant under script-byte changes; with
+-- @BENCH_DERIVED_IDS=1@ they resolve to the real derived hashes above. See the
+-- note in "BenchmarkOnchain.ScriptFixtureIds".
+
+pick :: a -> a -> a
+pick derived pinned = if useDerivedDeploymentIds then derived else pinned
+
+protocolParamsCS :: CurrencySymbol
+protocolParamsCS = pick derivedProtocolParamsCS pinnedProtocolParamsCS
+
+protocolParamsAlwaysFailHash :: ScriptHash
+protocolParamsAlwaysFailHash = pick derivedProtocolParamsAlwaysFailHash pinnedProtocolParamsAlwaysFailHash
+
+issuancePolicyCS :: CurrencySymbol
+issuancePolicyCS = pick derivedIssuancePolicyCS pinnedIssuancePolicyCS
+
+issuanceAlwaysFailHash :: ScriptHash
+issuanceAlwaysFailHash = pick derivedIssuanceAlwaysFailHash pinnedIssuanceAlwaysFailHash
+
+directoryNodeCS :: CurrencySymbol
+directoryNodeCS = pick derivedDirectoryNodeCS pinnedDirectoryNodeCS
+
+directorySpendHash :: ScriptHash
+directorySpendHash = pick derivedDirectorySpendHash pinnedDirectorySpendHash
+
+globalScriptHash :: ScriptHash
+globalScriptHash = pick derivedGlobalScriptHash pinnedGlobalScriptHash
+
+globalCred :: Credential
+globalCred = ScriptCredential globalScriptHash
+
+seizeScriptHash :: ScriptHash
+seizeScriptHash = pick derivedSeizeScriptHash pinnedSeizeScriptHash
+
+seizeCred :: Credential
+seizeCred = ScriptCredential seizeScriptHash
+
+progLogicBaseHash :: ScriptHash
+progLogicBaseHash = pick derivedProgLogicBaseHash pinnedProgLogicBaseHash
+
+progLogicBaseCred :: Credential
+progLogicBaseCred = ScriptCredential progLogicBaseHash
+
+mintingPolicyCS :: CurrencySymbol
+mintingPolicyCS = pick derivedMintingPolicyCS pinnedMintingPolicyCS
+
 programmableTransferCS :: CurrencySymbol
-programmableTransferCS = programmableTokenPolicyCS programmableTransferMintingLogicHash
+programmableTransferCS = pick derivedProgrammableTransferCS pinnedProgrammableTransferCS
 
 programmableTransferCS2 :: CurrencySymbol
-programmableTransferCS2 = programmableTokenPolicyCS programmableTransferMintingLogicHash2
+programmableTransferCS2 = pick derivedProgrammableTransferCS2 pinnedProgrammableTransferCS2
 
 programmableTransferCS3 :: CurrencySymbol
-programmableTransferCS3 = programmableTokenPolicyCS programmableTransferMintingLogicHash3
+programmableTransferCS3 = pick derivedProgrammableTransferCS3 pinnedProgrammableTransferCS3
 
--- | Every derived id, labelled, for the startup 28-byte check and the
+-- | Every ACTIVE id, labelled, for the startup 28-byte check and the
 -- @BENCH_DUMP_IDS@ dump.
 plutarchDeploymentIds :: [(String, BuiltinByteString)]
 plutarchDeploymentIds =

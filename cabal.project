@@ -106,15 +106,15 @@ source-repository-package
     src/blockfrost
     src/tx-mod
 
--- plutarch-onchain-lib's Plutarch 1.14 port, at the commit its PR #27
--- squash-merged to main. Pin a MAIN commit here, never a PR branch head: the
--- branch is deleted on merge and its commits survive only on refs/pull/*,
--- which a plain clone does not fetch, so cabal's checkout fails on CI with
--- "Could not parse object" while local builds (whose checkouts have the
--- commit) keep working.
+-- plutarch-onchain-lib's Plutarch 1.14 port (PR #27) plus the length-dispatched
+-- value-scan key comparison (PR #28), at the commit the latter squash-merged to
+-- main. Pin a MAIN commit here, never a PR branch head: the branch is deleted on
+-- merge and its commits survive only on refs/pull/*, which a plain clone does not
+-- fetch, so cabal's checkout fails on CI with "Could not parse object" while local
+-- builds (whose checkouts have the commit) keep working.
 source-repository-package
   type: git
   location: https://github.com/input-output-hk/catalyst-onchain-libs
-  tag: ccda94b92b0447c1bbeda5bbfe4d9233b695c8eb
+  tag: b756d9daee73d4a19465fcdf8ab794700406ce27
   subdir:
     src/plutarch-onchain-lib
