@@ -957,9 +957,16 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
         go = pfix $ \self -> plam $ \proofs wdrlIdxs inputInnerValue cachedTransferScript ->
             pelimList
                 ( \csPair csPairs ->
+                    -- One Case for the proof list: its head indexes this policy's
+                    -- directory node and its tail feeds the recursive call in BOTH
+                    -- arms, so both components are always needed and a single Case
+                    -- replaces a headList plus a tailList. ('wdrlIdxs' is left on
+                    -- the builtins: its head is only reached on the cached-script
+                    -- MISS path, so fusing it would cost the common hit path.)
+                    pheadTailBuiltin proofs $ \proofHead proofsRest ->
                     P.do
                         PTxOut{ptxOut'value = directoryNodeUTxOFValue, ptxOut'datum = directoryNodeUTxOFDatum} <-
-                            pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropList # pfromData (phead # proofs) # refInputs))
+                            pmatch $ ptxInInfoResolved (pfromData $ phead # (pdropList # pfromData proofHead # refInputs))
                         POutputDatum directoryNodeDatum' <- pmatch directoryNodeUTxOFDatum
                         PDirectorySetNode
                             { pkey = directoryNodeDatumFkey
@@ -981,7 +988,7 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
                                in pif
                                     checks
                                     ( self
-                                        # (ptail # proofs)
+                                        # proofsRest
                                         # (ptail # wdrlIdxs)
                                         # csPairs
                                         # cachedTransferScript
@@ -1005,7 +1012,7 @@ pcheckTransferLogicAndGetProgrammableValue directoryNodeCS refInputs proofList w
                                     ( pcons
                                         # csPair
                                         #$ self
-                                        # (ptail # proofs)
+                                        # proofsRest
                                         # (ptail # wdrlIdxs)
                                         # csPairs
                                         # directoryNodeDatumFTransferLogicScript
